@@ -1,7 +1,7 @@
-# lr_reduction (neutrons/LiquidsReflectometer) — Agent Instructions
+# lr_reduction (bvacaliuc/LiquidsReflectometer) — Agent Instructions
 
 ## Project identity
-This is the **upstream institutional project** (`neutrons/LiquidsReflectometer`) for the
+This is a fork of the **upstream institutional project** (`neutrons/LiquidsReflectometer`) for the
 Liquids Reflectometer data reduction backend at ORNL/SNS. Changes here follow
 SNS/ORNL data-reduction conventions and may require `mantid` compatibility.
 
@@ -21,8 +21,8 @@ SNS/ORNL data-reduction conventions and may require `mantid` compatibility.
 ## Branch naming conventions
 - `EWM{number}_{description}` — work items tracked in the SNS work management system
 - `bugfix_{description}` or `fix_{description}` — bug fixes
-- `{user}/{description}` — personal/agentic branches (see Agent workflow below)
 - `dependabot/**`, `pre-commit-ci-*` — automated dependency/tooling branches
+- `{*}/{description}` — personal/agentic branches (see Agent workflow below)
 
 ## CI/CD (`.github/workflows/test_and_deploy.yml`)
 - **Triggers:** push to `next`/`qa`/`main`, pull requests, `v*` tags, manual dispatch
@@ -57,23 +57,30 @@ git log origin/next     # OK
 git push origin ...     # NOT permitted
 ```
 
-**Branch creation and push is performed by the human contributor.**
-The agreed convention is `{user}/{feature-description}` for agentic branches.
+**Read-write via `agentic`:**
+```bash
+git fetch agentic       # OK
+git log agentic/next    # OK
+git push agentic ...    # OK
+```
+
+**Branch creation and push is allowed for branches with / in the string.**
+The agreed convention is `{*}/{feature-description}` for agentic branches.
 
 **Draft PR creation via PAT:**
-After the human has pushed a `{user}/` branch, Claude may use the PAT
-(extracted from the `upstream` remote URL) to open a **draft PR** targeting
+After the agent has pushed a `{*}/` branch, Claude may use the PAT
+(obtained via secure methods) to open a **draft PR** targeting
 `next` via the GitHub REST API:
 ```
-POST https://api.github.com/repos/neutrons/LiquidsReflectometer/pulls
+POST https://api.github.com/repos/bvacaliuc/LiquidsReflectometer/pulls
 { "draft": true, "head": "{user}/{feature}", "base": "next", ... }
 ```
 
 **Claude's session workflow:**
-1. Prepare all changes for a logical task on the local `{user}/{feature-description}`
+1. Prepare all changes for a logical task on the local `{*}/{feature-description}`
    branch (or a task-specific branch agreed with the user).
 2. Commit locally with descriptive messages.
-3. Ask the user to push: `git push origin {user}/{feature-description}`.
+3. Push: `git push agentic {*}/{feature-description}`.
 4. Once confirmed, create a draft PR via the PAT.
 5. The user reviews and promotes the PR from draft to ready when satisfied.
 
@@ -94,7 +101,7 @@ Each developer runs `pixi install` once after cloning, and again after any
 To share the conda *package cache* (tarballs) and avoid re-downloading for
 each user on a shared cluster, set in your shell profile:
 ```bash
-export PIXI_CACHE_DIR=/SNS/REF_L/shared/pixi-cache   # or any shared writable path
+export PIXI_CACHE_DIR=/tmp/shared/pixi-cache   # or any shared writable path
 ```
 
 ### Deployment (analysis.sns.gov)
@@ -105,7 +112,7 @@ using the `nsd-app-wrap` pattern (`pixi run --frozen --manifest-path`):
 |--------|--------------------------------------|-----------------------|
 | next   | `/usr/local/pixi/lr_reduction_dev/`  | `nr_launcher_dev.sh`  |
 | qa     | `/usr/local/pixi/lr_reduction_qa/`   | `nr_launcher_qa.sh`   |
-| prod   | `/usr/local/pixi/refred/`            | `nr_launcher.sh`      |
+| prod   | `/usr/local/pixi/lr_reduction/`      | `nr_launcher.sh`      |
 
 Admin deploys each tier by cloning the project to the environment path, creating
 a local `.pixi/config.toml` (not in git) with:
@@ -122,4 +129,4 @@ the environment read-only via the launcher scripts.
 - `workflow_dispatch` check runs do **not** satisfy PR branch protection —
   only `push`/`pull_request` event check runs count
 - Enable `delete_branch_on_merge` to avoid stale branch accumulation:
-  `PATCH /repos/neutrons/quicknxs {"delete_branch_on_merge": true}`
+  `PATCH /repos/neutrons/LiquidsReflectometer {"delete_branch_on_merge": true}`
