@@ -73,7 +73,7 @@ def scaling_factor(scaling_factor_file, workspace, match_slit_width=True):
     """
     if not os.path.isfile(scaling_factor_file):
         print("Could not find scaling factor file: %s" % scaling_factor_file)
-        return workspace
+        return 1, 0, 0, 0
 
     # Get the wavelength
     lr = workspace.getRun().getProperty("LambdaRequest").value[0]
