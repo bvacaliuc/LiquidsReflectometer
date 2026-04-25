@@ -20,6 +20,7 @@ tests/data/r198413-time-resolved.json
 tests/data/r198413_t000000.txt
 tests/data/reduced.png
 tests/data/reduced_template.png
+pytest_report.html
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
