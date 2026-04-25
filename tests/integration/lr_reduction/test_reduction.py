@@ -156,7 +156,8 @@ def test_full_reduction(template_dir, nexus_dir):
     d_refl_all = np.take_along_axis(d_refl_all, idx, axis=None)
 
     assert np.fabs(resolution - 0.022751) < 1e-5
-    ref_data = np.loadtxt("data/reference_rq.txt").T
+    reference_path = os.path.join(template_dir, "reference_rq.txt")
+    ref_data = np.loadtxt(reference_path).T
 
     # Optional plotting for checking tests:
     # import matplotlib.pyplot as plt
