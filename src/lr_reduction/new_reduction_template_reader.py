@@ -17,16 +17,16 @@ LIST OF PARAMS TO ADD:
 - useCalcTheta
 - Qline_threshold
 - Scale Factor
-- 
+-
 """
 
 import time
 import xml.dom.minidom
-from typing import Optional
 
-from lr_reduction import __version__ as VERSION
 #from lr_reduction.gravity_correction import GravityDirection
 from lr_reduction.instrument_settings import InstrumentSettings
+
+from lr_reduction import __version__ as VERSION
 
 # Get the mantid version being used, if available
 #try:
@@ -50,6 +50,8 @@ class ReductionParameters:
         self.background_roi = [137, 153, 0, 0]
         self.tof_range = [9600.0, 21600.0]
         #self.select_tof_range = True
+
+        self.lam_range = [None, None]
 
         self.data_x_range = [115, 210]
 
@@ -83,6 +85,7 @@ class ReductionParameters:
         self.use_calc_theta = True
         self.qline_threshold = 0.66
         self.scale_factor = 1.0
+        self.save8col = None
 
         # Instrument geometry parameters
         instrument_settings = InstrumentSettings()
@@ -143,6 +146,9 @@ class ReductionParameters:
         #_xml += "<x_range_flag>%s</x_range_flag>\n" % str(self.data_x_range_flag)
 
         #_xml += "<norm_dataset>%s</norm_dataset>\n" % str(self.norm_file)
+        if self.lam_range is not None:
+            _xml += "<lam_min>%s</lam_min>\n" % str(self.lam_range[0])
+            _xml += "<lam_max>%s</lam_max>\n" % str(self.lam_range[1])
 
         _xml += "<q_min>%s</q_min>\n" % str(self.q_min)
         _xml += "<q_step>%s</q_step>\n" % str(self.q_step)
@@ -188,6 +194,7 @@ class ReductionParameters:
         _xml += "<use_calc_theta>%s</use_calc_theta>\n" % str(self.use_calc_theta)
         _xml += "<qline_threshold>%s</qline_threshold>\n" % str(self.qline_threshold)
         _xml += "<scale_factor>%s</scale_factor>\n" % str(self.scale_factor)
+        _xml += "<save_eight_col>%s</save_eight_col>\n" % str(self.save8col)
 
         _xml += "</RefLData>\n"
 
@@ -264,7 +271,14 @@ class ReductionParameters:
         self.use_calc_theta = getBoolElement(instrument_dom, "use_calc_theta", default=self.use_calc_theta)
         self.qline_threshold = getFloatElement(instrument_dom, "qline_threshold", default=self.qline_threshold)
         self.scale_factor = getFloatElement(instrument_dom, "scale_factor", default=self.scale_factor)
+        self.save8col = getBoolElement(instrument_dom, "save_eight_col", default=self.save8col)
 
+        lam_min = getFloatElement(instrument_dom, "lam_min", default = None)
+        lam_max = getFloatElement(instrument_dom, "lam_max", default = None)
+        if (lam_min is not None) & (lam_max is not None):
+            self.lam_range = [lam_min, lam_max]
+        else:
+            self.lam_range = None
 
         # Instrument settings
         self.apply_instrument_settings = getBoolElement(instrument_dom, "apply_instrument_settings", default=False)

@@ -1,19 +1,20 @@
-import h5py
-from lr_reduction.nr_reduction_calc import NR_Reduction
-from lr_reduction.nr_reduction_config import NRReductionConfig
-from pathlib import Path
-import os
-import numpy as np
-from lr_reduction import nr_tools as tools
-from lr_reduction.new_reduction_template_reader import ReductionParameters
-from lr_reduction import new_reduction_template_reader as reduction_template_reader
-from matplotlib import pyplot as plt
 import copy
+import os
+from pathlib import Path
+
+import h5py
+import lr_reduction.new_reduction_template_reader as reduction_template_reader
+import lr_reduction.nr_tools as tools
+import numpy as np
+from matplotlib import pyplot as plt
+from lr_reduction.new_reduction_template_reader import ReductionParameters
+
+#import template
+from lr_reduction.nr_reduction_calc import NR_Reduction  # TODO: Fix names of files!!
+from lr_reduction.nr_reduction_config import NRReductionConfig
 
 
-def reduce_from_template(runno, template_file, experiment_id, datapath: Path = None, template_path: Path = None,
-                         override_params: dict = None, plot=True,
-                         progress_callback=None, save_plots=False, plot_dir=None):
+def reduce_from_template(runno, template_file, experiment_id, datapath: Path = None, template_path: Path = None, override_params: dict = None, plot=True, eight_col=None, progress_callback=None, save_plots=False, plot_dir=None):
     """
     Wrapper function to reduce a single run with reading of parameters from an xml template of the lr_reduction format.
     Then collect like results within the save folder and combine them together.
@@ -28,7 +29,7 @@ def reduce_from_template(runno, template_file, experiment_id, datapath: Path = N
     Can be simplified in future.
 
     NOTE: new files for reading the template were made to not cause issues with prior setup but can be changed in future.
-    
+
     runno: reflectivity run number
     template_file: template file, including Path
     experiment_id: str IPTS number which appends to datapath if this isn't provided (e.g. "IPTS-36119")
@@ -72,13 +73,17 @@ def reduce_from_template(runno, template_file, experiment_id, datapath: Path = N
     config.experiment_id = experiment_id
     config.Sname = f"REFL_{seq_id}_{seq_num}_{runno}"
     config.plotON = plot
-    
+
     if datapath:
         config.NEXUSpathRB = datapath
 
     # override the normalisation flag if isn't the first in the sequence.
     if seq_num != 1:
         config.Normalize = False
+
+    # override the saving of 8 column if provided into the function. TODO: decide if needed.
+    if eight_col:
+        config.save8col = eight_col
 
     # override template with anything provided
     if override_params:
@@ -101,22 +106,29 @@ def reduce_from_template(runno, template_file, experiment_id, datapath: Path = N
     reduce_calc = NR_Reduction(config)
     results = reduce_calc._reduce_single_run(i=0, rb_num=config.RBnum[0], save=True)
 
-    # Save the single run output. TODO: this might need cleaning up between the different functions.
-    result = {'Q': results['q'], 'R': results['r'], 'dR': results['dr'], 'dQ': results['dq']}
+    if eight_col:
+        # Save the single run output. TODO: this might need cleaning up between the different functions.
+        result = {'Q': results['q'], 'R': results['r'], 'dR': results['dr'], 'dQ': results['dq'],
+                'T': result['t'], 'L': result['l'], 'dT': result['dt'], 'dL': result['dl']}
+    else:
+        result = {'Q': results['q'], 'R': results['r'], 'dR': results['dr'], 'dQ': results['dq']}       
+    
     reduce_calc.save_results(result, sname=f"{config.Sname}_partial")
+    if eight_col: #TODO: decide whether this is instead of prior save
+        reduce_calc.save_results(result, sname=f"{config.Sname}_partial", eight_column=True)
 
     _report(3, 5, "Assembling results")
 
     # Collect "like" runs together
     _plot_dir = plot_dir if plot_dir else str(config.Spath)
-    seq_list, run_list, combined_results, scaling_factors = assemble_results(
-        seq_id, config.Spath, autoscale=config.AutoScale, plot=plot, RQ4=config.plotQ4,
-        save_plots=save_plots, plot_dir=_plot_dir, show_plots=plot)
+    seq_list, run_list, combined_results, scaling_factors = assemble_results(seq_id, config.Spath, autoscale=config.AutoScale, plot=plot, RQ4=config.plotQ4, eight_col=eight_col, save_plots=save_plots, plot_dir=_plot_dir, show_plots=plot)
     # Add scaling factor to output
     scale_list = np.array([np.float64(1)] + scaling_factors)
     config.ScaleFactor *= scale_list
     # Save combined data
     reduce_calc.save_results(combined_results, sname=f"REFL_{seq_id}_combined_data", full=False)
+    if eight_col: #TODO: decide whether this is instead of prior save
+        reduce_calc.save_results(combined_results, sname=f"REFL_{seq_id}_combined_data", full=False, eight_column=True)
 
     # plot
     _combined_save = os.path.join(_plot_dir, f"REFL_{seq_id}_combined.png") if save_plots else None
@@ -147,16 +159,16 @@ def reduce_from_template(runno, template_file, experiment_id, datapath: Path = N
 def config_from_template(template_data):
     """
     Create an NRReductionConfig from a template file.
-    
+
     Parameters
     ----------
-    template_data : 
-    
+    template_data :
+
     Returns
     -------
     NRReductionConfig
         Configuration object ready for NR_Reduction
-        
+
     """
     # NOTE: Various of the config items expect arrays so ensure is set as single item array here.
 
@@ -165,16 +177,17 @@ def config_from_template(template_data):
         method = template_data.q_method
     else:
         method = 'MeanTheta' if template_data.const_q else 'constantTOF' #TODO: decide if this should be MeanTheta or constantQ
-    
+
     # Initialize configuration
-    config = NRReductionConfig(method=method)
-    
+    config = NRReductionConfig()
+    config.method_per_run = [method]
+
     # Update other parameters from the template
     config.RB_Ymin = [template_data.data_peak_range[0]]
     config.RB_Ymax = [template_data.data_peak_range[1]]
 
     if template_data.subtract_background == True:
-        config.useBS = [1] 
+        config.useBS = [1]
     else:
         config.useBS = [0]
     config.BkgROI = [template_data.background_roi]
@@ -182,6 +195,10 @@ def config_from_template(template_data):
     config.tof_max = [template_data.tof_range[1]]    # TODO: check which tof one to use...
     config.tof_min = [template_data.tof_range[0]]    # TODO: check which tof one to use...
     config.data_x_range = template_data.data_x_range
+
+    if template_data.lam_range is not None:
+        config.LambdaMin = [template_data.lam_range[0]]
+        config.LambdaMax = [template_data.lam_range[1]]
 
     config.qmin = template_data.q_min
     config.dqbin = template_data.q_step
@@ -203,7 +220,8 @@ def config_from_template(template_data):
     config.useCalcTheta = getattr(template_data, "use_calc_theta", config.useCalcTheta)
     config.Qline_threshold = getattr(template_data, "qline_threshold", config.Qline_threshold)
     config.ScaleFactor = [getattr(template_data, "scale_factor", 1.0)]
-    
+    config.save8col = getattr(template_data, "save_eight_col", config.save8col)
+
     return config
 
 def template_to_config(config_data, template_data):
@@ -211,7 +229,7 @@ def template_to_config(config_data, template_data):
     Reverse of the config settings back into the template format. Needed whilst keeping the xml format.
     """
     template = template_data
-    template.q_method = config_data.method
+    template.q_method = config_data.method_per_run[0]
     template.data_peak_range = [config_data.RB_Ymin[0], config_data.RB_Ymax[0]]
     if config_data.useBS[0] == 1:
         template.subtract_background = True
@@ -232,12 +250,14 @@ def template_to_config(config_data, template_data):
     template.qline_threshold = config_data.Qline_threshold
     template.scale_factor = config_data.ScaleFactor[0]
     template.use_emission_time = config_data.use_emission_time
+    template.save8col = config_data.save8col
+
+    if (config_data.LambdaMin is not None) & (config_data.LambdaMax is not None):
+        template.lam_range = [config_data.LambdaMin[0], config_data.LambdaMax[0]]
 
     return template
 
-
-def assemble_results(seq_id, output_dir, autoscale=True, plot=True, RQ4=False,
-                     save_plots=False, plot_dir=None, show_plots=True):
+def assemble_results(seq_id, output_dir, autoscale = True, plot=True, RQ4=False, eight_col = False, save_plots=False, plot_dir=None, show_plots=True):
     """
     Assemble the results for any files in the saved directory that have the same sequence number.
     Finds files saved witht the "partial.dat" ending, sorts the data , autoscales if the flag applied,
@@ -253,7 +273,7 @@ def assemble_results(seq_id, output_dir, autoscale=True, plot=True, RQ4=False,
         seq_list, run_list, combined results
 
     """
- 
+
     # Keep track of sequence IDs and run numbers so we can make a new template
     seq_list = []
     run_list = []
@@ -263,7 +283,11 @@ def assemble_results(seq_id, output_dir, autoscale=True, plot=True, RQ4=False,
     file_list = sorted(os.listdir(output_dir))
     print("Files found:", len(full_names))
     for item in file_list:
-        if item.startswith("REFL_%s" % seq_id) and item.endswith("partial.dat"):
+        if eight_col:
+            search_flag = item.endswith("partial_8col.dat")
+        else:
+            search_flag = item.endswith("partial.dat")
+        if item.startswith("REFL_%s" % seq_id) and search_flag:
             toks = item.split("_")
             if not len(toks) == 5 or int(toks[2]) == 0:
                 continue
@@ -290,6 +314,7 @@ def assemble_results(seq_id, output_dir, autoscale=True, plot=True, RQ4=False,
 
     # TODO: add better autoscaling options. Make scaling a function in nr_tools?
     Q, R, dR, dQ = [], [], [], []
+    T, L, dT, dL = [], [], [], []
     dict_output = []
     scaling_factors = []
     for run, result in enumerate(sorted_data):
@@ -320,10 +345,18 @@ def assemble_results(seq_id, output_dir, autoscale=True, plot=True, RQ4=False,
         Q.append(result[0, :])
         R.append(result[1, :])
         dR.append(result[2, :])
-        dQ.append(result[3, :])  
+        dQ.append(result[3, :])
+        if eight_col:
+            L.append(result[4, :])
+            dL.append(result[5, :])
+            T.append(result[6, :])
+            dT.append(result[7, :])
 
-        # This is a bit muddled with a few things in arrays and dict. TODO: clean-up so don't need both.
-        dict_output.append({'Q': result[0,:], 'R': result[1,:], 'dR': result[2,:], 'dQ': result[3,:]})
+            dict_output.append({'Q': result[0,:], 'R': result[1,:], 'dR': result[2,:], 'dQ': result[3,:],
+                                'L': result[4,:], 'dL': result[5,:], 'T': result[6,:], 'dT': result[7,:]})
+        else:
+            # This is a bit muddled with a few things in arrays and dict. TODO: clean-up so don't need both.
+            dict_output.append({'Q': result[0,:], 'R': result[1,:], 'dR': result[2,:], 'dQ': result[3,:]})
 
     if len(Q) == 0:
         raise ValueError(f"No valid runs found for sequence {seq_id}")
@@ -337,10 +370,19 @@ def assemble_results(seq_id, output_dir, autoscale=True, plot=True, RQ4=False,
     R_combined = np.concatenate(R)
     dR_combined = np.concatenate(dR)
     dQ_combined = np.concatenate(dQ)
-    
+    if eight_col:
+        T_combined = np.concatenate(T)
+        dT_combined = np.concatenate(dT)
+        L_combined = np.concatenate(L)
+        dL_combined = np.concatenate(dL)
+
     # Sort by Q for combined data
     idx = np.argsort(Q_combined)
-    combine_results = {'Q': Q_combined[idx], 'R': R_combined[idx], 'dR': dR_combined[idx], 'dQ': dQ_combined[idx]}
+    if eight_col:
+        combine_results = {'Q': Q_combined[idx], 'R': R_combined[idx], 'dR': dR_combined[idx], 'dQ': dQ_combined[idx],
+                           'L': L_combined[idx], 'dL': dL_combined[idx], 'T': T_combined[idx], 'dT': dT_combined[idx]}
+    else:
+        combine_results = {'Q': Q_combined[idx], 'R': R_combined[idx], 'dR': dR_combined[idx], 'dQ': dQ_combined[idx]}
 
     return seq_list, run_list, combine_results, scaling_factors
 
@@ -451,6 +493,8 @@ def plot_reflectivity(data_array, RQ4=False, log_x=True, save_path=None, show=Tr
     :param log_x: use log scale on x axis
     :param save_path: path to save plot image (None = don't save)
     :param show: whether to call plt.show() for interactive display
+
+    # TODO: Add error handling for not being an array or a proper dictionary.
     """
     fig, ax = plt.subplots()
 
@@ -469,6 +513,7 @@ def plot_reflectivity(data_array, RQ4=False, log_x=True, save_path=None, show=Tr
             ax.set_xscale('log')
         ax.set_yscale('log')
     Angstrom = '\u212B'
+
     ax.set_xlabel('Q [1/' + Angstrom + ']', fontsize=14)
     ax.set_title('NR data')  # TODO: add better title handling
     if save_path is not None:
@@ -477,4 +522,3 @@ def plot_reflectivity(data_array, RQ4=False, log_x=True, save_path=None, show=Tr
         plt.show()
     else:
         plt.close(fig)
-

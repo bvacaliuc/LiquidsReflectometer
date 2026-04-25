@@ -1,27 +1,31 @@
 from pathlib import Path
 
+
 class NRReductionConfig:
     """
     Configuration class for NR reduction parameters.
     This defines setable parameters for the workflow including defaults for when they are not provided.
     These can be read and set from a template file.
     """
-    
-    def __init__(self, method='meanTheta'):
+
+    def __init__(self):
         """
         Initialize reduction configuration.
         Method allows different conversion routes from lambda to q to be selected based on the experimental setup.
         It will allow expansion to other methods as developments occur.
-        
+
         Parameters
         ----------
         method : str
             'constantQ', 'meanTheta', or 'constantTOF'
         """
-        self.method = method.lower()
-        if self.method not in ['constantq', 'meantheta', 'constanttof']:
-            raise ValueError(f"Unknown method: {method}. Use 'constantQ', 'meanTheta', or 'constantTOF'")
-        
+        #self.method = method.lower()
+        #if self.method not in ['constantq', 'meantheta', 'constanttof']:
+        #    raise ValueError(f"Unknown method: {method}. Use 'constantQ', 'meanTheta', or 'constantTOF'")
+
+        # Allow for per run setting of the method
+        self.method_per_run = []  # This should be an array of the same length as the data arrays with the method for each run. If empty, will use the default method for all runs.
+
         # Data configuration - arrays for the data and settings to be processed. These should be of equal length
         self.DBname = []    # This assumes a pre-processed DB file at the moment.
         self.RBnum = []
@@ -47,20 +51,21 @@ class NRReductionConfig:
         self.plotON = True  # Toggle for plots to show during the reduction steps. Turn off for batch processing etc.
         self.plotQ4 = False # Toggle for the NR plots to be RQ4 vs RQ.
         self.plot_save_dir = None  # Directory to save diagnostic plots (None = don't save)
-        
+        self.save8col = False # Toggle to save 8 column data in addition to the 4 column output.
+
         # Background configuration
         self.BkgROI = []    # Need to work out a default...and explain the format here.
         self.useBS = []  # Toggle to use background subtraction per angle
-        self.useGravity = True # Toggle to use gravity correction 
+        self.useGravity = True # Toggle to use gravity correction
         # TODO: After testing, decide how/if to toggle gravity and if it should be in the template.
-        
+
         # Q-space configuration #TODO: make better defaults here!!
         # These should be specified within the templates but enable ranges for lambda and q. #TODO: check if zeros are removed?
         self.qmin = 0.001
         self.qmax = 0.5
         self.dqbin = 0.005
         self.Qline_threshold = 1.0  # Fraction of q-line required to be within the bin to be included in the non-constantTOF mode.
-        
+
         self.LambdaMin = None    #If None this will be calculated from the chopper ranges. If supplied should be an array.
         self.LambdaMax = None
         self.tof_max = [] # Need a better way to autoset this...
@@ -71,7 +76,7 @@ class NRReductionConfig:
         self.ThetaShift = []  # Per-angle theta shift in degrees
         self.ScaleFactor = []  # Per-angle scale factor
         self.Qnorm = 0.015  # Q threshold for normalization
-        
+
         # Instrument geometry - generally read from the instrument settings (if None) but can be overwritten.
         self.mmpix = None  # pixel size in mm
         self.dSampDet = None # sample-to-detector distance
@@ -84,7 +89,7 @@ class NRReductionConfig:
         self.IncidentTheta = 4.0  # degrees Angle of the beamline relative to earth. Positive is downwards. Will become PV.
         self.emission_coefficients = None  # TOF emission time coefficients
         self.use_emission_time = True # Toggles application of the emission time correction and which distance is to be used.
- 
+
         # Dead-time parameters
         self.dead_time = 4.2
         self.dead_time_tof_step = 50
@@ -99,11 +104,11 @@ class NRReductionConfig:
         self.peak_type = 'supergauss'   # function for the fit. Current options: 'gauss' or 'supergauss'
 
     # Path configuration - Defaults assume IPTS specified and saved into that folder.
-    # #TODO: test the defaults loading part...!        
+    # #TODO: test the defaults loading part...!
     @property
     def base_path(self) -> Path:
         return Path("/SNS/REF_L") / self.experiment_id
-    
+
     @property
     def Spath(self) -> Path:
         if self._Spath_override is not None:
@@ -123,7 +128,7 @@ class NRReductionConfig:
     def DBpath(self) -> Path:
         if self._DBpath_override is not None:
             return Path(self._DBpath_override)
-        return self.base_path / "reduced"
+        return self.base_path / "transmission"
     @Spath.setter
     def Spath(self, value):
         self._Spath_override = value

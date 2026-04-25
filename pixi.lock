@@ -8,8 +8,6 @@ environments:
     - url: https://prefix.dev/pixi-build-backends/
     indexes:
     - https://pypi.org/simple
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -402,8 +400,6 @@ environments:
     - url: https://prefix.dev/pixi-build-backends/
     indexes:
     - https://pypi.org/simple
-    options:
-      pypi-prerelease-mode: if-necessary-or-explicit
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -3458,9 +3454,10 @@ packages:
   timestamp: 1753035921043
 - pypi: ./
   name: lr-reduction
-  version: 2.10.0.dev15
-  sha256: c6924077aac98c0298aa78ee296f7c075c43b84799cfd8678469f1f08bdf2350
+  version: 2.10.0.dev20
+  sha256: 3c8cc4391e374121a160749087aa59f7ab9fdf2781abea166d0a8a41084ccd5a
   requires_python: '>=3.11'
+  editable: true
 - conda: https://conda.anaconda.org/conda-forge/linux-64/lz4-c-1.10.0-h5888daf_1.conda
   sha256: 47326f811392a5fd3055f0f773036c392d26fdb32e4d8e7a8197eed951489346
   md5: 9de5350a85c4a20c685259b889aa6393
