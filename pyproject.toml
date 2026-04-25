@@ -87,6 +87,7 @@ matplotlib = "==3.9.4"
 plot-publisher = ">=1.0,<2.0"
 pyqt = ">=5,<6"
 qtpy = ">=2.4.3"
+pytest-html = ">=4.2.0,<5"
 
 # Pypi packages to be installed in the environments with `pip`
 [tool.pixi.pypi-dependencies]
@@ -156,6 +157,7 @@ conda-builder = { cmd = "pixi build", description = "Command that creates the co
 conda-build = { depends-on = ["sync-version", "conda-builder", "reset-version"], description = "Build the conda package" }
 conda-clean = { cmd = "rm -f *.conda", description = "Clean the local .conda build artifacts" }
 # Testing
+test-with-report = { cmd = "pixi run pytest --html=pytest_report.html --self-contained-html", description = "Run test with .html report output" }
 test-reduction = { cmd = "cd tests/ && python -m pytest -vv --cov=../src --cov-report=xml --cov-report=term"}
 # Misc
 clean-all = { description = "Clean all build artifacts", depends-on = ["docs-clean", "conda-clean"] }
