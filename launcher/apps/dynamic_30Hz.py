@@ -202,7 +202,7 @@ class Dynamic30Hz(QWidget):
         for _r in text.split(","):
             try:
                 run_list.append(int(_r))
-            except: # noqa: E722
+            except:  # noqa: E722
                 sub_toks = _r.split("-")
                 if len(sub_toks) == 2:
                     run_list.extend(range(int(sub_toks[0]), int(sub_toks[1]) + 1))

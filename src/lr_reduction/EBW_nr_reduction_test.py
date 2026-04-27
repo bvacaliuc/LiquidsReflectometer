@@ -6,27 +6,28 @@ Demonstrates how to configure and run reductions using both constantQ, constantT
 """
 
 import numpy as np
+
 from lr_reduction.nr_reduction_calc import NR_Reduction
 from lr_reduction.nr_reduction_config import NRReductionConfig
 
 
 def test_mean_theta_reduction():
     """Example: Mean theta reduction"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("MEAN THETA REDUCTION EXAMPLE")
-    print("="*60)
+    print("=" * 60)
 
     # Create configuration for MeanTheta method
-    config = NRReductionConfig(method='meanTheta')
+    config = NRReductionConfig(method="meanTheta")
 
     # Path needs to be setup for these tests but should be able to turn off later.
-    config.Spath = '/SNS/REF_L/shared/lr_reduction/EBW_tests/'
-    #config.NEXUSpathRB = # Append path if required.
-    config.DBpath = '/SNS/REF_L/shared/Cd_DB_processing/DBs/'
+    config.Spath = "/SNS/REF_L/shared/lr_reduction/EBW_tests/"
+    # config.NEXUSpathRB = # Append path if required.
+    config.DBpath = "/SNS/REF_L/shared/Cd_DB_processing/DBs/"
 
     config.experiment_id = "IPTS-30101"
     # Set data
-    config.DBname = ['A1_air_div10_Cd_DB.dat', 'A2_air_div10_Cd_DB.dat', 'A3_air_div10_Cd_DB.dat']
+    config.DBname = ["A1_air_div10_Cd_DB.dat", "A2_air_div10_Cd_DB.dat", "A3_air_div10_Cd_DB.dat"]
     config.RBnum = np.array([210975, 210976, 210977])
     config.RB_Ymin = [157, 155, 149]
     config.RB_Ymax = [165, 167, 174]
@@ -36,16 +37,10 @@ def test_mean_theta_reduction():
 
     RB_Ymin = np.array(config.RB_Ymin)
     RB_Ymax = np.array(config.RB_Ymax)
-    config.BkgROI = np.column_stack((
-        RB_Ymin - 8,
-        RB_Ymin - 3,
-        RB_Ymax + 3,
-        RB_Ymax + 8
-    ))
+    config.BkgROI = np.column_stack((RB_Ymin - 8, RB_Ymin - 3, RB_Ymax + 3, RB_Ymax + 8))
 
     # Output name
     config.Sname = "210975_meanTheta"
-
 
     config.dqbin = 0.005
     config.dMod = 15500.0
@@ -54,13 +49,12 @@ def test_mean_theta_reduction():
 
     config.tof_bin = 50
     config.dead_time = 4.2
-    #config.data_x_range = [0,255]
+    # config.data_x_range = [0,255]
 
-    config.LambdaMin = [2.5,2.5,2.5]
-    config.LambdaMax = [9.6,9.6,9.6]
+    config.LambdaMin = [2.5, 2.5, 2.5]
+    config.LambdaMax = [9.6, 9.6, 9.6]
 
-    #config.useBS = [False,False,False]
-
+    # config.useBS = [False,False,False]
 
     # Processing options
     config.Normalize = True
@@ -72,7 +66,7 @@ def test_mean_theta_reduction():
     config.peak_pad = 1
     config.Qline_threshold = 1.0
     config.DetSigma = 0.8
-    config.DetResFn = 'rectangular'
+    config.DetResFn = "rectangular"
 
     # Run reduction
     reducer = NR_Reduction(config)
@@ -86,40 +80,34 @@ def test_mean_theta_reduction():
 
 def test_constant_tof_reduction():
     """Example: Constant TOF reduction"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("CONSTANT TOF REDUCTION EXAMPLE")
-    print("="*60)
+    print("=" * 60)
 
     # Create configuration for constantTOF method
-    config = NRReductionConfig(method='constantTOF')
+    config = NRReductionConfig(method="constantTOF")
 
     # Path needs to be setup for these tests but should be able to turn off later.
-    config.Spath = '/SNS/REF_L/shared/lr_reduction/EBW_tests/'
-    #config.NEXUSpathRB = # Append path if required.
-    config.DBpath = '/SNS/REF_L/shared/Cd_DB_processing/DBs/'
+    config.Spath = "/SNS/REF_L/shared/lr_reduction/EBW_tests/"
+    # config.NEXUSpathRB = # Append path if required.
+    config.DBpath = "/SNS/REF_L/shared/Cd_DB_processing/DBs/"
 
     config.experiment_id = "IPTS-30101"
     # Set data
-    config.DBname = ['A1_air_div1_Cd_DB.dat', 'A2_air_div1_Cd_DB.dat', 'A3_air_div1_Cd_DB.dat']
-    config.RBnum=[211029,211030,211031]
-    config.RB_Ymin=[157,157,155]
-    config.RB_Ymax=[165,166,169]
+    config.DBname = ["A1_air_div1_Cd_DB.dat", "A2_air_div1_Cd_DB.dat", "A3_air_div1_Cd_DB.dat"]
+    config.RBnum = [211029, 211030, 211031]
+    config.RB_Ymin = [157, 157, 155]
+    config.RB_Ymax = [165, 166, 169]
 
     config.ThetaShift = [0, 0, 0]
     config.useBS = [1, 1, 1]
     config.ScaleFactor = [1, 1, 1]
     RB_Ymin = np.array(config.RB_Ymin)
     RB_Ymax = np.array(config.RB_Ymax)
-    config.BkgROI = np.column_stack((
-        RB_Ymin - 8,
-        RB_Ymin - 3,
-        RB_Ymax + 3,
-        RB_Ymax + 8
-    ))
+    config.BkgROI = np.column_stack((RB_Ymin - 8, RB_Ymin - 3, RB_Ymax + 3, RB_Ymax + 8))
 
     # Output name
     config.Sname = "211029_constantTOF"
-
 
     config.dqbin = 0.005
     config.dMod = 15500.0
@@ -128,10 +116,10 @@ def test_constant_tof_reduction():
 
     config.tof_bin = 50
     config.dead_time = 4.2
-    #config.data_x_range = [0,255]
+    # config.data_x_range = [0,255]
 
-    config.LambdaMin = [2.5,2.5,2.5]
-    config.LambdaMax = [9.6,9.6,9.6]
+    config.LambdaMin = [2.5, 2.5, 2.5]
+    config.LambdaMax = [9.6, 9.6, 9.6]
 
     # Processing options
     config.Normalize = False
@@ -153,11 +141,7 @@ def test_constant_tof_reduction():
     return results
 
 
-
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Run examples
-    #test_mean_theta_reduction()
+    # test_mean_theta_reduction()
     test_constant_tof_reduction()
-
-

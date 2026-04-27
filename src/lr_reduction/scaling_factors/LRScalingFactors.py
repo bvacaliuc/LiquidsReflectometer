@@ -1,4 +1,3 @@
-
 # Mantid Repository : https://github.com/mantidproject/mantid
 #
 # Copyright &copy; 2018 ISIS Rutherford Appleton Laboratory UKRI,
@@ -79,7 +78,7 @@ class LRScalingFactors(PythonAlgorithm):
     def summary(self):
         return "Liquids Reflectometer (REFL) scaling factor calculation"
 
-    def PyInit(self): # noqa: N802
+    def PyInit(self):  # noqa: N802
         self.declareProperty(IntArrayProperty("DirectBeamRuns", []), "Run number of the signal run to use")
         self.declareProperty(IntArrayProperty("Attenuators", []), "Number of attenuators for each run")
         self.declareProperty(
@@ -110,7 +109,7 @@ class LRScalingFactors(PythonAlgorithm):
         self.declareProperty(FileProperty("ScalingFactorFile", "", action=FileAction.Save, extensions=["cfg"]))
 
     # pylint: disable=too-many-locals,too-many-branches
-    def PyExec(self): # noqa: N802
+    def PyExec(self):  # noqa: N802
         # Verify whether we have a sorted list of runs.
         data_runs = self.getProperty("DirectBeamRuns").value
 

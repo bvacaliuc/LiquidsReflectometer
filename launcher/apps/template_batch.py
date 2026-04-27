@@ -245,7 +245,9 @@ class TemplateBatchTab(QWidget):
         # kept for backward compatibility; prefer using the separate template dir + file fields
         opts = QFileDialog.Options()
         opts |= QFileDialog.DontUseNativeDialog
-        _file, _ = QFileDialog.getOpenFileName(self, "Select template file:", self.template_file_edit.text(), "", options=opts)
+        _file, _ = QFileDialog.getOpenFileName(
+            self, "Select template file:", self.template_file_edit.text(), "", options=opts
+        )
         if _file:
             p = Path(_file)
             # set directory and filename immediately, validate directory asynchronously
@@ -258,7 +260,9 @@ class TemplateBatchTab(QWidget):
     def _browse_template_dir(self):
         opts = QFileDialog.Options()
         opts |= QFileDialog.DontUseNativeDialog
-        _dir = QFileDialog.getExistingDirectory(self, "Select template directory:", self.template_dir_edit.text(), options=opts)
+        _dir = QFileDialog.getExistingDirectory(
+            self, "Select template directory:", self.template_dir_edit.text(), options=opts
+        )
         if _dir:
             # set immediately and validate asynchronously
             self._set_path_async(self.template_dir_edit, str(_dir), check_isdir=True)
@@ -280,7 +284,9 @@ class TemplateBatchTab(QWidget):
     def _browse_datapath(self):
         opts = QFileDialog.Options()
         opts |= QFileDialog.DontUseNativeDialog
-        _dir = QFileDialog.getExistingDirectory(self, "Select datapath (NEXUS):", self.datapath_edit.text(), options=opts)
+        _dir = QFileDialog.getExistingDirectory(
+            self, "Select datapath (NEXUS):", self.datapath_edit.text(), options=opts
+        )
         if _dir:
             self._set_path_async(self.datapath_edit, str(_dir), check_isdir=True)
 
@@ -301,7 +307,9 @@ class TemplateBatchTab(QWidget):
     def update_defaults_from_experiment(self):
         expt = self.experiment_edit.text().strip()
         if not expt:
-            QMessageBox.warning(self, "No experiment id", "Please enter an experiment id (e.g. IPTS-36119) before updating defaults")
+            QMessageBox.warning(
+                self, "No experiment id", "Please enter an experiment id (e.g. IPTS-36119) before updating defaults"
+            )
             return
         # normalize experiment id to start with IPTS-
         if not expt.upper().startswith("IPTS-"):
@@ -428,7 +436,9 @@ class TemplateBatchTab(QWidget):
         except Exception as e:
             QtCore.QMetaObject.invokeMethod(self, "_show_error", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, str(e)))
         finally:
-            QtCore.QMetaObject.invokeMethod(self.process_btn, "setEnabled", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(bool, True))
+            QtCore.QMetaObject.invokeMethod(
+                self.process_btn, "setEnabled", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(bool, True)
+            )
 
     @QtCore.Slot(str)
     def _show_error(self, msg):
@@ -541,7 +551,7 @@ class TemplateBatchTab(QWidget):
                 pass
             canvas.draw()
             self.current_fig_index = idx
-            self.plot_index_label.setText(f"Plot {idx+1}/{len(self.figures)} -- {meta.get('label','')}")
+            self.plot_index_label.setText(f"Plot {idx + 1}/{len(self.figures)} -- {meta.get('label', '')}")
         except Exception as e:
             self.plot_index_label.setText(f"Could not show figure: {e}")
         self._update_plot_controls()
@@ -572,7 +582,6 @@ class TemplateBatchTab(QWidget):
         self.figures = []
         self.current_fig_index = -1
         self._show_figure_at_index(-1)
-
 
     def _process_sync(self):
         # validate inputs
@@ -645,7 +654,9 @@ class TemplateBatchTab(QWidget):
                     override_params["NEXUSpathRB"] = Path(datapath)
 
                 # Log start
-                QtCore.QMetaObject.invokeMethod(self, "_append_log", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Starting run {run}..."))
+                QtCore.QMetaObject.invokeMethod(
+                    self, "_append_log", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Starting run {run}...")
+                )
 
                 # call reduce_from_template similar to examples
                 try:
@@ -656,7 +667,7 @@ class TemplateBatchTab(QWidget):
                         except Exception:
                             old_nums = set()
                         # prevent the reduction from calling a blocking plt.show()
-                        orig_show = getattr(plt, 'show', None)
+                        orig_show = getattr(plt, "show", None)
                         try:
                             plt.show = lambda *args, **kwargs: None
                         except Exception:
@@ -689,7 +700,7 @@ class TemplateBatchTab(QWidget):
                                     fig.suptitle(f"Run {run}", fontsize=10)
                                 except Exception:
                                     try:
-                                        for ax in getattr(fig, 'axes', []):
+                                        for ax in getattr(fig, "axes", []):
                                             try:
                                                 t = ax.get_title()
                                                 if t:
@@ -708,7 +719,11 @@ class TemplateBatchTab(QWidget):
                                 except Exception:
                                     user_max = None
                                 if user_max is not None and len(self.figures) > user_max:
-                                    QMessageBox.warning(self, "Plot history large", f"Stored plot count ({len(self.figures)}) exceeded your configured maximum ({user_max}).\nConsider clearing the plot history.")
+                                    QMessageBox.warning(
+                                        self,
+                                        "Plot history large",
+                                        f"Stored plot count ({len(self.figures)}) exceeded your configured maximum ({user_max}).\nConsider clearing the plot history.",
+                                    )
                             except Exception:
                                 pass
 
@@ -742,7 +757,9 @@ class TemplateBatchTab(QWidget):
                             plot=plot_flag,
                         )
                 finally:
-                    QtCore.QMetaObject.invokeMethod(self, "_append_log", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Run {run} completed"))
+                    QtCore.QMetaObject.invokeMethod(
+                        self, "_append_log", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Run {run} completed")
+                    )
             except Exception as e:
                 # continue processing other runs but surface the error
                 tb = str(e)
@@ -752,11 +769,17 @@ class TemplateBatchTab(QWidget):
                     tb = traceback.format_exc()
                 except Exception:
                     pass
-                QtCore.QMetaObject.invokeMethod(self, "_append_log", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Run {run} failed: {e}\n{tb}"))
-                QtCore.QMetaObject.invokeMethod(self, "_show_error", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Run {run} failed: {e}"))
+                QtCore.QMetaObject.invokeMethod(
+                    self, "_append_log", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Run {run} failed: {e}\n{tb}")
+                )
+                QtCore.QMetaObject.invokeMethod(
+                    self, "_show_error", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, f"Run {run} failed: {e}")
+                )
 
         # finished
-        QtCore.QMetaObject.invokeMethod(self, "_show_info", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, "Processing complete"))
+        QtCore.QMetaObject.invokeMethod(
+            self, "_show_info", QtCore.Qt.QueuedConnection, QtCore.Q_ARG(str, "Processing complete")
+        )
 
     @QtCore.Slot(str)
     def _show_info(self, msg):

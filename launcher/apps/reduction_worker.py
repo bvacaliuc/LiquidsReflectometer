@@ -10,13 +10,23 @@ class ReductionWorker(QThread):
     """Run reduce_from_template in a background thread with progress reporting."""
 
     progress = Signal(int, int, str)  # overall_pct, total, description
-    finished = Signal(list)           # list of result dicts
-    error = Signal(str)               # error message
+    finished = Signal(list)  # list of result dicts
+    error = Signal(str)  # error message
 
-    def __init__(self, run_numbers, template_file, experiment_id, datapath=None,
-                 template_path=None, override_params=None, plot=False,
-                 save_plots=False, plot_dir=None, log_to_stdout=False,
-                 parent=None):
+    def __init__(
+        self,
+        run_numbers,
+        template_file,
+        experiment_id,
+        datapath=None,
+        template_path=None,
+        override_params=None,
+        plot=False,
+        save_plots=False,
+        plot_dir=None,
+        log_to_stdout=False,
+        parent=None,
+    ):
         super().__init__(parent)
         self.run_numbers = run_numbers
         self.template_file = template_file
@@ -35,7 +45,8 @@ class ReductionWorker(QThread):
 
     def run(self):
         import matplotlib
-        matplotlib.use('Agg')
+
+        matplotlib.use("Agg")
 
         try:
             from lr_reduction.new_reduction_from_template import reduce_from_template

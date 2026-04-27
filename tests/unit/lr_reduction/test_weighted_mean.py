@@ -3,7 +3,6 @@
 import warnings
 
 import numpy as np
-import pytest
 
 from lr_reduction.nr_tools import weighted_mean
 

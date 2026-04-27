@@ -1,7 +1,6 @@
 """Tests for run number parsing logic used in the Template Reduce tab."""
 
 import pytest
-
 from apps.template_reduce import _parse_run_numbers
 
 

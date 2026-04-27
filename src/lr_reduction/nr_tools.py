@@ -24,6 +24,7 @@ def safe_divide(numerator, denominator):
     """
     return np.divide(numerator, denominator, out=np.zeros_like(numerator), where=denominator != 0)
 
+
 def divide_propagate_error(num, num_err, denom, denom_err):
     """Wrapper to proagate errors through division consistently: (num/denom).
 
@@ -45,6 +46,7 @@ def divide_propagate_error(num, num_err, denom, denom_err):
 
     return result, error
 
+
 def find_pixel_index(pixels, value, occurence=0):
     """Wrapper to find specific pixel index
 
@@ -61,6 +63,7 @@ def find_pixel_index(pixels, value, occurence=0):
     else:
         return np.where(pixels == value)[0]
 
+
 def log_qvector(qmin, qmax, dqbin):
     """
     Generate logarithmically spaced q vector of defined bin size.
@@ -69,23 +72,24 @@ def log_qvector(qmin, qmax, dqbin):
     qmax: maximum q
     dqbin: bin size
     """
-    n = int(np.floor(np.log(qmax/qmin) / np.log(1 + dqbin))) + 1
+    n = int(np.floor(np.log(qmax / qmin) / np.log(1 + dqbin))) + 1
     return qmin * (1 + dqbin) ** np.arange(n + 1)
 
-def weighted_mean(y1,y2,e1,e2, sigma_mask=3):
-#    #find the weighted average
-#    v=y1/y2
-#    sigma_v = np.sqrt((e1 / y2)**2 + (e2 * y1 / y2**2)**2)
-#    w=1/sigma_v**2
-#    # initial weighted mean
-#    mean=np.sum(v*w)/np.sum(w)
-#
-#    # identify outlier
-#    mask = np.abs(v - mean) < sigma_mask * sigma_v
-#    v = v[mask]
-#    w = w[mask]
-#
-#    # Recompute
+
+def weighted_mean(y1, y2, e1, e2, sigma_mask=3):
+    #    #find the weighted average
+    #    v=y1/y2
+    #    sigma_v = np.sqrt((e1 / y2)**2 + (e2 * y1 / y2**2)**2)
+    #    w=1/sigma_v**2
+    #    # initial weighted mean
+    #    mean=np.sum(v*w)/np.sum(w)
+    #
+    #    # identify outlier
+    #    mask = np.abs(v - mean) < sigma_mask * sigma_v
+    #    v = v[mask]
+    #    w = w[mask]
+    #
+    #    # Recompute
 
     """Compute weighted mean ratio y1/y2 with outlier rejection.
     Returns (mean, sigma_mean).  If the inputs are empty or all points are
@@ -96,9 +100,9 @@ def weighted_mean(y1,y2,e1,e2, sigma_mask=3):
         return np.nan, np.nan
 
     # Mask out points where the denominator or uncertainty would cause inf/nan
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         v = y1 / y2
-        sigma_v = np.sqrt((e1 / y2)**2 + (e2 * y1 / y2**2)**2)
+        sigma_v = np.sqrt((e1 / y2) ** 2 + (e2 * y1 / y2**2) ** 2)
 
     # Keep only finite ratios with finite, positive uncertainty
     valid = np.isfinite(v) & np.isfinite(sigma_v) & (sigma_v > 0)
@@ -116,24 +120,31 @@ def weighted_mean(y1,y2,e1,e2, sigma_mask=3):
 
     return mean, sigma_mean
 
+
 # Define functions for peak_fitting:
-def gaussian(x,a,x0,sig):
-    return a*np.exp(-((x-x0)**2)/(2*sig**2))
+def gaussian(x, a, x0, sig):
+    return a * np.exp(-((x - x0) ** 2) / (2 * sig**2))
+
 
 def gaussian_constant(x, a, x0, sig, c):
     return gaussian(x, a, x0, sig) + c
 
+
 def gaussian_slope(x, a, x0, sig, m, b):
-    return gaussian(x, a, x0, sig) + m*x + b
+    return gaussian(x, a, x0, sig) + m * x + b
+
 
 def super_gaussian(x, a, x0, sig, ex):
-    return a * np.exp(-((np.abs(x - x0)/sig)**ex))
+    return a * np.exp(-((np.abs(x - x0) / sig) ** ex))
+
 
 def super_gaussian_slope(x, a, x0, sig, ex, m, b):
-    return super_gaussian(x, a, x0, sig, ex) + m*x + b
+    return super_gaussian(x, a, x0, sig, ex) + m * x + b
+
 
 def super_gaussian_constant(x, a, x0, sig, ex, c):
     return super_gaussian(x, a, x0, sig, ex) + c
+
 
 def fit_peak(ypix, iY, peaktype="gauss", bkgtype="none"):
     """
@@ -147,8 +158,8 @@ def fit_peak(ypix, iY, peaktype="gauss", bkgtype="none"):
     # TODO: can add check on goodness of fit later.
 
     # ---- initial guess ----
-    mean  = np.sum(iY * ypix) / np.sum(iY)
-    var   = np.sum(iY * (ypix - mean)**2) / np.sum(iY)
+    mean = np.sum(iY * ypix) / np.sum(iY)
+    var = np.sum(iY * (ypix - mean) ** 2) / np.sum(iY)
     sigma = np.sqrt(var)
     A0 = np.max(iY)
     yv = np.linspace(ypix.min(), ypix.max(), 200)
@@ -173,18 +184,15 @@ def fit_peak(ypix, iY, peaktype="gauss", bkgtype="none"):
         if bkgtype == "none":
             model = super_gaussian
             p0 = [A0, mean, sigma, n0]
-            bounds = ([A0/10, -np.inf, 1e-6, 2.0],
-                      [A0*10, np.inf, np.inf, 10.0])
+            bounds = ([A0 / 10, -np.inf, 1e-6, 2.0], [A0 * 10, np.inf, np.inf, 10.0])
         elif bkgtype == "constant":
             model = super_gaussian_constant
             p0 = [A0, mean, sigma, n0, 0.0]
-            bounds = ([A0/10, -np.inf, 1e-6, 2.0, -np.inf],
-                      [A0*10, np.inf, np.inf, 10.0, np.inf])
+            bounds = ([A0 / 10, -np.inf, 1e-6, 2.0, -np.inf], [A0 * 10, np.inf, np.inf, 10.0, np.inf])
         elif bkgtype == "linear":
             model = super_gaussian_slope
             p0 = [A0, mean, sigma, n0, 0.0, 0.0]
-            bounds = ([A0/10, -np.inf, 1e-6, 2.0, -np.inf, -np.inf],
-                      [A0*10, np.inf, np.inf, 10.0, np.inf, np.inf])
+            bounds = ([A0 / 10, -np.inf, 1e-6, 2.0, -np.inf, -np.inf], [A0 * 10, np.inf, np.inf, 10.0, np.inf, np.inf])
         else:
             raise ValueError("bkgtype must be 'none', 'constant', or 'linear'")
         par, cov = curve_fit(model, ypix, iY, p0=p0, bounds=bounds)
@@ -204,12 +212,14 @@ def fit_peak(ypix, iY, peaktype="gauss", bkgtype="none"):
 
     return par, fit, bkg
 
+
 def get_edges(centers):
-        midpoints = 0.5 * (centers[1:] + centers[:-1])
-        # Extrapolate the first and last edges based on adjacent bin width
-        e0 = centers[0] - (midpoints[0] - centers[0])
-        en = centers[-1] + (centers[-1] - midpoints[-1])
-        return np.concatenate(([e0], midpoints, [en]))
+    midpoints = 0.5 * (centers[1:] + centers[:-1])
+    # Extrapolate the first and last edges based on adjacent bin width
+    e0 = centers[0] - (midpoints[0] - centers[0])
+    en = centers[-1] + (centers[-1] - midpoints[-1])
+    return np.concatenate(([e0], midpoints, [en]))
+
 
 def rebin_counts(x, xp, fp):
     """
@@ -221,7 +231,7 @@ def rebin_counts(x, xp, fp):
 
     xp = np.asarray(xp, float)
     fp = np.asarray(fp, float)
-    x  = np.asarray(x,  float)
+    x = np.asarray(x, float)
 
     xp_edges = get_edges(xp)
     x_edges = get_edges(x)
@@ -229,17 +239,12 @@ def rebin_counts(x, xp, fp):
     # calculate cumulative counts using original bin edges
     cumulative = np.concatenate([[0.0], np.cumsum(fp)])
 
-    cumulative_new = np.interp(
-        x_edges,
-        xp_edges,
-        cumulative,
-        left=0.0,
-        right=cumulative[-1]
-    )
+    cumulative_new = np.interp(x_edges, xp_edges, cumulative, left=0.0, right=cumulative[-1])
 
     new_counts = np.diff(cumulative_new)
 
     return new_counts
+
 
 def calc_beam_geometry_from_slits(si_H, s1_H, d_s1_si, d_si_sam, d_sam_det, radians=True):
     # TODO: fix the descrepancies so the radians tag isn't needed.
@@ -252,51 +257,52 @@ def calc_beam_geometry_from_slits(si_H, s1_H, d_s1_si, d_si_sam, d_sam_det, radi
     # Defined here as a=[a1, a2, a3, a4]
 
     # angular ranges at the incident slits
-    a_plus  = np.arctan((s1_H + si_H)/(2*d_s1_si))
-    a_minus = np.arctan((s1_H - si_H)/(2*d_s1_si))
+    a_plus = np.arctan((s1_H + si_H) / (2 * d_s1_si))
+    a_minus = np.arctan((s1_H - si_H) / (2 * d_s1_si))
 
-    a = np.array([ a_plus, a_minus, -a_plus, -a_minus ])
+    a = np.array([a_plus, a_minus, -a_plus, -a_minus])
 
     # propagate vertical position of the beam to the detector
-    y = np.array([
-        si_H/2 + L*np.tan(a[0]),
-       -si_H/2 + L*np.tan(a[1]),
-       -si_H/2 + L*np.tan(a[2]),
-        si_H/2 + L*np.tan(a[3])
-    ])
+    y = np.array(
+        [
+            si_H / 2 + L * np.tan(a[0]),
+            -si_H / 2 + L * np.tan(a[1]),
+            -si_H / 2 + L * np.tan(a[2]),
+            si_H / 2 + L * np.tan(a[3]),
+        ]
+    )
 
     # Toggle to have the calculation in degrees. Some point can alter other functions so this isn't needed!
     if not radians:
-       a = np.degrees(a)
+        a = np.degrees(a)
 
-    #calculate the beam position (Y) as a function of beam angle at Si (X)
-    #calculate the slope and offset for the lines that define the parallegram in these coordinates
+    # calculate the beam position (Y) as a function of beam angle at Si (X)
+    # calculate the slope and offset for the lines that define the parallegram in these coordinates
     # 4 corners of the parralleagram are: (1) top right, (2) bot right, (3) bot left, (4) top left
     # note: intercept, b, is the same for all propagation distances
     #       m12 = m34, m23 = m41, b12 = -b34, b23 = -b41
     m = (y - np.roll(y, -1)) / (a - np.roll(a, -1))
-    b = y - m*a
+    b = y - m * a
 
     return a, y, m, b
+
 
 def calc_beam_on_detector(Ypix, CenPix, Si, S1, dS1Si, dSiSam, dSamDet, mmpix, DetRes, DetResFn):
     # based on slits and instrument geometry, calculate beam profile on the detector
     # read in the Ypix array to calculate over
     # adjust by the center pixel
 
-    Ymm = (Ypix-CenPix) * mmpix
+    Ymm = (Ypix - CenPix) * mmpix
 
     _, y, m, b = calc_beam_geometry_from_slits(Si, S1, dS1Si, dSiSam, dSamDet)
 
-    #create the intensity distribution
+    # create the intensity distribution
     # calculate the spread of vertical position (height of the polyon) as a function of angle coming out of slits
     # this is the beam height as a function of angle, which scales as intensity as a function of angle
     # this is independent of the propagtion distance
-    ss = np.maximum((Ymm - b[3]) / m[3],
-                    (Ymm - b[2]) / m[2])
+    ss = np.maximum((Ymm - b[3]) / m[3], (Ymm - b[2]) / m[2])
 
-    fs = np.minimum((Ymm - b[0]) / m[0],
-                    (Ymm - b[1]) / m[1])
+    fs = np.minimum((Ymm - b[0]) / m[0], (Ymm - b[1]) / m[1])
 
     I = fs - ss
 
@@ -308,29 +314,30 @@ def calc_beam_on_detector(Ypix, CenPix, Si, S1, dS1Si, dSiSam, dSamDet, mmpix, D
     dy = Ymm[1] - Ymm[0]
 
     # Convolve with the detector resolution, works better as tophat than gauss!
-    if DetResFn == 'rectangular':
+    if DetResFn == "rectangular":
         width = DetRes * np.sqrt(12)
         n = max(1, int(np.round(width / dy)))
         kernel = np.ones(n) / n
         I = np.convolve(I, kernel, mode="same")
 
     # Gaussian kernel half-width (~±4σ)
-    elif DetResFn == 'gaussian':
+    elif DetResFn == "gaussian":
         half_width = int(np.ceil(4 * DetRes / dy))
         xk = np.arange(-half_width, half_width + 1) * dy
-        kernel = np.exp(-0.5 * (xk / DetRes)**2)
+        kernel = np.exp(-0.5 * (xk / DetRes) ** 2)
         kernel /= kernel.sum()
         I = np.convolve(I, kernel, mode="same")
 
     elif DetResFn not in ["none", None]:
-         raise ValueError("DetResFn must be 'rectangular', 'gaussian', or 'none'")
+        raise ValueError("DetResFn must be 'rectangular', 'gaussian', or 'none'")
 
     # normalize
     if I.max() <= 0:
         raise ValueError("Maximum I has calculated negative")
     else:
-        I = I/I.max()
+        I = I / I.max()
         return I
+
 
 def intersect(m1, b1, m2, b2):
     # find intersection of two lines
@@ -338,66 +345,67 @@ def intersect(m1, b1, m2, b2):
     y = m1 * x + b1
     return x, y
 
+
 # TODO: Link these resolution functions to the lr_reduction ones...
 def dTheta_Sigma(Si, S1, dS1Si):
-
     # Trapezoidal half-width angles (deg)
-    HW_bot = np.degrees(np.arctan((S1 + Si) / (2 * dS1Si)))     # full half-width
-    HW_top = np.degrees(np.arctan((S1 - Si) / (2 * dS1Si)))     # flat-top half-width
+    HW_bot = np.degrees(np.arctan((S1 + Si) / (2 * dS1Si)))  # full half-width
+    HW_top = np.degrees(np.arctan((S1 - Si) / (2 * dS1Si)))  # flat-top half-width
 
-    a=-HW_bot
-    b=-HW_top
-    c=HW_top
-    d=HW_bot
+    a = -HW_bot
+    b = -HW_top
+    c = HW_top
+    d = HW_bot
 
-    #analytical equation for the sigma of a trapezoidal function
-    Sigma=np.sqrt(((d-a)**2+(c-b)**2+(d-a)*(c-b))/24)
+    # analytical equation for the sigma of a trapezoidal function
+    Sigma = np.sqrt(((d - a) ** 2 + (c - b) ** 2 + (d - a) * (c - b)) / 24)
 
     return Sigma
 
+
 def dLambda_Sigma(Lambda):
-    #exponential fit to dLAM
+    # exponential fit to dLAM
     L = 0.07564423
     A = 0.13093263
     k = 0.34918918
 
-    dLAM = L - A*np.exp(-k*Lambda)
+    dLAM = L - A * np.exp(-k * Lambda)
 
     return dLAM
 
+
 # TODO: Link this into the gravity_correction in lr_reduction...
 def gravity_correct(LAM, ThetaIn, dSamp, dSlit):
+    dSamp = dSamp / 1000  # dSamp is m from sample to incident slit
+    dSlit = dSlit / 1000  # dSlit is m between slits
 
-    dSamp=dSamp/1000    #dSamp is m from sample to incident slit
-    dSlit=dSlit/1000    #dSlit is m between slits
+    # calculation from the ILL paper. this works for inclined beams.
+    g = 9.8067  # m/s^2
+    h = 6.6260715e-34  # Js=kg m^2/s
+    mn = 1.67492749804e-27  # kg
+    V = h / (mn * LAM * 1e-10)
+    K = g / (2 * V**2)
 
-    #calculation from the ILL paper. this works for inclined beams.
-    g=9.8067                #m/s^2
-    h=6.6260715e-34         #Js=kg m^2/s
-    mn=1.67492749804e-27    #kg
-    V=h/(mn*LAM*1e-10)
-    K=g/(2*V**2)
+    # define the sample position as x=0, y=0. increasing x is towards moderator
+    xs = 0
 
-    #define the sample position as x=0, y=0. increasing x is towards moderator
-    xs=0
+    # positions of slits
+    x1 = dSamp
+    x2 = dSamp + dSlit
 
-    #positions of slits
-    x1=dSamp
-    x2=(dSamp+dSlit)
+    # height of slits determined by incident theta, y=0 is the sample height
+    y1 = x1 * np.tan(ThetaIn * np.pi / 180)
+    y2 = x2 * np.tan(ThetaIn * np.pi / 180)
 
-    #height of slits determined by incident theta, y=0 is the sample height
-    y1=x1*np.tan(ThetaIn*np.pi/180)
-    y2=x2*np.tan(ThetaIn*np.pi/180)
+    # this is the location of the top of the parabola
+    x0 = (y1 - y2 + K * (x1**2 - x2**2)) / (2 * K * (x1 - x2))
+    y0 = y2 + K * (x2 - x0) ** 2
 
-    #this is the location of the top of the parabola
-    x0=(y1-y2+K*(x1**2-x2**2))/(2*K*(x1-x2))
-    y0=y2+K*(x2-x0)**2
+    xs = x0 - np.sqrt(y0 / K)
 
-    xs=x0-np.sqrt(y0/K)
+    ThetaSam = np.arctan(2 * K * (x0 - xs)) * 180 / np.pi  # angle is arctan(dy/dx) at sample
 
-    ThetaSam=np.arctan(2*K*(x0-xs))*180/np.pi                 #angle is arctan(dy/dx) at sample
-
-    dTheta=ThetaSam-ThetaIn
+    dTheta = ThetaSam - ThetaIn
 
     return dTheta
 
@@ -453,6 +461,7 @@ def load_db_file(db_dir, db_name, comment="#"):
 
     return col1, col2, col3, meta
 
+
 def get_lam_range(chopper_lam, chopper_speed, scaled_width=3.4):
     """
     Determine lambda range from chopper settings
@@ -479,53 +488,51 @@ def get_lam_range(chopper_lam, chopper_speed, scaled_width=3.4):
 
     return [wl_min, wl_max]
 
+
 def read_settings(time):
-        '''
-        time expected to be in ISO format.
-        '''
-        """
+    """
+    time expected to be in ISO format.
+    """
+    """
         Read settings file and return values for the given timestamp
 
         Returns
         -------
         settings
         """
-        settings_dict = dict()
-        package_dir, _ = os.path.split(__file__)
+    settings_dict = dict()
+    package_dir, _ = os.path.split(__file__)
 
-        timestamp = datetime.datetime.fromisoformat(time).date()
+    timestamp = datetime.datetime.fromisoformat(time).date()
 
-        with open(os.path.join(package_dir, "settings.json"), "r") as fd:
-            data = json.load(fd)
-            for key in data.keys():
-                chosen_value = None
-                delta_time = None
-                for item in data[key]:
-                    valid_from = datetime.date.fromisoformat(item["from"])
-                    delta = valid_from - timestamp
-                    if delta_time is None or (delta.total_seconds() < 0 and delta > delta_time):
-                        delta_time = delta
-                        chosen_value = item["value"]
-                settings_dict[key] = chosen_value
-        key_map = {
-            'source_detector_distance': "source-det-distance",
-            'sample_detector_distance': "sample-det-distance",
-            'num_x_pixels': "number-of-x-pixels",
-            'num_y_pixels': "number-of-y-pixels",
-            'pixel_width': "pixel-width",
-            'xi_reference': "xi-reference",
-            's1_sample_distance': "s1-sample-distance",
-            'wavelength_resolution_function': "wavelength-resolution-function",
-            'cd-attenuator-correction-file': "cd-attenuator-correction-file"
-        }
+    with open(os.path.join(package_dir, "settings.json"), "r") as fd:
+        data = json.load(fd)
+        for key in data.keys():
+            chosen_value = None
+            delta_time = None
+            for item in data[key]:
+                valid_from = datetime.date.fromisoformat(item["from"])
+                delta = valid_from - timestamp
+                if delta_time is None or (delta.total_seconds() < 0 and delta > delta_time):
+                    delta_time = delta
+                    chosen_value = item["value"]
+            settings_dict[key] = chosen_value
+    key_map = {
+        "source_detector_distance": "source-det-distance",
+        "sample_detector_distance": "sample-det-distance",
+        "num_x_pixels": "number-of-x-pixels",
+        "num_y_pixels": "number-of-y-pixels",
+        "pixel_width": "pixel-width",
+        "xi_reference": "xi-reference",
+        "s1_sample_distance": "s1-sample-distance",
+        "wavelength_resolution_function": "wavelength-resolution-function",
+        "cd-attenuator-correction-file": "cd-attenuator-correction-file",
+    }
 
-        settings_output = {
-            new_key: settings_dict[old_key]
-            for new_key, old_key in key_map.items()
-        }
+    settings_output = {new_key: settings_dict[old_key] for new_key, old_key in key_map.items()}
 
-        settings_output['sample_detector_distance'] *= 1000 # Code here expects these in mm.
-        settings_output['source_detector_distance'] *= 1000
-        settings_output['s1_sample_distance'] *= 1000
+    settings_output["sample_detector_distance"] *= 1000  # Code here expects these in mm.
+    settings_output["source_detector_distance"] *= 1000
+    settings_output["s1_sample_distance"] *= 1000
 
-        return settings_output
+    return settings_output

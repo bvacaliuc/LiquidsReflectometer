@@ -51,16 +51,18 @@ def meta_data(workspace_sc, workspace_db, template_data):
     sample_logs = SampleLogValues(workspace_sc)
     theta = sample_logs["ths"] * np.pi / 180.0  # radians
 
-    event_refl = EventReflectivity(workspace_sc,
-                                   workspace_db,
-                                   peak,
-                                   template_data.background_roi,
-                                   template_data.norm_peak_range,
-                                   template_data.norm_background_roi,
-                                   peak_center,
-                                   template_data.data_x_range,
-                                   template_data.norm_x_range,
-                                   theta=theta)
+    event_refl = EventReflectivity(
+        workspace_sc,
+        workspace_db,
+        peak,
+        template_data.background_roi,
+        template_data.norm_peak_range,
+        template_data.norm_background_roi,
+        peak_center,
+        template_data.data_x_range,
+        template_data.norm_x_range,
+        theta=theta,
+    )
 
     meta_data = event_refl.to_dict()
     meta_data["tof_weighted"] = False

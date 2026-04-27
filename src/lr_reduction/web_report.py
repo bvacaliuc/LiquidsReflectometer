@@ -37,6 +37,7 @@ class ReportSections(NamedTuple):
     reduction_parameters
         HTML <div> describing the reduction parameters used.
     """
+
     run_meta_data: str
     plots: list[str]
     reduction_parameters: str
@@ -264,9 +265,9 @@ def generate_report_section_run_meta_data(workspace: MantidWorkspace) -> str:
     return meta
 
 
-def generate_report_section_reduction_parameters(workspace: MantidWorkspace,
-                                                 template_data: ReductionParameters,
-                                                 meta_data: dict) -> str:
+def generate_report_section_reduction_parameters(
+    workspace: MantidWorkspace, template_data: ReductionParameters, meta_data: dict
+) -> str:
     """Generate HTML report from a reduced workspace and template data
 
     Parameters
@@ -296,9 +297,7 @@ def generate_report_section_reduction_parameters(workspace: MantidWorkspace,
     )
     meta += "<tr><td>Q-binning:</td><td>%s</td><td>-</td></tr>" % meta_data["q_summing"]
     if meta_data["q_summing"]:
-        meta += "<tr><td>Specular peak:</td><td>%g</td><td>-</td></tr>" % (
-            meta_data["specular_pixel"],
-        )
+        meta += "<tr><td>Specular peak:</td><td>%g</td><td>-</td></tr>" % (meta_data["specular_pixel"],)
     meta += "<tr><td>Peak range:</td><td>%s - %s</td><td>%s - %s</td></tr>" % (
         template_data.data_peak_range[0],
         template_data.data_peak_range[1],
@@ -343,19 +342,16 @@ def generate_report_section_reduction_parameters(workspace: MantidWorkspace,
 
     meta += "<table style='width:100%'>"
 
-    meta += ("<tr><th>Wavelength</th>"
-             "<th>Q</th>"
-             "<th>Thi</th>"
-             "<th>Ths</th>"
-             "<th>Offset</th>"
-             "<th>Theta used</th></tr>")
+    meta += "<tr><th>Wavelength</th><th>Q</th><th>Thi</th><th>Ths</th><th>Offset</th><th>Theta used</th></tr>"
 
-    meta += ("<tr><td>%6.4g - %6.4g</td>" +
-             "<td>%6.4g - %6.4g</td>" +
-             "<td>%6.4g</td>" +
-             "<td>%6.4g</td>" +
-             "<td>%6.4g</td>" +
-             "<td>%6.4g</td></tr>\n") % (
+    meta += (
+        "<tr><td>%6.4g - %6.4g</td>"
+        + "<td>%6.4g - %6.4g</td>"
+        + "<td>%6.4g</td>"
+        + "<td>%6.4g</td>"
+        + "<td>%6.4g</td>"
+        + "<td>%6.4g</td></tr>\n"
+    ) % (
         meta_data["wl_min"],
         meta_data["wl_max"],
         meta_data["q_min"],
@@ -387,9 +383,7 @@ def generate_report_section_direct_beam_parameters(workspace: MantidWorkspace) -
     sample_logs = SampleLogValues(workspace)
 
     meta = "<table style='width:80%'>"
-    meta += "<tr><td>Run:</td><td><b>%s</b> (direct beam)</td></tr>" % (
-        int(sample_logs["run_number"]),
-    )
+    meta += "<tr><td>Run:</td><td><b>%s</b> (direct beam)</td></tr>" % (int(sample_logs["run_number"]),)
     meta += "<tr><td>Sequence:</td><td>%s: %s/%s</td></tr>" % (
         sample_logs["sequence_id"],
         sample_logs["sequence_number"],
@@ -401,9 +395,9 @@ def generate_report_section_direct_beam_parameters(workspace: MantidWorkspace) -
     return meta
 
 
-def generate_report_plots(workspace: MantidWorkspace,
-                          template_data: ReductionParameters,
-                          data_type: DataType) -> list[str]:
+def generate_report_plots(
+    workspace: MantidWorkspace, template_data: ReductionParameters, data_type: DataType
+) -> list[str]:
     """
     Generate diagnostic plots from the event workspace
 
@@ -444,7 +438,7 @@ def generate_report_plots(workspace: MantidWorkspace,
         scatt_bck = template_data.background_roi
         tof_range_ms = [t / 1000.0 for t in template_data.tof_range]
         # convert to ms and add margins
-        tof_zoom_range = [template_data.tof_range[0]/1000.0 - 5.0, template_data.tof_range[1]/1000.0 + 5.0]
+        tof_zoom_range = [template_data.tof_range[0] / 1000.0 - 5.0, template_data.tof_range[1] / 1000.0 + 5.0]
 
     # X-Y plot
     xy_plot = None
@@ -530,9 +524,7 @@ def generate_report_plots(workspace: MantidWorkspace,
         )
     except Exception:  # noqa E722
         logger.warning("  - Could not generate Y count distribution")
-        peak_pixels = _plot_text(
-            "Could not generate Y count distribution"
-        )
+        peak_pixels = _plot_text("Could not generate Y count distribution")
 
     logger.notice("  - generating X count distribution")
     # Count per X pixel
@@ -577,9 +569,7 @@ def generate_report_plots(workspace: MantidWorkspace,
         )
     except Exception:  # noqa E722
         logger.warning("  - Could not generate TOF distribution")
-        tof_dist = _plot_text(
-            "Could not generate TOF distribution"
-        )
+        tof_dist = _plot_text("Could not generate TOF distribution")
 
     return [xy_plot, y_tof_plot, peak_pixels, low_res_profile, tof_dist]
 

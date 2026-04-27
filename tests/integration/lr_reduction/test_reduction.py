@@ -50,7 +50,9 @@ def test_attenuation(nexus_dir):
     event_reduction.process_attenuation(ws_sc, 0.005)
 
 
-@pytest.mark.skipif(os.environ.get('PYTEST_SKIP_NUMERIC_DIFFS','no').lower().startswith('yes'), reason='PYTEST_SKIP_NUMERIC_DIFFS')
+@pytest.mark.skipif(
+    os.environ.get("PYTEST_SKIP_NUMERIC_DIFFS", "no").lower().startswith("yes"), reason="PYTEST_SKIP_NUMERIC_DIFFS"
+)
 def test_q_summing(template_dir, nexus_dir):
     """
     Test Q summing process
@@ -175,7 +177,7 @@ def test_full_reduction(template_dir, nexus_dir):
     try:
         assert average_relative_difference < 0.05
     except AssertionError as e:
-        if os.environ.get('PYTEST_SKIP_NUMERIC_DIFFS','no').lower().startswith('yes'):
+        if os.environ.get("PYTEST_SKIP_NUMERIC_DIFFS", "no").lower().startswith("yes"):
             pytest.skip(repr(e))
         else:
             raise
@@ -208,11 +210,12 @@ def test_reduce_workflow(template_dir, nexus_dir, tmp_path):
         try:
             assert average_fractional_difference < 0.07
         except AssertionError as e:
-            if os.environ.get('PYTEST_SKIP_NUMERIC_DIFFS','no').lower().startswith('yes'):
+            if os.environ.get("PYTEST_SKIP_NUMERIC_DIFFS", "no").lower().startswith("yes"):
                 pytest.skip(repr(e))
                 break
             else:
                 raise
+
 
 def test_reduce_workflow_with_stitching_automatic_average(template_dir, nexus_dir, tmp_path):
     """

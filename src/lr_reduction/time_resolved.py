@@ -17,7 +17,7 @@ from lr_reduction.event_reduction import apply_dead_time_correction, compute_res
 mantid.kernel.config.setLogLevel(3)
 
 
-def reduce_30Hz_from_ws( # noqa: N802
+def reduce_30Hz_from_ws(  # noqa: N802
     meas_ws_30_hz,
     ref_ws_30_hz,
     data_60_hz,
@@ -36,15 +36,11 @@ def reduce_30Hz_from_ws( # noqa: N802
     """
     # Reduce the reference at 30Hz
     if template_reference is None:
-        r_ref = template.process_from_template_ws(ref_ws_30_hz,
-                                                  template_data,
-                                                  q_summing=q_summing,
-                                                  normalize=False)
+        r_ref = template.process_from_template_ws(ref_ws_30_hz, template_data, q_summing=q_summing, normalize=False)
     else:
-        r_ref = template.process_from_template_ws(ref_ws_30_hz,
-                                                  template_reference,
-                                                  q_summing=q_summing,
-                                                  normalize=False)
+        r_ref = template.process_from_template_ws(
+            ref_ws_30_hz, template_reference, q_summing=q_summing, normalize=False
+        )
 
     # Reduce the sample data at 30Hz
     r_meas = template.process_from_template_ws(meas_ws_30_hz, template_data, q_summing=q_summing, normalize=False)
@@ -111,7 +107,7 @@ def reduce_30Hz_from_ws( # noqa: N802
     return np.asarray([q[_idx], r_q_final[_idx], dr_q_final[_idx], dq])
 
 
-def reduce_30Hz_slices( # noqa: N802
+def reduce_30Hz_slices(  # noqa: N802
     meas_run_30_hz,
     ref_run_30_hz,
     ref_data_60_hz,
@@ -155,7 +151,7 @@ def reduce_slices(
     )
 
 
-def reduce_30Hz_slices_ws( # noqa: N802
+def reduce_30Hz_slices_ws(  # noqa: N802
     meas_ws_30_hz,
     ref_run_30_hz,
     ref_data_60_hz,
@@ -260,7 +256,7 @@ def reduce_30Hz_slices_ws( # noqa: N802
             reduced.append(_reduced)
             _filename = f"r{meas_run_30_hz}_t{int(total_time):06d}.txt"
             np.savetxt(os.path.join(output_dir, _filename), _reduced.T)
-        except: # noqa: E722
+        except:  # noqa: E722
             print("reduce_30Hz_slices_ws: %s" % sys.exc_info()[0])
         total_time += time_interval
 
@@ -318,11 +314,11 @@ def reduce_slices_ws(
     # Use dummy values for those
     try:
         duration = meas_ws.getRun()["duration"].value
-    except: # noqa: E722
+    except:  # noqa: E722
         duration = 0
     try:
         meas_run = meas_ws.getRun()["run_number"].value
-    except: # noqa: E722
+    except:  # noqa: E722
         meas_run = 0
 
     # Apply dead time correction up front since we are using the error events but
@@ -377,7 +373,7 @@ def reduce_slices_ws(
             reduced.append(_reduced)
             _filename = f"r{meas_run}_t{int(total_time):06d}.txt"
             np.savetxt(os.path.join(output_dir, _filename), _reduced.T)
-        except: # noqa: E722
+        except:  # noqa: E722
             print("reduce_slices_ws: %s" % sys.exc_info()[0])
         total_time += time_interval
 

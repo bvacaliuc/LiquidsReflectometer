@@ -9,7 +9,8 @@ from mantid.simpleapi import CreateWorkspace, Fit, ReplaceSpecialValues, logger
 
 class StitchingType(Enum):
     """Enum for stitching types"""
-    NONE = "None" # Maps to 'manual'
+
+    NONE = "None"  # Maps to 'manual'
     AUTOMATIC_AVERAGE = "AutomaticAverage"
     ABSOLUTE_NORMALIZATION = "AbsoluteNormalization"
 
@@ -23,13 +24,16 @@ class StitchingType(Enum):
         # reached if value cannot be matched
         raise ValueError(f"Invalid StitchingType value: {value}")
 
+
 @dataclass
 class StitchingConfiguration:
     """Class to hold configuration for stitching."""
+
     type: StitchingType = StitchingType.NONE
     scale_factor_qmin: float = 0.00
     scale_factor_qmax: float = 0.01
     normalize_first_angle: bool = False
+
 
 @dataclass
 class ReducedData:

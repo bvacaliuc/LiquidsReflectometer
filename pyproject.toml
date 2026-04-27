@@ -211,6 +211,9 @@ exclude = ["notebooks/**", "**/*.ipynb", "scripts/**", "tests/data/**"]
 [tool.ruff.lint]
 select = ["A", "ARG","ASYNC","BLE", "E", "F", "FURB", "I", "N", "UP032", "W"]
 ignore = [
+  "ARG001",  # unused function argument — common in Qt slot callbacks
+  "ARG002",  # unused method argument — Qt slots, pytest fixtures (qapp needed for context)
+  "ARG005",  # unused lambda argument
   "BLE001",  # blind exception catch — established pattern for optional Qt/matplotlib import fallback chains
   "E402",    # module level import not at top of file
   "E501",    # line too long
@@ -220,6 +223,7 @@ ignore = [
   "F403",    # wildcard imports
   "F405",    # names from wildcard imports
   "F821",    # undefined names from wildcard imports
+  "N801",    # class name should use CapWords — Direct_Beam, NR_Reduction are established names
   "N802",    # function name should be lowercase
   "N803",    # argument name should be lowercase
   "N806",    # variable in function should be lowercase

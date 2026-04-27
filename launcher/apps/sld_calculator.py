@@ -91,7 +91,7 @@ class SLD(QWidget):
             output_text += "%-15s %6.6f\n" % ("X-ray SLD:", x_sld)
             output_text += "%-15s %6.6f\n\n" % (" Imag SLD:", x_im_sld)
             output_text += "All units in 10^-6 A^-2"
-        except: # noqa: E722
+        except:  # noqa: E722
             # TODO: add handling for specific exceptions
             output_text = str(sys.exc_info()[1])
 

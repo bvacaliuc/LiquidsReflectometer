@@ -12,13 +12,12 @@ import mantid.simpleapi as api
 import numpy as np
 from scipy.optimize import brentq
 
+# from . import background, dead_time_correction
+import lr_reduction.background as background
+import lr_reduction.dead_time_correction as dead_time_correction
 from lr_reduction.gravity_correction import GravityDirection, gravity_correction
 from lr_reduction.instrument_settings import InstrumentSettings
 from lr_reduction.utils import mantid_algorithm_exec
-
-#from . import background, dead_time_correction
-import lr_reduction.background as background
-import lr_reduction.dead_time_correction as dead_time_correction
 
 PLANCK_CONSTANT = 6.626e-34  # m^2 kg s^-1
 NEUTRON_MASS = 1.675e-27  # kg
@@ -477,7 +476,7 @@ class EventReflectivity:
         if self.norm_low_res is None:
             self.norm_low_res = [1, self.n_x - 1]
 
-    def extract_meta_data_4A(self): # noqa: N802
+    def extract_meta_data_4A(self):  # noqa: N802
         """
         4A-specific meta data
         """
@@ -490,7 +489,7 @@ class EventReflectivity:
             source_sample_distance /= 1000.0
         self.source_detector_distance = source_sample_distance + self.sample_detector_distance
 
-    def extract_meta_data_4B(self): # noqa: N802
+    def extract_meta_data_4B(self):  # noqa: N802
         """
         4B-specific meta data
 
@@ -1337,7 +1336,7 @@ def compute_resolution(ws, default_dq=0.027, theta=None, q_summing=False):
 ## New function for resolution, ready for testing.
 ## Check choices of returned values once ready to implement.
 ## Needs update for q-summing.
-def trapezoidal_distribution_params(ws, Theta_deg=None, FootPrint=None, SlitRatio=None): # noqa: N803
+def trapezoidal_distribution_params(ws, Theta_deg=None, FootPrint=None, SlitRatio=None):  # noqa: N803
     """
     Calculate trapezoidal parameters L, l from beam/slit geometry and
     compute equivalent normal sigma for 68% probability interval to
@@ -1387,7 +1386,7 @@ def trapezoidal_distribution_params(ws, Theta_deg=None, FootPrint=None, SlitRati
     d_s1_si = d_s1_samp - d_si_samp
 
     if Theta_deg is None:
-        Theta_deg = abs(ws.getRun().getProperty("ths").value[0]) # noqa: N806
+        Theta_deg = abs(ws.getRun().getProperty("ths").value[0])  # noqa: N806
 
     # Slit openings - can be taken from a FootPrint and SlitRatio if provided, or the logs
     if FootPrint is not None and SlitRatio is not None:

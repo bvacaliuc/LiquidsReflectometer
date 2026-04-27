@@ -35,9 +35,9 @@ class CompareTwoNXSDataForSFcalculator(object):
     #5 if everything up to this point is identical, return 0
     """
 
-    nexusToCompareWithRun = None # noqa: N815
-    nexusToPositionRun = None # noqa: N815
-    resultComparison = 0 # noqa: N815
+    nexusToCompareWithRun = None  # noqa: N815
+    nexusToPositionRun = None  # noqa: N815
+    resultComparison = 0  # noqa: N815
 
     def __init__(self, nxs_data_to_compare_with, nxs_data_to_position):
         """
@@ -68,7 +68,7 @@ class CompareTwoNXSDataForSFcalculator(object):
 
         self.resultComparison = -1 if pcharge1 < pcharge2 else 1
 
-    def compareParameter(self, param, order, tolerance=0.0): # noqa: N802
+    def compareParameter(self, param, order, tolerance=0.0):  # noqa: N802
         """
         Compare parameters for the two runs
         :param string param: name of the parameter to compare
@@ -126,7 +126,7 @@ class LRDirectBeamSort(PythonAlgorithm):
     def summary(self):
         return "Sort a set of direct beams for the purpose of calculating scaling factors."
 
-    def PyInit(self): # noqa: N802
+    def PyInit(self):  # noqa: N802
         self.declareProperty(
             IntArrayProperty("RunList", [], direction=Direction.Input),
             "List of run numbers (integers) to be sorted - takes precedence over WorkspaceList",
@@ -169,7 +169,7 @@ class LRDirectBeamSort(PythonAlgorithm):
         self.declareProperty("DeadTime", 4.2, doc="Dead time value")
         self.declareProperty("DeadTimeTOFStep", 200.0, doc="TOF step to bin into for dead time")
 
-    def PyExec(self): # noqa: N802
+    def PyExec(self):  # noqa: N802
         compute = self.getProperty("ComputeScalingFactors").value
         lr_data = []
         run_list = self.getProperty("RunList").value

@@ -181,7 +181,9 @@ class Overplot(QWidget):
         self.settings.setValue("overplot_xscale", self.xscale_combo.currentText())
 
     def choose_folder(self):
-        _dir = QFileDialog.getExistingDirectory(None, "Select a folder:", os.path.expanduser("~"), QFileDialog.ShowDirsOnly)
+        _dir = QFileDialog.getExistingDirectory(
+            None, "Select a folder:", os.path.expanduser("~"), QFileDialog.ShowDirsOnly
+        )
         if os.path.isdir(_dir):
             self.folder_label.setText(_dir)
             self.populate_file_list(_dir)
@@ -207,7 +209,11 @@ class Overplot(QWidget):
 
     def apply_filter(self, text):
         # preserve checked state
-        checked = {self.file_list.item(i).text() for i in range(self.file_list.count()) if self.file_list.item(i).checkState() == QtCore.Qt.Checked}
+        checked = {
+            self.file_list.item(i).text()
+            for i in range(self.file_list.count())
+            if self.file_list.item(i).checkState() == QtCore.Qt.Checked
+        }
         self.file_list.clear()
         text = text.strip().lower()
         for f in self._files:
@@ -227,6 +233,7 @@ class Overplot(QWidget):
             item = self.file_list.item(i)
             item.setCheckState(QtCore.Qt.Unchecked)
             item.setSelected(False)
+
     def _prepare_data(self, path, transform):
         try:
             data = np.loadtxt(path)
@@ -258,7 +265,7 @@ class Overplot(QWidget):
         if transform == "R*Q^4":
             # y -> y * x**4
             # error propagation: sigma_f^2 = (Q^4)^2 * sigma_R^2 + (4*R*Q^3)^2 * sigma_Q^2
-            x4 = x ** 4
+            x4 = x**4
             y_trans = y * x4
 
             sigma_R = ey if ey is not None else None
@@ -267,8 +274,8 @@ class Overplot(QWidget):
             if sigma_R is None and sigma_Q is None:
                 ey_trans = None
             else:
-                t1 = (x4 ** 2) * (sigma_R ** 2) if sigma_R is not None else 0
-                t2 = ((4 * y * (x ** 3)) ** 2) * (sigma_Q ** 2) if sigma_Q is not None else 0
+                t1 = (x4**2) * (sigma_R**2) if sigma_R is not None else 0
+                t2 = ((4 * y * (x**3)) ** 2) * (sigma_Q**2) if sigma_Q is not None else 0
                 ey_trans = np.sqrt(t1 + t2)
 
             y = y_trans
@@ -320,9 +327,9 @@ class Overplot(QWidget):
                 label = os.path.basename(fname)
                 try:
                     if ey is not None:
-                        ax.errorbar(x, y, yerr=ey, label=label, fmt='-o')
+                        ax.errorbar(x, y, yerr=ey, label=label, fmt="-o")
                     else:
-                        ax.plot(x, y, '-o', label=label)
+                        ax.plot(x, y, "-o", label=label)
                     any_plotted = True
                 except Exception as e:
                     QMessageBox.warning(self, "Plot error", f"Failed to plot {fname}: {e}")
@@ -331,15 +338,15 @@ class Overplot(QWidget):
                 QMessageBox.information(self, "No data", "No data was plotted")
                 return
 
-            ax.set_yscale('log')
-            if self.xscale_combo.currentText() == 'log':
-                ax.set_xscale('log')
+            ax.set_yscale("log")
+            if self.xscale_combo.currentText() == "log":
+                ax.set_xscale("log")
             else:
-                ax.set_xscale('linear')
+                ax.set_xscale("linear")
 
             ax.legend()
-            ax.set_xlabel('Q')
-            ax.set_ylabel('R' if transform == "None" else 'R*Q^4')
+            ax.set_xlabel("Q")
+            ax.set_ylabel("R" if transform == "None" else "R*Q^4")
             self.figure.tight_layout()
             self.canvas.draw()
             self.save_settings()
@@ -359,9 +366,9 @@ class Overplot(QWidget):
                 label = os.path.basename(fname)
                 try:
                     if ey is not None:
-                        ax.errorbar(x, y, yerr=ey, label=label, fmt='-o')
+                        ax.errorbar(x, y, yerr=ey, label=label, fmt="-o")
                     else:
-                        ax.plot(x, y, '-o', label=label)
+                        ax.plot(x, y, "-o", label=label)
                     any_plotted = True
                 except Exception as e:
                     QMessageBox.warning(self, "Plot error", f"Failed to plot {fname}: {e}")
@@ -370,15 +377,15 @@ class Overplot(QWidget):
                 QMessageBox.information(self, "No data", "No data was plotted")
                 return
 
-            ax.set_yscale('log')
-            if self.xscale_combo.currentText() == 'log':
-                ax.set_xscale('log')
+            ax.set_yscale("log")
+            if self.xscale_combo.currentText() == "log":
+                ax.set_xscale("log")
             else:
-                ax.set_xscale('linear')
+                ax.set_xscale("linear")
 
             ax.legend()
-            ax.set_xlabel('x')
-            ax.set_ylabel('y')
+            ax.set_xlabel("x")
+            ax.set_ylabel("y")
             plt.tight_layout()
             plt.show()
 
@@ -390,6 +397,6 @@ class Overplot(QWidget):
                 self.canvas.draw()
             except Exception:
                 # If something goes wrong, fallback to closing all pyplot figures
-                plt.close('all')
+                plt.close("all")
         else:
-            plt.close('all')
+            plt.close("all")

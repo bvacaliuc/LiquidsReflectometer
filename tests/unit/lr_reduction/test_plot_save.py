@@ -2,10 +2,9 @@
 
 import os
 import tempfile
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 
 
 class TestNRReductionConfigPlotSaveDir:
@@ -78,6 +77,7 @@ class TestReduceFromTemplateProgressCallback:
     def test_signature_accepts_progress_callback(self):
         """Verify the function signature accepts progress_callback without error."""
         import inspect
+
         from lr_reduction.new_reduction_from_template import reduce_from_template
 
         sig = inspect.signature(reduce_from_template)
@@ -86,6 +86,7 @@ class TestReduceFromTemplateProgressCallback:
 
     def test_signature_accepts_save_plots(self):
         import inspect
+
         from lr_reduction.new_reduction_from_template import reduce_from_template
 
         sig = inspect.signature(reduce_from_template)
@@ -94,6 +95,7 @@ class TestReduceFromTemplateProgressCallback:
 
     def test_signature_accepts_plot_dir(self):
         import inspect
+
         from lr_reduction.new_reduction_from_template import reduce_from_template
 
         sig = inspect.signature(reduce_from_template)
@@ -123,8 +125,10 @@ class TestShowOrSavePlot:
 
     def test_show_or_save_saves_file(self):
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         from lr_reduction.nr_reduction_calc import NR_Reduction
 
         config = self._make_config()

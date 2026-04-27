@@ -4,11 +4,22 @@ import logging
 import os
 import sys
 
-from qtpy import QtCore, QtGui, QtWidgets
+from qtpy import QtCore, QtGui
 from qtpy.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QScrollArea,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
 )
 
 logger = logging.getLogger(__name__)
@@ -300,9 +311,12 @@ class TemplateReduce(QWidget):
         geom_group.setLayout(geom_layout)
 
         geom_fields = [
-            ("mmpix", 0, 0), ("dSampDet", 0, 2),
-            ("ny", 1, 0), ("nx", 1, 2),
-            ("dMod", 2, 0), ("xi_ref", 2, 2),
+            ("mmpix", 0, 0),
+            ("dSampDet", 0, 2),
+            ("ny", 1, 0),
+            ("nx", 1, 2),
+            ("dMod", 2, 0),
+            ("xi_ref", 2, 2),
             ("dS1Samp", 3, 0),
         ]
         self.geom_edits = {}
@@ -359,37 +373,41 @@ class TemplateReduce(QWidget):
     # --- File/folder selection dialogs ---
     def template_selection(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Select template file", self.template_path_label.text(), "Template file (*.xml)")
+            self, "Select template file", self.template_path_label.text(), "Template file (*.xml)"
+        )
         if path and os.path.isfile(path):
             self.template_path_label.setText(path)
 
     def output_dir_selection(self):
         path = QFileDialog.getExistingDirectory(
-            self, "Select output directory", self.output_dir_label.text(), QFileDialog.ShowDirsOnly)
+            self, "Select output directory", self.output_dir_label.text(), QFileDialog.ShowDirsOnly
+        )
         if path and os.path.isdir(path):
             self.output_dir_label.setText(path)
 
     def data_path_selection(self):
         path = QFileDialog.getExistingDirectory(
-            self, "Select NEXUS data directory", self.data_path_label.text(), QFileDialog.ShowDirsOnly)
+            self, "Select NEXUS data directory", self.data_path_label.text(), QFileDialog.ShowDirsOnly
+        )
         if path and os.path.isdir(path):
             self.data_path_label.setText(path)
 
     def db_path_selection(self):
         path = QFileDialog.getExistingDirectory(
-            self, "Select DB directory", self.db_path_label.text(), QFileDialog.ShowDirsOnly)
+            self, "Select DB directory", self.db_path_label.text(), QFileDialog.ShowDirsOnly
+        )
         if path and os.path.isdir(path):
             self.db_path_label.setText(path)
 
     def db_file_selection(self):
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Select DB file", self.db_file_label.text(), "DB file (*.dat)")
+        path, _ = QFileDialog.getOpenFileName(self, "Select DB file", self.db_file_label.text(), "DB file (*.dat)")
         if path and os.path.isfile(path):
             self.db_file_label.setText(path)
 
     def template_save_selection(self):
         path = QFileDialog.getExistingDirectory(
-            self, "Select template save directory", self.template_save_label.text(), QFileDialog.ShowDirsOnly)
+            self, "Select template save directory", self.template_save_label.text(), QFileDialog.ShowDirsOnly
+        )
         if path and os.path.isdir(path):
             self.template_save_label.setText(path)
 
@@ -562,8 +580,12 @@ class TemplateReduce(QWidget):
         params["plotQ4"] = self.plot_rq4_check.isChecked()
 
         # Q-space params (only override if non-empty and valid)
-        for attr, edit in [("qmin", self.qmin_edit), ("qmax", self.qmax_edit),
-                           ("dqbin", self.dqbin_edit), ("Qline_threshold", self.qline_threshold_edit)]:
+        for attr, edit in [
+            ("qmin", self.qmin_edit),
+            ("qmax", self.qmax_edit),
+            ("dqbin", self.dqbin_edit),
+            ("Qline_threshold", self.qline_threshold_edit),
+        ]:
             val = _safe_float(edit.text())
             if val is not None:
                 params[attr] = val
@@ -708,6 +730,7 @@ class TemplateReduce(QWidget):
         if self.interact_plots_check.isChecked() and results:
             try:
                 from lr_reduction.new_reduction_from_template import plot_reflectivity
+
                 for result in results:
                     if result is not None:
                         plot_reflectivity([result], RQ4=self.plot_rq4_check.isChecked(), show=True)

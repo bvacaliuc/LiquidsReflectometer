@@ -9,9 +9,10 @@ from apps.template_batch import TemplateBatchTab
 from qtpy import QtCore
 from qtpy.QtWidgets import QApplication, QGridLayout, QTabWidget, QWidget
 
-#REFERENCE_DIRECTIVE = "Click to choose a 60Hz reference R(Q) file"
-#TEMPLATE_DIRECTIVE = "Click to choose a 30Hz template"
-#OUTPUT_DIR_DIRECTIVE = "Click to choose an output directory"
+# REFERENCE_DIRECTIVE = "Click to choose a 60Hz reference R(Q) file"
+# TEMPLATE_DIRECTIVE = "Click to choose a 30Hz template"
+# OUTPUT_DIR_DIRECTIVE = "Click to choose an output directory"
+
 
 class ReductionInterface(QTabWidget):
     def __init__(self):

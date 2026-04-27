@@ -1,4 +1,5 @@
 """Unit tests for RunCollection stitching functionality"""
+
 import numpy as np
 import pytest
 from pytest import approx

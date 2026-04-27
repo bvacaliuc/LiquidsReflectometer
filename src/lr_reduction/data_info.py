@@ -39,11 +39,12 @@ class DataType(IntEnum):
         try:
             # Determine whether this is a direct beam based on the geometry
             if (
-                    # This is a new log for earth-centered
-                    ("BL4B:CS:Mode:Coordinates" in sample_logs and sample_logs["BL4B:CS:Mode:Coordinates"] == 0)
-                    or
-                    # This is for backward compatibility from before the new log value
-                    sample_logs["BL4B:CS:ExpPl:OperatingMode"] == "Free Liquid"):
+                # This is a new log for earth-centered
+                ("BL4B:CS:Mode:Coordinates" in sample_logs and sample_logs["BL4B:CS:Mode:Coordinates"] == 0)
+                or
+                # This is for backward compatibility from before the new log value
+                sample_logs["BL4B:CS:ExpPl:OperatingMode"] == "Free Liquid"
+            ):
                 # Earth-centered coordinate system
                 thi = sample_logs["thi"]
                 tthd = sample_logs["tthd"]

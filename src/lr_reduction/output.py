@@ -7,6 +7,7 @@ import json
 import numpy as np
 from plot_publisher import plot1d
 
+from lr_reduction import __version__ as VERSION
 from lr_reduction.stitching import (
     OverlapScalingFactor,
     ReducedData,
@@ -15,7 +16,6 @@ from lr_reduction.stitching import (
     scaling_factor_critical_edge,
 )
 
-from lr_reduction import __version__ as VERSION
 
 class RunCollection:
     """
@@ -60,17 +60,18 @@ class RunCollection:
         Calculate scale factors for each run in the collection
         """
 
-        if (self.stitching_configuration.type == StitchingType.NONE
-                or self.stitching_configuration.type == StitchingType.ABSOLUTE_NORMALIZATION):
+        if (
+            self.stitching_configuration.type == StitchingType.NONE
+            or self.stitching_configuration.type == StitchingType.ABSOLUTE_NORMALIZATION
+        ):
             return
         elif self.stitching_configuration.type == StitchingType.AUTOMATIC_AVERAGE:
-
             # Convert collection to type used in scaling factor calculation
             # Sorted by increasing q with references to original indices
             sorted_indices, sorted_collection_reduced_data = zip(
                 *sorted(
-                    ((i, ReducedData(run['q'], run['r'], run['dr'])) for i, run in enumerate(self.collection)),
-                    key=lambda t: t[1].q[0]
+                    ((i, ReducedData(run["q"], run["r"], run["dr"])) for i, run in enumerate(self.collection)),
+                    key=lambda t: t[1].q[0],
                 )
             )
 
@@ -79,9 +80,11 @@ class RunCollection:
 
             # Apply critical edge scaling if enabled
             if self.stitching_configuration.normalize_first_angle:
-                ce = scaling_factor_critical_edge(self.stitching_configuration.scale_factor_qmin,
-                                                  self.stitching_configuration.scale_factor_qmax,
-                                                  sorted_collection_reduced_data)
+                ce = scaling_factor_critical_edge(
+                    self.stitching_configuration.scale_factor_qmin,
+                    self.stitching_configuration.scale_factor_qmax,
+                    sorted_collection_reduced_data,
+                )
                 self.stitching_reflectivity_scale_factors[sorted_indices[0]] = ce
                 cumulative_scale_factor = ce
 
@@ -89,8 +92,7 @@ class RunCollection:
             if len(sorted_collection_reduced_data) > 1:
                 for i in range(1, len(sorted_indices)):
                     overlap_sf_calculator = OverlapScalingFactor(
-                        left_data=sorted_collection_reduced_data[i - 1],
-                        right_data=sorted_collection_reduced_data[i]
+                        left_data=sorted_collection_reduced_data[i - 1], right_data=sorted_collection_reduced_data[i]
                     )
                     sf = overlap_sf_calculator.get_scaling_factor()
                     cumulative_scale_factor *= sf
@@ -268,18 +270,31 @@ class RunCollection:
         run_names = []
 
         for i, item in enumerate(self.collection):
-            refl_curves.append([item["q"],
-                                item["r"] * self.stitching_reflectivity_scale_factors[i],
-                                item["dr"] * self.stitching_reflectivity_scale_factors[i],
-                                item["dq"]])
-            run_names.append(f"Run: {item['info']['run_number']}  "
-                             f"SF: {self.stitching_reflectivity_scale_factors[i]:.3f}")
+            refl_curves.append(
+                [
+                    item["q"],
+                    item["r"] * self.stitching_reflectivity_scale_factors[i],
+                    item["dr"] * self.stitching_reflectivity_scale_factors[i],
+                    item["dq"],
+                ]
+            )
+            run_names.append(
+                f"Run: {item['info']['run_number']}  SF: {self.stitching_reflectivity_scale_factors[i]:.3f}"
+            )
 
         # run_number parameter is only used when publish=True
-        return plot1d(run_number="dummy_run", data_list=refl_curves, data_names=run_names,
-                      instrument='REF_L',
-                      x_title=u"Q (1/A)", x_log=True,
-                      y_title="Reflectivity", y_log=True, show_dx=False, publish=False)
+        return plot1d(
+            run_number="dummy_run",
+            data_list=refl_curves,
+            data_names=run_names,
+            instrument="REF_L",
+            x_title="Q (1/A)",
+            x_log=True,
+            y_title="Reflectivity",
+            y_log=True,
+            show_dx=False,
+            publish=False,
+        )
 
 
 def read_file(file_path):
@@ -298,7 +313,7 @@ def read_file(file_path):
                 _meta = json.loads(line[len("# Meta:") : -1])
     try:
         _q, _r, _dr, _dq = np.loadtxt(file_path).T
-    except: # noqa: E722
+    except:  # noqa: E722
         print("Could not read file. It may have no points")
         _q = _r = _dr = _dq = []
     return _q, _r, _dr, _dq, _meta

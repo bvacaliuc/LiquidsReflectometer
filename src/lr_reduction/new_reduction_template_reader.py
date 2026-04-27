@@ -23,17 +23,17 @@ LIST OF PARAMS TO ADD:
 import time
 import xml.dom.minidom
 
-#from lr_reduction.gravity_correction import GravityDirection
-from lr_reduction.instrument_settings import InstrumentSettings
-
 from lr_reduction import __version__ as VERSION
 
+# from lr_reduction.gravity_correction import GravityDirection
+from lr_reduction.instrument_settings import InstrumentSettings
+
 # Get the mantid version being used, if available
-#try:
+# try:
 #    import mantid
 
 #    MANTID_VERSION = mantid.__version__
-#except:  # noqa: E722
+# except:  # noqa: E722
 #    MANTID_VERSION = "None"
 
 
@@ -46,10 +46,10 @@ class ReductionParameters:
         # Signal selection
         self.data_peak_range = [140, 150]
         self.subtract_background = True
-        #self.two_backgrounds: bool = False
+        # self.two_backgrounds: bool = False
         self.background_roi = [137, 153, 0, 0]
         self.tof_range = [9600.0, 21600.0]
-        #self.select_tof_range = True
+        # self.select_tof_range = True
 
         self.lam_range = [None, None]
 
@@ -57,7 +57,7 @@ class ReductionParameters:
 
         # Data files
         self.data_files = [0]
-        #self.norm_file = 0
+        # self.norm_file = 0
 
         # Q range
         self.q_min = 0.001
@@ -66,22 +66,24 @@ class ReductionParameters:
 
         # Scattering angle
         self.angle_offset = 0.0
-        #self.angle_offset_error = 0.0
+        # self.angle_offset_error = 0.0
 
         # Dead time correction
         self.dead_time: bool = False
-        #self.paralyzable: bool = True
+        # self.paralyzable: bool = True
         self.dead_time_value = 4.2
         self.dead_time_tof_step = 100
-        #self.use_dead_time_threshold = False
-        #self.dead_time_threshold: Optional[Float] = 1.5
+        # self.use_dead_time_threshold = False
+        # self.dead_time_threshold: Optional[Float] = 1.5
 
         # TODO: Compare the defaults to defaults in nr_config.
         # New parts added from new reduction config scheme
-        self.norm_scale = False # Ensure name is different from prior normalization flag on DB
+        self.norm_scale = False  # Ensure name is different from prior normalization flag on DB
         self.DB_file = None
         self.q_method = None
-        self.autoscale = True   # Might need to check for new flags from recent change and make sure this doesn't conflict.
+        self.autoscale = (
+            True  # Might need to check for new flags from recent change and make sure this doesn't conflict.
+        )
         self.use_calc_theta = True
         self.qline_threshold = 0.66
         self.scale_factor = 1.0
@@ -96,7 +98,7 @@ class ReductionParameters:
         self.use_emission_time: bool = True
 
         # Gravity correction
-        #self.gravity_direction = None
+        # self.gravity_direction = None
 
     def from_dict(self, data_dict, permissible=True):
         """
@@ -127,25 +129,25 @@ class ReductionParameters:
         Create XML from the current data.
         """
         _xml = "<RefLData>\n"
-        _xml += "<peak_selection_type>narrow</peak_selection_type>\n"   # Not sure what this means.
+        _xml += "<peak_selection_type>narrow</peak_selection_type>\n"  # Not sure what this means.
         _xml += "<from_peak_pixels>%s</from_peak_pixels>\n" % str(self.data_peak_range[0])
         _xml += "<to_peak_pixels>%s</to_peak_pixels>\n" % str(self.data_peak_range[1])
         _xml += "<peak_discrete_selection>N/A</peak_discrete_selection>\n"  # Not sure what this means.
         _xml += "<background_flag>%s</background_flag>\n" % str(self.subtract_background)
-        #_xml += "<two_backgrounds>%s</two_backgrounds>\n" % str(self.two_backgrounds)
+        # _xml += "<two_backgrounds>%s</two_backgrounds>\n" % str(self.two_backgrounds)
         _xml += "<back_roi1_from>%s</back_roi1_from>\n" % str(self.background_roi[0])
         _xml += "<back_roi1_to>%s</back_roi1_to>\n" % str(self.background_roi[1])
         _xml += "<back_roi2_from>%s</back_roi2_from>\n" % str(self.background_roi[2])
         _xml += "<back_roi2_to>%s</back_roi2_to>\n" % str(self.background_roi[3])
-        #_xml += "<tof_range_flag>%s</tof_range_flag>\n" % str(self.select_tof_range)
+        # _xml += "<tof_range_flag>%s</tof_range_flag>\n" % str(self.select_tof_range)
         _xml += "<from_tof_range>%s</from_tof_range>\n" % str(self.tof_range[0])
         _xml += "<to_tof_range>%s</to_tof_range>\n" % str(self.tof_range[1])
         _xml += "<data_sets>%s</data_sets>\n" % ",".join([str(i) for i in self.data_files])
         _xml += "<x_min_pixel>%s</x_min_pixel>\n" % str(self.data_x_range[0])
         _xml += "<x_max_pixel>%s</x_max_pixel>\n" % str(self.data_x_range[1])
-        #_xml += "<x_range_flag>%s</x_range_flag>\n" % str(self.data_x_range_flag)
+        # _xml += "<x_range_flag>%s</x_range_flag>\n" % str(self.data_x_range_flag)
 
-        #_xml += "<norm_dataset>%s</norm_dataset>\n" % str(self.norm_file)
+        # _xml += "<norm_dataset>%s</norm_dataset>\n" % str(self.norm_file)
         if self.lam_range is not None:
             _xml += "<lam_min>%s</lam_min>\n" % str(self.lam_range[0])
             _xml += "<lam_max>%s</lam_max>\n" % str(self.lam_range[1])
@@ -156,15 +158,15 @@ class ReductionParameters:
 
         # Angle offset
         _xml += "<angle_offset>%s</angle_offset>\n" % str(self.angle_offset)
-        #_xml += "<angle_offset_error>%s</angle_offset_error>\n" % str(self.angle_offset_error)
+        # _xml += "<angle_offset_error>%s</angle_offset_error>\n" % str(self.angle_offset_error)
 
         # Dead time correction
         _xml += "<dead_time_correction>%s</dead_time_correction>\n" % str(self.dead_time)
-        #_xml += "<dead_time_paralyzable>%s</dead_time_paralyzable>\n" % str(self.paralyzable)
+        # _xml += "<dead_time_paralyzable>%s</dead_time_paralyzable>\n" % str(self.paralyzable)
         _xml += "<dead_time_value>%s</dead_time_value>\n" % str(self.dead_time_value)
         _xml += "<dead_time_tof_step>%s</dead_time_tof_step>\n" % str(self.dead_time_tof_step)
-        #_xml += "<use_dead_time_threshold>%s</use_dead_time_threshold>\n" % str(self.use_dead_time_threshold)
-        #_xml += "<dead_time_threshold>%s</dead_time_threshold>\n" % str(self.dead_time_threshold)
+        # _xml += "<use_dead_time_threshold>%s</use_dead_time_threshold>\n" % str(self.use_dead_time_threshold)
+        # _xml += "<dead_time_threshold>%s</dead_time_threshold>\n" % str(self.dead_time_threshold)
 
         # Instrument settings
         _xml += "<apply_instrument_settings>%s</apply_instrument_settings>\n" % str(self.apply_instrument_settings)
@@ -180,7 +182,7 @@ class ReductionParameters:
         )
 
         # Gravity correction
-        #if self.gravity_direction is not None:
+        # if self.gravity_direction is not None:
         #    _xml += "<gravity_direction>%s</gravity_direction>\n" % str(self.gravity_direction)  # -1, 0, 1
 
         # Emission time correction
@@ -221,7 +223,7 @@ class ReductionParameters:
         self.subtract_background = getBoolElement(instrument_dom, "background_flag", default=self.subtract_background)
 
         # use two backgrounds flag
-        #self.two_backgrounds = getBoolElement(instrument_dom, "two_backgrounds", default=self.two_backgrounds)
+        # self.two_backgrounds = getBoolElement(instrument_dom, "two_backgrounds", default=self.two_backgrounds)
 
         # background from/to pixels
         self.background_roi = [
@@ -232,7 +234,7 @@ class ReductionParameters:
         ]
 
         # TOF range
-        #self.select_tof_range = getBoolElement(instrument_dom, "tof_range_flag", default=self.select_tof_range)
+        # self.select_tof_range = getBoolElement(instrument_dom, "tof_range_flag", default=self.select_tof_range)
         self.tof_range = [
             getFloatElement(instrument_dom, "from_tof_range"),
             getFloatElement(instrument_dom, "to_tof_range"),
@@ -240,7 +242,7 @@ class ReductionParameters:
 
         self.data_files = getIntList(instrument_dom, "data_sets")
 
-        #self.norm_file = getIntElement(instrument_dom, "norm_dataset")
+        # self.norm_file = getIntElement(instrument_dom, "norm_dataset")
 
         # Q cut
         self.q_min = getFloatElement(instrument_dom, "q_min", default=self.q_min)
@@ -249,19 +251,19 @@ class ReductionParameters:
 
         # Angle offset
         self.angle_offset = getFloatElement(instrument_dom, "angle_offset", default=self.angle_offset)
-        #self.angle_offset_error = getFloatElement(instrument_dom, "angle_offset_error", default=self.angle_offset_error)
+        # self.angle_offset_error = getFloatElement(instrument_dom, "angle_offset_error", default=self.angle_offset_error)
 
         # Dead time correction
         self.dead_time = getBoolElement(instrument_dom, "dead_time_correction", default=self.dead_time)
-        #self.paralyzable = getBoolElement(instrument_dom, "dead_time_paralyzable", default=self.paralyzable)
+        # self.paralyzable = getBoolElement(instrument_dom, "dead_time_paralyzable", default=self.paralyzable)
         self.dead_time_value = getFloatElement(instrument_dom, "dead_time_value", default=self.dead_time_value)
         self.dead_time_tof_step = getFloatElement(instrument_dom, "dead_time_tof_step", default=self.dead_time_tof_step)
-        #self.use_dead_time_threshold = getBoolElement(
+        # self.use_dead_time_threshold = getBoolElement(
         #    instrument_dom, "use_dead_time_threshold", default=self.use_dead_time_threshold
-        #)
-        #self.dead_time_threshold = getFloatElement(
+        # )
+        # self.dead_time_threshold = getFloatElement(
         #    instrument_dom, "dead_time_threshold", default=self.dead_time_threshold
-        #)
+        # )
 
         # New parts added from new reduction config scheme
         self.norm_scale = getBoolElement(instrument_dom, "norm_scale", default=self.norm_scale)
@@ -273,8 +275,8 @@ class ReductionParameters:
         self.scale_factor = getFloatElement(instrument_dom, "scale_factor", default=self.scale_factor)
         self.save8col = getBoolElement(instrument_dom, "save_eight_col", default=self.save8col)
 
-        lam_min = getFloatElement(instrument_dom, "lam_min", default = None)
-        lam_max = getFloatElement(instrument_dom, "lam_max", default = None)
+        lam_min = getFloatElement(instrument_dom, "lam_min", default=None)
+        lam_max = getFloatElement(instrument_dom, "lam_max", default=None)
         if (lam_min is not None) & (lam_max is not None):
             self.lam_range = [lam_min, lam_max]
         else:
@@ -297,9 +299,9 @@ class ReductionParameters:
             instrument_dom, "wavelength_resolution_function", default=self.wavelength_resolution_function
         )
 
-        #self.gravity_direction = GravityDirection.from_value(
+        # self.gravity_direction = GravityDirection.from_value(
         #    getIntElement(instrument_dom, "gravity_direction", default=self.gravity_direction)
-        #)
+        # )
 
         # Emission time
         # Defaults to True, but will be skipped if the necessary meta data is not found
@@ -417,7 +419,7 @@ def to_xml(data_sets):
     _xml += "    <instrument_name>REFL</instrument_name>\n"
     _xml += "    <timestamp>%s</timestamp>\n" % time.ctime()
     _xml += "    <version>%s</version>\n" % VERSION
-    #_xml += "    <mantid_version>%s</mantid_version>\n" % MANTID_VERSION
+    # _xml += "    <mantid_version>%s</mantid_version>\n" % MANTID_VERSION
     _xml += "    <generator>lr_reduction-%s</generator>\n" % VERSION
     _xml += "<DataSeries>\n"
     for item in data_sets:

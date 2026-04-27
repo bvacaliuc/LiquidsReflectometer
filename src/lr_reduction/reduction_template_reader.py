@@ -242,17 +242,19 @@ class ReductionParameters:
         _xml += "<use_emission_time>%s</use_emission_time>\n" % str(self.use_emission_time)
 
         # Stitching
-        _xml += ("<stitching_type>%s</stitching_type>\n"
-                 % str(self.stitching_configuration.type.value))
-        _xml += ("<stitching_scale_factor_qmin>%s</stitching_scale_factor_qmin>\n"
-                 % str(self.stitching_configuration.scale_factor_qmin))
-        _xml += ("<stitching_scale_factor_qmax>%s</stitching_scale_factor_qmax>\n"
-                 % str(self.stitching_configuration.scale_factor_qmax))
+        _xml += "<stitching_type>%s</stitching_type>\n" % str(self.stitching_configuration.type.value)
+        _xml += "<stitching_scale_factor_qmin>%s</stitching_scale_factor_qmin>\n" % str(
+            self.stitching_configuration.scale_factor_qmin
+        )
+        _xml += "<stitching_scale_factor_qmax>%s</stitching_scale_factor_qmax>\n" % str(
+            self.stitching_configuration.scale_factor_qmax
+        )
         _xml += "<stitching_normalize_first_angle>%s</stitching_normalize_first_angle>\n" % str(
             self.stitching_configuration.normalize_first_angle
         )
-        _xml += ("<stitching_reflectivity_scale_factor>%s</stitching_reflectivity_scale_factor>\n"
-                 % str(self.stitching_reflectivity_scale_factor))
+        _xml += "<stitching_reflectivity_scale_factor>%s</stitching_reflectivity_scale_factor>\n" % str(
+            self.stitching_reflectivity_scale_factor
+        )
 
         _xml += "</RefLData>\n"
 
@@ -400,18 +402,20 @@ class ReductionParameters:
         # Stitching
         type_str = getStringElement(instrument_dom, "stitching_type", default=self.stitching_configuration.type.value)
         self.stitching_configuration.type = StitchingType.from_value(type_str)
-        self.stitching_configuration.scale_factor_qmin = getFloatElement(instrument_dom,
-                                                                         "stitching_scale_factor_qmin",
-                                                                         default=self.stitching_configuration.scale_factor_qmin)
-        self.stitching_configuration.scale_factor_qmax = getFloatElement(instrument_dom,
-                                                                         "stitching_scale_factor_qmax",
-                                                                         default=self.stitching_configuration.scale_factor_qmax)
-        self.stitching_configuration.normalize_first_angle = getBoolElement(instrument_dom,
-                                                                            "stitching_normalize_first_angle",
-                                                                            default=self.stitching_configuration.normalize_first_angle)
-        self.stitching_reflectivity_scale_factor = getFloatElement(instrument_dom,
-                                                                   "stitching_reflectivity_scale_factor",
-                                                                   default=self.stitching_reflectivity_scale_factor)
+        self.stitching_configuration.scale_factor_qmin = getFloatElement(
+            instrument_dom, "stitching_scale_factor_qmin", default=self.stitching_configuration.scale_factor_qmin
+        )
+        self.stitching_configuration.scale_factor_qmax = getFloatElement(
+            instrument_dom, "stitching_scale_factor_qmax", default=self.stitching_configuration.scale_factor_qmax
+        )
+        self.stitching_configuration.normalize_first_angle = getBoolElement(
+            instrument_dom,
+            "stitching_normalize_first_angle",
+            default=self.stitching_configuration.normalize_first_angle,
+        )
+        self.stitching_reflectivity_scale_factor = getFloatElement(
+            instrument_dom, "stitching_reflectivity_scale_factor", default=self.stitching_reflectivity_scale_factor
+        )
 
 
 #############################################
@@ -419,7 +423,7 @@ class ReductionParameters:
 #############################################
 
 
-def getText(nodelist): # noqa: N802
+def getText(nodelist):  # noqa: N802
     """Utility method to extract text out of an XML node"""
     rc = ""
     for node in nodelist:
@@ -428,19 +432,19 @@ def getText(nodelist): # noqa: N802
     return rc
 
 
-def getContent(dom, tag): # noqa: N802
+def getContent(dom, tag):  # noqa: N802
     """Returns the content of a tag within a dom object"""
     element_list = dom.getElementsByTagName(tag)
     return getText(element_list[0].childNodes) if len(element_list) > 0 else None
 
 
-def getIntElement(dom, tag, default=None): # noqa: N802
+def getIntElement(dom, tag, default=None):  # noqa: N802
     """Parse an integer element from the dom object"""
     value = getContent(dom, tag)
     return int(value) if value is not None else default
 
 
-def getIntList(dom, tag, default=[]): # noqa: N802
+def getIntList(dom, tag, default=[]):  # noqa: N802
     """Parse a list of integers from the dom object"""
     value = getContent(dom, tag)
     if value is not None and len(value.strip()) > 0:
@@ -449,7 +453,7 @@ def getIntList(dom, tag, default=[]): # noqa: N802
         return default
 
 
-def getFloatElement(dom, tag, default=None): # noqa: N802
+def getFloatElement(dom, tag, default=None):  # noqa: N802
     """
     Parse a float element from the DOM object.
 
@@ -471,7 +475,7 @@ def getFloatElement(dom, tag, default=None): # noqa: N802
     return float(value) if value is not None else default
 
 
-def getFloatList(dom, tag, default=[]): # noqa: N802
+def getFloatList(dom, tag, default=[]):  # noqa: N802
     """Parse a list of floats from the dom object"""
     value = getContent(dom, tag)
     if value is not None and len(value.strip()) > 0:
@@ -480,13 +484,13 @@ def getFloatList(dom, tag, default=[]): # noqa: N802
         return default
 
 
-def getStringElement(dom, tag, default=""): # noqa: N802
+def getStringElement(dom, tag, default=""):  # noqa: N802
     """Parse a string element from the dom object"""
     value = getContent(dom, tag)
     return value if value is not None else default
 
 
-def getStringList(dom, tag, _default=[]): # noqa: N802
+def getStringList(dom, tag, _default=[]):  # noqa: N802
     """Parse a list of strings from the dom object"""
     elem_list = []
     element_list = dom.getElementsByTagName(tag)
@@ -496,7 +500,7 @@ def getStringList(dom, tag, _default=[]): # noqa: N802
     return elem_list
 
 
-def getBoolElement(dom, tag, true_tag="true", default=False): # noqa: N802
+def getBoolElement(dom, tag, true_tag="true", default=False):  # noqa: N802
     """Parse a boolean element from the dom object"""
     value = getContent(dom, tag)
     return value.lower() == true_tag.lower() if value is not None else default

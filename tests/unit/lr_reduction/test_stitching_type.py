@@ -1,4 +1,5 @@
 """Unit tests for the StitchingType enum"""
+
 import pytest
 
 from lr_reduction.stitching import StitchingType
