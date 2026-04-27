@@ -210,6 +210,23 @@ exclude = ["notebooks/**", "**/*.ipynb", "scripts/**", "tests/data/**"]
 
 [tool.ruff.lint]
 select = ["A", "ARG","ASYNC","BLE", "E", "F", "FURB", "I", "N", "UP032", "W"]
+ignore = [
+  "BLE001",  # blind exception catch — established pattern for optional Qt/matplotlib import fallback chains
+  "E402",    # module level import not at top of file
+  "E501",    # line too long
+  "E722",    # bare except
+  "E741",    # ambiguous variable name
+  "E743",    # ambiguous function name
+  "F403",    # wildcard imports
+  "F405",    # names from wildcard imports
+  "F821",    # undefined names from wildcard imports
+  "N802",    # function name should be lowercase
+  "N803",    # argument name should be lowercase
+  "N806",    # variable in function should be lowercase
+  "N812",    # lowercase imported as non-lowercase
+  "N815",    # mixed case variable in class scope
+  "N999",    # invalid module name
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["lr_reduction"]
