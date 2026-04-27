@@ -3,10 +3,11 @@ import os
 from pathlib import Path
 
 import h5py
-import lr_reduction.new_reduction_template_reader as reduction_template_reader
-import lr_reduction.nr_tools as tools
 import numpy as np
 from matplotlib import pyplot as plt
+
+import lr_reduction.new_reduction_template_reader as reduction_template_reader
+import lr_reduction.nr_tools as tools
 from lr_reduction.new_reduction_template_reader import ReductionParameters
 
 #import template
@@ -98,7 +99,7 @@ def reduce_from_template(runno, template_file, experiment_id, datapath: Path = N
 
     # Set plot save directory on config if requested
     if save_plots:
-        config.plot_save_dir = plot_dir if plot_dir else str(config.Spath)
+        config.plot_save_dir = plot_dir or str(config.Spath)
 
     _report(2, 5, "Running reduction")
 
@@ -111,8 +112,8 @@ def reduce_from_template(runno, template_file, experiment_id, datapath: Path = N
         result = {'Q': results['q'], 'R': results['r'], 'dR': results['dr'], 'dQ': results['dq'],
                 'T': result['t'], 'L': result['l'], 'dT': result['dt'], 'dL': result['dl']}
     else:
-        result = {'Q': results['q'], 'R': results['r'], 'dR': results['dr'], 'dQ': results['dq']}       
-    
+        result = {'Q': results['q'], 'R': results['r'], 'dR': results['dr'], 'dQ': results['dq']}
+
     reduce_calc.save_results(result, sname=f"{config.Sname}_partial")
     if eight_col: #TODO: decide whether this is instead of prior save
         reduce_calc.save_results(result, sname=f"{config.Sname}_partial", eight_column=True)
@@ -120,7 +121,7 @@ def reduce_from_template(runno, template_file, experiment_id, datapath: Path = N
     _report(3, 5, "Assembling results")
 
     # Collect "like" runs together
-    _plot_dir = plot_dir if plot_dir else str(config.Spath)
+    _plot_dir = plot_dir or str(config.Spath)
     seq_list, run_list, combined_results, scaling_factors = assemble_results(seq_id, config.Spath, autoscale=config.AutoScale, plot=plot, RQ4=config.plotQ4, eight_col=eight_col, save_plots=save_plots, plot_dir=_plot_dir, show_plots=plot)
     # Add scaling factor to output
     scale_list = np.array([np.float64(1)] + scaling_factors)
@@ -173,7 +174,7 @@ def config_from_template(template_data):
     # NOTE: Various of the config items expect arrays so ensure is set as single item array here.
 
     # Determine reduction method from template
-    if template_data.q_method != False and template_data.q_method is not None: # Should this be None or False? Not sure where the False comes from...
+    if template_data.q_method != False and template_data.q_method is not None:  # noqa: E712 — distinguishes False from None intentionally; see comment
         method = template_data.q_method
     else:
         method = 'MeanTheta' if template_data.const_q else 'constantTOF' #TODO: decide if this should be MeanTheta or constantQ
@@ -186,7 +187,7 @@ def config_from_template(template_data):
     config.RB_Ymin = [template_data.data_peak_range[0]]
     config.RB_Ymax = [template_data.data_peak_range[1]]
 
-    if template_data.subtract_background == True:
+    if template_data.subtract_background:
         config.useBS = [1]
     else:
         config.useBS = [0]
@@ -298,7 +299,7 @@ def assemble_results(seq_id, output_dir, autoscale = True, plot=True, RQ4=False,
     # Load the data
     data_array = []
     for idx, file in enumerate(full_names):
-        seq_id_store = seq_list[idx]
+        seq_id_store = seq_list[idx]  # noqa: F841
         data = np.loadtxt(Path(output_dir) / file, unpack=True) # TODO: sort as Path.
         data_array.append(data)
     print("Data loaded:", len(data_array))
@@ -360,7 +361,7 @@ def assemble_results(seq_id, output_dir, autoscale = True, plot=True, RQ4=False,
 
     if len(Q) == 0:
         raise ValueError(f"No valid runs found for sequence {seq_id}")
-    
+
     _save_path = os.path.join(plot_dir, f"REFL_{seq_id}_individual_settings.png") if save_plots and plot_dir else None
     if plot or save_plots:
         plot_reflectivity(dict_output, RQ4, save_path=_save_path, show=show_plots)

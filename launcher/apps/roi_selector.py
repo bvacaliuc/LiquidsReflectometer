@@ -920,12 +920,14 @@ class ROISelector(QWidget):
                             if getattr(chosen, 'background_roi', None):
                                 b = chosen.background_roi
                                 if len(b) >= 4:
-                                    self.bkg1_min.setValue(int(b[0])); self.bkg1_max.setValue(int(b[1]))
-                                    self.bkg2_min.setValue(int(b[2])); self.bkg2_max.setValue(int(b[3]))
+                                    self.bkg1_min.setValue(int(b[0]))
+                                    self.bkg1_max.setValue(int(b[1]))
+                                    self.bkg2_min.setValue(int(b[2]))
+                                    self.bkg2_max.setValue(int(b[3]))
                             # set background mode according to template flags (subtract_background, two_backgrounds)
                             try:
                                 sb = getattr(chosen, 'subtract_background', True)
-                                two = getattr(chosen, 'two_backgrounds', True)
+                                two = getattr(chosen, 'two_backgrounds', True)  # noqa: F841
                                 if not sb:
                                     # No background
                                     self.bkg_mode_cb.setCurrentText("No background")
@@ -1047,7 +1049,7 @@ class ROISelector(QWidget):
                                 self.bkg2_max.setValue(int(back2_to))
                             # background flag
                             background_flag = get('background_flag')
-                            two_bg = get('two_backgrounds')
+                            two_bg = get('two_backgrounds')  # noqa: F841
                             if background_flag is not None and background_flag.lower() in ('false', '0'):
                                 try:
                                     self.bkg_mode_cb.setCurrentText("No background")
@@ -1509,7 +1511,7 @@ class ROISelector(QWidget):
             }
 
             # no extra artist name mapping needed; heatmap overlay lines are non-pickable
-            artist_name_map = {}
+            artist_name_map = {}  # noqa: F841
 
             self._active_line = None
 
@@ -1776,7 +1778,8 @@ class ROISelector(QWidget):
             if '-' in t:
                 try:
                     a, b = t.split('-', 1)
-                    a = int(a); b = int(b)
+                    a = int(a)
+                    b = int(b)
                     if b >= a:
                         runs.extend(list(range(a, b + 1)))
                 except Exception:
@@ -2263,6 +2266,3 @@ class ROISelector(QWidget):
             QMessageBox.information(self, "Saved", f"Combined template saved to {path}")
         except Exception as e:
             QMessageBox.critical(self, "Save error", f"Failed to save combined template: {e}")
-
-
-

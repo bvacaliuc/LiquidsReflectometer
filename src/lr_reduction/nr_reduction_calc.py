@@ -7,12 +7,13 @@ For now, it assumes a pre-processed DB file.
 """
 import os
 
-import lr_reduction.binary_processing as BP
 import matplotlib.pyplot as plt
-import lr_reduction.nr_tools as tools
 import numpy as np
 from matplotlib.colors import LogNorm
 from scipy.ndimage import gaussian_filter1d, uniform_filter1d
+
+import lr_reduction.binary_processing as BP
+import lr_reduction.nr_tools as tools
 
 #import datetime
 #import json
@@ -89,7 +90,7 @@ class NR_Reduction:
             self.config.tof_min = [0] * n_settings
         if not self.config.tof_max:
             self.config.tof_max = [100000] * n_settings # TODO: Work out where to set this up properly!
-            
+
     def _show_or_save_plot(self, fig, name_hint):
         """Save and/or show a diagnostic plot based on config settings."""
         if getattr(self.config, 'plot_save_dir', None) is not None:
@@ -382,7 +383,7 @@ class NR_Reduction:
         LAMBDA = 3956 * (tRB) / self.settings['source_detector_distance']
         LAMBDA = 3956 * (tRB - (t0[0] + t0[1] * LAMBDA)) / self.settings['source_detector_distance']
         LambdaBinSize = abs(LAMBDA[1] - LAMBDA[0])
-        
+
         if self.config.plotON:
             fig, ax = plt.subplots()
             ax.plot(LAMBDA, np.sum(RB, axis=0), label='pre-mask')
@@ -397,15 +398,15 @@ class NR_Reduction:
         # iDB = np.interp(LAMBDA, lDB, iDB)
         # eDB = np.interp(LAMBDA, lDB, eDB)
 
-        if self.config.plotON:        
+        if self.config.plotON:
             ax.plot(lDB, iDB, label='DB')
             ax.plot(LAMBDA, np.sum(RB, axis=0), label='post mask')
-            
+
         # Rebin DB lambda to match new RB binning
         iDB = tools.rebin_counts(LAMBDA, lDB, iDB)
         eDB = np.sqrt(tools.rebin_counts(LAMBDA, lDB, eDB**2))
-        
-        if self.config.plotON:        
+
+        if self.config.plotON:
             ax.plot(LAMBDA, iDB, label='DB rebin')
             ax.legend()
             plt.show()
@@ -919,7 +920,7 @@ class NR_Reduction:
             REarr = eRB
 
         # Normalize by incident spectrum & propagate error
-        R0 = Rarr.copy()    
+        R0 = Rarr.copy()
         Rarr, REarr = tools.divide_propagate_error(R0, REarr, iDB, eDB)
 
         # Remove NaNs - #TODO: check if this is still correct...
@@ -994,7 +995,7 @@ class NR_Reduction:
 
         for T in range(Rarr.shape[0]):
             # Apply gravity correction
-            if self.config.useGravity == True: # TODO: Implementation needs checking/deciding whether to keep!
+            if self.config.useGravity:  # TODO: Implementation needs checking/deciding whether to keep!
                 Thv = abs(Theta[T] + ThetaGC)
             else:
                 ThetaGC.fill(0)
@@ -1094,7 +1095,7 @@ class NR_Reduction:
         else:
             array = np.column_stack((results['Q'], results['R'], results['dR'], results['dQ']))
             col_label = "columns = Q, R, dR, dQ (sigma)"
-            
+
         # TODO: Sort out the header to include best information...
         if full:
             head = (

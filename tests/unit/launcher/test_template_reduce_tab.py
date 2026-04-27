@@ -8,16 +8,11 @@ import tempfile
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from apps.template_reduce import (
-    DATA_PATH_DIRECTIVE,
-    DB_FILE_DIRECTIVE,
-    DB_PATH_DIRECTIVE,
-    OUTPUT_DIR_DIRECTIVE,
-    TEMPLATE_DIRECTIVE,
-    TEMPLATE_SAVE_DIRECTIVE,
-    TemplateReduce,
     _METHOD_DISPLAY_TO_INTERNAL,
+    DATA_PATH_DIRECTIVE,
+    OUTPUT_DIR_DIRECTIVE,
+    TemplateReduce,
     _parse_run_numbers,
     _safe_float,
     _safe_int,
@@ -211,7 +206,7 @@ class TestInputValidation:
         widget.template_path_label.setText("/some/file.xml")
         widget.experiment_id_edit.setText("IPTS-12345")
         widget.output_dir_label.setText(tempfile.gettempdir())
-        with patch.object(widget, "show_dialog") as mock_dialog:
+        with patch.object(widget, "show_dialog") as _:
             result = widget.check_inputs()
         assert result is False
 
@@ -263,7 +258,7 @@ class TestInputValidation:
             widget.template_path_label.setText(tmp_xml)
             widget.experiment_id_edit.setText("IPTS-12345")
             widget.output_dir_label.setText(OUTPUT_DIR_DIRECTIVE)
-            with patch.object(widget, "show_dialog") as mock_dialog:
+            with patch.object(widget, "show_dialog") as _:
                 result = widget.check_inputs()
             assert result is False
         finally:
@@ -1191,7 +1186,7 @@ class TestShowDialogIcon:
         """Default icon should be Critical."""
         from qtpy.QtWidgets import QMessageBox
 
-        with patch.object(QMessageBox, "exec_") as mock_exec:
+        with patch.object(QMessageBox, "exec_") as _:
             with patch.object(QMessageBox, "setIcon") as mock_set_icon:
                 widget.show_dialog("test error")
                 mock_set_icon.assert_called_with(QMessageBox.Critical)
@@ -1200,7 +1195,7 @@ class TestShowDialogIcon:
         """Passing Information icon should work."""
         from qtpy.QtWidgets import QMessageBox
 
-        with patch.object(QMessageBox, "exec_") as mock_exec:
+        with patch.object(QMessageBox, "exec_") as _:
             with patch.object(QMessageBox, "setIcon") as mock_set_icon:
                 widget.show_dialog("test success", icon=QMessageBox.Information)
                 mock_set_icon.assert_called_with(QMessageBox.Information)
@@ -1209,7 +1204,7 @@ class TestShowDialogIcon:
         """Passing Warning icon should work."""
         from qtpy.QtWidgets import QMessageBox
 
-        with patch.object(QMessageBox, "exec_") as mock_exec:
+        with patch.object(QMessageBox, "exec_") as _:
             with patch.object(QMessageBox, "setIcon") as mock_set_icon:
                 widget.show_dialog("test warning", icon=QMessageBox.Warning)
                 mock_set_icon.assert_called_with(QMessageBox.Warning)
