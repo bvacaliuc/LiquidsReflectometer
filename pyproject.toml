@@ -133,6 +133,7 @@ ruff = "*"
 codecov = "*"
 pytest = "*"
 pytest-cov = "*"
+pytest-timeout = ">=2.4.0,<3"
 
 [tool.pixi.feature.package.dependencies]  # necessary to build the conda package
 anaconda-client = ">=1.13.0,<2"
