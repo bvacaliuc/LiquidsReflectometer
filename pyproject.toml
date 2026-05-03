@@ -160,7 +160,7 @@ conda-builder = { cmd = "pixi build", description = "Command that creates the co
 conda-build = { depends-on = ["sync-version", "conda-builder", "reset-version"], description = "Build the conda package" }
 conda-clean = { cmd = "rm -f *.conda", description = "Clean the local .conda build artifacts" }
 # Testing
-test-dry-run = { cmd = "cd tests/ && python -m pytest -vv --timeout=2 --collect-only --cov=../src --cov-report=xml --cov-report=term" }
+test-dry-run = { cmd = "cd tests/ && python -m pytest -vv --timeout=2 dry_run/ --cov=../src --cov-report=xml --cov-report=term" }
 test-with-report = { cmd = "pixi run pytest --html=pytest_report.html --self-contained-html", description = "Run test with .html report output" }
 test-reduction = { cmd = "cd tests/ && python -m pytest -vv --cov=../src --cov-report=xml --cov-report=term"}
 # Misc
