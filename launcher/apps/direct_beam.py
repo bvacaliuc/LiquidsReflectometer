@@ -337,6 +337,104 @@ class DirectBeamTab(QWidget):
         self.run_btn.clicked.connect(self._run_create_db)
         self.ipts_toggle.toggled.connect(self._ipts_toggled)
 
+        # Initialize structured-value attributes from QSettings before
+        # widgets need them.
+        self.cd_vals = {}
+        self.mod_vals = {}
+        self.read_settings()
+
+        # Defense-in-depth save: persist on every mutating signal so a
+        # SIGKILL between edits costs at most the in-flight unfocused field.
+        self.run_list_edit.editingFinished.connect(self.save_settings)
+        self.ipts_edit.editingFinished.connect(self.save_settings)
+        self.ipts_toggle.toggled.connect(lambda _: self.save_settings())
+        self.nexus_edit.editingFinished.connect(self.save_settings)
+        self.savepath_edit.editingFinished.connect(self.save_settings)
+        self.savename_edit.editingFinished.connect(self.save_settings)
+        self.DTCcut_spin.valueChanged.connect(lambda _: self.save_settings())
+        self.DTCcut1_spin.valueChanged.connect(lambda _: self.save_settings())
+        self.Icut_spin.valueChanged.connect(lambda _: self.save_settings())
+        self.CutOffset_spin.valueChanged.connect(lambda _: self.save_settings())
+        self.yroi_edit.editingFinished.connect(self.save_settings)
+        self.lowres_edit.editingFinished.connect(self.save_settings)
+        self.plot_cb.toggled.connect(lambda _: self.save_settings())
+
+    def read_settings(self):
+        import json
+
+        s = self.settings
+
+        def _bool(v, default):
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return v.lower() == "true"
+            return default
+
+        self.run_list_edit.setText(str(s.value("direct_beam_run_list", "")))
+        self.ipts_edit.setText(str(s.value("direct_beam_ipts", "")))
+        self.ipts_toggle.blockSignals(True)
+        self.ipts_toggle.setChecked(_bool(s.value("direct_beam_use_ipts_path_structure", True), True))
+        self.ipts_toggle.blockSignals(False)
+        self.nexus_edit.setText(str(s.value("direct_beam_nexus_path", "")))
+        self.savepath_edit.setText(str(s.value("direct_beam_save_path", "")))
+        savename = s.value("direct_beam_save_name", "")
+        if savename:
+            self.savename_edit.setText(str(savename))
+        for key, spin in (
+            ("direct_beam_DTCcut", self.DTCcut_spin),
+            ("direct_beam_DTCcut_config1", self.DTCcut1_spin),
+            ("direct_beam_Icut", self.Icut_spin),
+            ("direct_beam_chopper_cut_offset", self.CutOffset_spin),
+        ):
+            v = s.value(key, None)
+            if v is not None:
+                try:
+                    spin.setValue(float(v))
+                except (TypeError, ValueError):
+                    pass
+        yroi = s.value("direct_beam_y_ROI", "")
+        if yroi:
+            self.yroi_edit.setText(str(yroi))
+        xroi = s.value("direct_beam_x_ROI", "")
+        if xroi:
+            self.lowres_edit.setText(str(xroi))
+        self.plot_cb.setChecked(_bool(s.value("direct_beam_plot", True), True))
+
+        for key, attr in (
+            ("direct_beam_cd_vals", "cd_vals"),
+            ("direct_beam_mod_vals", "mod_vals"),
+        ):
+            raw = s.value(key, "{}")
+            try:
+                parsed = json.loads(raw) if raw else {}
+                if not isinstance(parsed, dict):
+                    parsed = {}
+            except (ValueError, TypeError):
+                parsed = {}
+            setattr(self, attr, parsed)
+
+    def save_settings(self):
+        import json
+
+        s = self.settings
+        s.setValue("direct_beam_run_list", self.run_list_edit.text())
+        s.setValue("direct_beam_ipts", self.ipts_edit.text())
+        s.setValue("direct_beam_use_ipts_path_structure", self.ipts_toggle.isChecked())
+        s.setValue("direct_beam_nexus_path", self.nexus_edit.text())
+        s.setValue("direct_beam_save_path", self.savepath_edit.text())
+        s.setValue("direct_beam_save_name", self.savename_edit.text())
+        s.setValue("direct_beam_DTCcut", float(self.DTCcut_spin.value()))
+        s.setValue("direct_beam_DTCcut_config1", float(self.DTCcut1_spin.value()))
+        s.setValue("direct_beam_Icut", float(self.Icut_spin.value()))
+        s.setValue("direct_beam_chopper_cut_offset", float(self.CutOffset_spin.value()))
+        s.setValue("direct_beam_y_ROI", self.yroi_edit.text())
+        s.setValue("direct_beam_x_ROI", self.lowres_edit.text())
+        s.setValue("direct_beam_plot", self.plot_cb.isChecked())
+        s.setValue("direct_beam_cd_vals", json.dumps(getattr(self, "cd_vals", {}) or {}))
+        s.setValue("direct_beam_mod_vals", json.dumps(getattr(self, "mod_vals", {}) or {}))
+        s.sync()
+
     def _open_cd_settings(self):
         # If the user has previously set cd values, use them as defaults so the dialog
         # retains the flip_atten checkbox and other values between openings.
@@ -345,6 +443,7 @@ class DirectBeamTab(QWidget):
         if dlg.exec_() == 1:
             vals = dlg.get_values()
             self.cd_vals = vals
+            self.save_settings()
 
     def _open_mod_settings(self):
         # Use previous moderator values if available so the dialog retains edits between opens
@@ -353,6 +452,7 @@ class DirectBeamTab(QWidget):
         if dlg.exec_() == 1:
             vals = dlg.get_values()
             self.mod_vals = vals
+            self.save_settings()
 
     def _ipts_toggled(self, state):
         if state:

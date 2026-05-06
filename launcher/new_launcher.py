@@ -21,8 +21,6 @@ class ReductionInterface(QTabWidget):
         layout = QGridLayout()
         self.setLayout(layout)
 
-        self.settings = QtCore.QSettings()
-
         # Overplot tab
         tab_id = 0
         self.overplot_tab = Overplot()
@@ -55,6 +53,9 @@ class ReductionInterface(QTabWidget):
 
 
 if __name__ == "__main__":
+    QtCore.QCoreApplication.setOrganizationName("ORNL")
+    QtCore.QCoreApplication.setOrganizationDomain("ornl.gov")
+    QtCore.QCoreApplication.setApplicationName("lr_reduction_new_launcher")
     app = QApplication([])
     window = ReductionInterface()
     window.show()
