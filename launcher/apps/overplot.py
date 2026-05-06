@@ -43,6 +43,43 @@ except Exception:
 FOLDER_DIRECTIVE = "Click to choose a folder containing .dat files"
 
 
+REFLECTIVITY_HEADER_MARKER = "q [1/angstrom]"
+DIRECT_BEAM_HEADER_MARKER = "lambda intensity error"
+
+
+def classify_file(path):
+    """Classify a plot input by inspecting its first few header lines.
+
+    Returns one of "reflectivity", "direct_beam", or "unknown". The
+    canonical reflectivity header begins with `# Q [1/Angstrom]` (autoreduce
+    output); the canonical direct-beam header is
+    `# columns = lambda intensity error`.
+    """
+    try:
+        with open(path) as fh:
+            for _ in range(10):
+                line = fh.readline()
+                if not line:
+                    break
+                low = line.lower()
+                if REFLECTIVITY_HEADER_MARKER in low:
+                    return "reflectivity"
+                if DIRECT_BEAM_HEADER_MARKER in low:
+                    return "direct_beam"
+    except Exception:
+        return "unknown"
+    return "unknown"
+
+
+def _axis_labels(mode, transform):
+    """Return (xlabel, ylabel) for a resolved selection mode."""
+    if mode == "reflectivity":
+        return "Q [1/Å]", ("R · Q⁴" if transform == "R*Q^4" else "R")
+    if mode == "direct_beam":
+        return "λ [Å]", "I"
+    return "x", "y"
+
+
 class Overplot(QWidget):
     """Tab for overplotting multiple .dat files.
 
@@ -56,6 +93,7 @@ class Overplot(QWidget):
 
         self.settings = QtCore.QSettings()
         self._files = []  # full list of .dat filenames in chosen folder
+        self._last_sel_mode = None
 
         # Main layout: two columns (controls | canvas)
         main_layout = QHBoxLayout()
@@ -72,6 +110,15 @@ class Overplot(QWidget):
         self.folder_label.setText(FOLDER_DIRECTIVE)
         folder_row.addWidget(self.folder_label)
         controls.addLayout(folder_row)
+
+        # Plot mode (Auto / Reflectivity / Direct Beam)
+        plot_mode_row = QHBoxLayout()
+        self.plot_mode_label = QLabel("Plot mode")
+        plot_mode_row.addWidget(self.plot_mode_label)
+        self.plot_mode_combo = QComboBox(self)
+        self.plot_mode_combo.addItems(["Auto", "Reflectivity", "Direct Beam"])
+        plot_mode_row.addWidget(self.plot_mode_combo)
+        controls.addLayout(plot_mode_row)
 
         # Filter box
         self.filter_edit = QLineEdit(self)
@@ -100,7 +147,7 @@ class Overplot(QWidget):
         xscale_row.addWidget(self.xscale_combo)
         controls.addLayout(xscale_row)
 
-        # Y transform option (None, R*Q^4)
+        # Y transform option (None, R*Q^4) — R*Q^4 only meaningful for reflectivity
         ytransform_row = QHBoxLayout()
         self.ytransform_label = QLabel("Y transform")
         ytransform_row.addWidget(self.ytransform_label)
@@ -159,9 +206,14 @@ class Overplot(QWidget):
         self.filter_edit.textChanged.connect(self.apply_filter)
         self.select_all_btn.clicked.connect(self.select_all)
         self.deselect_all_btn.clicked.connect(self.deselect_all)
+        self.plot_mode_combo.currentTextChanged.connect(self._on_plot_mode_changed)
 
         # Populate from previous session
         self.read_settings()
+        # After loading settings, apply the user's chosen plot mode to the
+        # transform combo's enabled state (Auto leaves it enabled until a plot
+        # resolves the per-file modes).
+        self._on_plot_mode_changed(self.plot_mode_combo.currentText())
 
     def read_settings(self):
         _folder = self.settings.value("overplot_folder", "")
@@ -175,10 +227,14 @@ class Overplot(QWidget):
         _ytransform = self.settings.value("overplot_ytransform", "None")
         if _ytransform in ("None", "R*Q^4"):
             self.ytransform_combo.setCurrentText(_ytransform)
+        _mode = self.settings.value("overplot_mode", "Auto")
+        if _mode in ("Auto", "Reflectivity", "Direct Beam"):
+            self.plot_mode_combo.setCurrentText(_mode)
 
     def save_settings(self):
         self.settings.setValue("overplot_folder", self.folder_label.text())
         self.settings.setValue("overplot_xscale", self.xscale_combo.currentText())
+        self.settings.setValue("overplot_mode", self.plot_mode_combo.currentText())
 
     def choose_folder(self):
         _dir = QFileDialog.getExistingDirectory(
@@ -233,6 +289,48 @@ class Overplot(QWidget):
             item = self.file_list.item(i)
             item.setCheckState(QtCore.Qt.Unchecked)
             item.setSelected(False)
+
+    def _set_rq4_enabled(self, enabled):
+        """Toggle the Qt::ItemIsEnabled bit on the R*Q^4 combo entry."""
+        idx = self.ytransform_combo.findText("R*Q^4")
+        if idx < 0:
+            return
+        item = self.ytransform_combo.model().item(idx)
+        if item is None:
+            return
+        flags = item.flags()
+        if enabled:
+            item.setFlags(flags | QtCore.Qt.ItemIsEnabled)
+        else:
+            item.setFlags(flags & ~QtCore.Qt.ItemIsEnabled)
+            if self.ytransform_combo.currentText() == "R*Q^4":
+                self.ytransform_combo.setCurrentText("None")
+
+    def _on_plot_mode_changed(self, mode):
+        """User picked an explicit Plot mode; gate the transform combo."""
+        if mode == "Direct Beam":
+            self._set_rq4_enabled(False)
+        else:
+            # Reflectivity or Auto: re-enable; Auto's per-file gating
+            # happens at plot_selected time.
+            self._set_rq4_enabled(True)
+        self.save_settings()
+
+    def _resolve_modes(self, paths):
+        """Return (per_file_modes, selection_mode) for the user's combo choice."""
+        combo_mode = self.plot_mode_combo.currentText()
+        if combo_mode == "Reflectivity":
+            return ["reflectivity"] * len(paths), "reflectivity"
+        if combo_mode == "Direct Beam":
+            return ["direct_beam"] * len(paths), "direct_beam"
+        # Auto
+        per = [classify_file(p) for p in paths]
+        kinds = {k for k in per if k != "unknown"}
+        if not kinds:
+            return per, "unknown"
+        if len(kinds) == 1:
+            return per, next(iter(kinds))
+        return per, "mixed"
 
     def _prepare_data(self, path, transform):
         try:
@@ -309,14 +407,43 @@ class Overplot(QWidget):
             QMessageBox.critical(self, "Invalid folder", "The selected folder is not valid")
             return
 
+        paths = [os.path.join(folder, fname) for fname in items]
+        per_file_modes, sel_mode = self._resolve_modes(paths)
+        self._last_sel_mode = sel_mode
+
+        # Honest detection: if the user-overrode mode disagrees with any
+        # file's header, list the mismatched filenames so they know.
+        combo_mode = self.plot_mode_combo.currentText()
+        if combo_mode in ("Reflectivity", "Direct Beam"):
+            override_kind = "reflectivity" if combo_mode == "Reflectivity" else "direct_beam"
+            detected = [classify_file(p) for p in paths]
+            mismatched = [
+                items[i]
+                for i, kind in enumerate(detected)
+                if kind not in (override_kind, "unknown")
+            ]
+            if mismatched:
+                QMessageBox.warning(
+                    self,
+                    "Plot mode override",
+                    f"{len(mismatched)} file(s) have headers inconsistent with "
+                    f"{combo_mode}: {', '.join(mismatched)}",
+                )
+
+        # R*Q^4 only meaningful for a homogeneous reflectivity selection.
+        self._set_rq4_enabled(sel_mode == "reflectivity")
         transform = self.ytransform_combo.currentText()
+        if sel_mode != "reflectivity":
+            transform = "None"
+
+        xlabel, ylabel = _axis_labels(sel_mode, transform)
 
         if self.canvas is not None:
             # embedded canvas plotting
             self.figure.clear()
             ax = self.figure.add_subplot(111)
             any_plotted = False
-            for fname in items:
+            for fname, fmode in zip(items, per_file_modes):
                 path = os.path.join(folder, fname)
                 try:
                     x, y, ey, ex = self._prepare_data(path, transform)
@@ -324,7 +451,12 @@ class Overplot(QWidget):
                     QMessageBox.warning(self, "Load/format error", str(e))
                     continue
 
-                label = os.path.basename(fname)
+                # Annotate mixed-selection labels with detected kind so the
+                # plot is honest about its contents.
+                if sel_mode == "mixed" and fmode in ("reflectivity", "direct_beam"):
+                    label = f"{os.path.basename(fname)} [{fmode}]"
+                else:
+                    label = os.path.basename(fname)
                 try:
                     if ey is not None:
                         ax.errorbar(x, y, yerr=ey, label=label, fmt="-o")
@@ -345,8 +477,8 @@ class Overplot(QWidget):
                 ax.set_xscale("linear")
 
             ax.legend()
-            ax.set_xlabel("Q")
-            ax.set_ylabel("R" if transform == "None" else "R*Q^4")
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
             self.figure.tight_layout()
             self.canvas.draw()
             self.save_settings()
@@ -355,7 +487,7 @@ class Overplot(QWidget):
             plt.figure()
             ax = plt.gca()
             any_plotted = False
-            for fname in items:
+            for fname, fmode in zip(items, per_file_modes):
                 path = os.path.join(folder, fname)
                 try:
                     x, y, ey, ex = self._prepare_data(path, transform)
@@ -363,7 +495,10 @@ class Overplot(QWidget):
                     QMessageBox.warning(self, "Load/format error", str(e))
                     continue
 
-                label = os.path.basename(fname)
+                if sel_mode == "mixed" and fmode in ("reflectivity", "direct_beam"):
+                    label = f"{os.path.basename(fname)} [{fmode}]"
+                else:
+                    label = os.path.basename(fname)
                 try:
                     if ey is not None:
                         ax.errorbar(x, y, yerr=ey, label=label, fmt="-o")
@@ -384,8 +519,8 @@ class Overplot(QWidget):
                 ax.set_xscale("linear")
 
             ax.legend()
-            ax.set_xlabel("x")
-            ax.set_ylabel("y")
+            ax.set_xlabel(xlabel)
+            ax.set_ylabel(ylabel)
             plt.tight_layout()
             plt.show()
 
