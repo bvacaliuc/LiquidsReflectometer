@@ -495,6 +495,39 @@ class ROISelector(QWidget):
             self._refresh_per_run_table()
         except Exception:
             pass
+
+        self.read_settings()
+        # Defense-in-depth save: persist on every mutating signal.
+        self.ipts_edit.editingFinished.connect(self.save_settings)
+        self.template_path_edit.editingFinished.connect(self.save_settings)
+        self.run_list_edit.editingFinished.connect(self.save_settings)
+        self.template_cb.toggled.connect(lambda _: self.save_settings())
+
+    def read_settings(self):
+        s = self.settings
+
+        def _bool(v, default):
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return v.lower() == "true"
+            return default
+
+        self.ipts_edit.setText(str(s.value("roi_selector_ipts", "")))
+        self.template_path_edit.setText(str(s.value("roi_selector_template_path", "")))
+        self.run_list_edit.setText(str(s.value("roi_selector_run_list", "")))
+        self.template_cb.blockSignals(True)
+        self.template_cb.setChecked(_bool(s.value("roi_selector_use_template", False), False))
+        self.template_cb.blockSignals(False)
+
+    def save_settings(self):
+        s = self.settings
+        s.setValue("roi_selector_ipts", self.ipts_edit.text())
+        s.setValue("roi_selector_template_path", self.template_path_edit.text())
+        s.setValue("roi_selector_run_list", self.run_list_edit.text())
+        s.setValue("roi_selector_use_template", self.template_cb.isChecked())
+        s.sync()
+
     # update when log-color checkbox toggled (created below)
 
     def _set_bkg_mode(self, index: int):
