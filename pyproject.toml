@@ -50,6 +50,7 @@ packages = ["src/lr_reduction", "src/lr_autoreduce"]
 [tool.versioningit.vcs]
 method = "git"
 default-tag = "0.0.1"
+match = ["v[0-9]*"]
 
 [tool.versioningit.next-version]
 method = "minor"
