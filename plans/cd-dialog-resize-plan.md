@@ -223,3 +223,106 @@ def test_reset_defaults(isolated_qapp):
   `direct_beam_mod_vals` are the persistence shape; the refactor
   here does not change `get_values()`'s return so persistence is
   unaffected.
+- `build-versioningit-tag-glob-plan.md` — the systemic build fix
+  this slug's v2 cycle pulls in defensively (see Revision history
+  below).
+
+## Revision history
+
+### v2 — surface a systemic build blocker; add the build fix locally
+
+**Cycle that triggered this revision.** Integrator cycle 1 on
+`feature/cd-dialog-resize` at SHA
+`f4e057fdaeadd10949ccb2ca3fdc053704b5729c` (review tag
+`review/cd-dialog-resize`). The Integrator's `todo.md` reports an
+**infrastructure failure**, not a code-test failure: `pixi run
+test-reduction` exits during environment preparation, before any
+test is collected, with:
+
+```
+versioningit.errors.InvalidVersionError: Error getting the version
+from source `versioningit`: Cannot parse version 'qa/cd-dialog-resize'
+```
+
+**Why this is not a v1 plan defect.** The v1 dialog-refactor TDD
+seed and the GREEN commit `78ea717 cd-dialog-resize: GREEN —
+Cd/Moderator dialogs inherit QDialog directly` are both correct. The
+build never got far enough to run the new tests. The blocker is the
+`pyproject.toml`'s `[tool.versioningit.vcs]` block having no `match`
+glob, so `git describe --tags HEAD` returns the protocol's
+lightweight `qa/cd-dialog-resize` tag and versioningit's parser
+rejects it as not PEP 440-compliant.
+
+**Action for the Developer at v2.** Two cumulative changes on
+`feature/cd-dialog-resize`:
+
+1. **Defensive build-fix patch** (new). Apply the same one-line
+   `pyproject.toml` patch described in
+   `plans/build-versioningit-tag-glob-plan.md`:
+
+   ```toml
+   [tool.versioningit.vcs]
+   method = "git"
+   default-tag = "0.0.1"
+   match = ["v[0-9]*"]      # NEW LINE — added at v2
+   ```
+
+   Commit it as a separate commit so its history is greppable:
+   `cd-dialog-resize v2: defensive pyproject build-fix (mirrors build-versioningit-tag-glob)`.
+   This unblocks `cd-dialog-resize`'s qa cycle independently of when
+   the standalone `feature/build-versioningit-tag-glob` PR is
+   merged. Intentional duplication — when both PRs eventually merge,
+   the cd-dialog-resize PR's pyproject change is a no-op against
+   the fixed base.
+
+2. **Empty-commit advance is NOT used here.** The v1 dialog test
+   body is unchanged in v2 — but the *implementation* needs the
+   defensive build-fix patch on top, so a real (non-empty) commit
+   advances the feature SHA. Do **not** issue a
+   `git commit --allow-empty` per dry-run Developer findings §3.4 —
+   the build-fix patch is a real change.
+
+**Rejection cause cited (per orchestration.md §6 Analyst loop, "amend
+plan file ... citing the rejection cause"):** `qa/cd-dialog-resize`
+tag at SHA `78ea717` is consumed by versioningit's default
+`git describe --tags` invocation; the missing `match = ["v[0-9]*"]`
+filter in `[tool.versioningit.vcs]` causes the editable install to
+abort with `InvalidVersionError`. See the Integrator's todo.md on
+`feature/cd-dialog-resize` SHA `f4e057f` for the full ranked-
+hypothesis evidence.
+
+**Acceptance addition for v2.** All v1 acceptance criteria still
+apply (6 dialog tests pass; manual visual confirmation; no
+regressions). Add:
+
+5. The two new tests in `tests/test_versioningit_config.py` (per
+   `plans/build-versioningit-tag-glob-plan.md`) pass on
+   `feature/cd-dialog-resize` too. Yes — duplicate test coverage is
+   fine; both PRs run them, and when both merge, the test only
+   exists once on `{base-branch}`.
+
+**Cross-project learning to capture (post-merge by Developer).**
+When the Developer ships v2, add `plans/cd-dialog-resize-learning.md`
+with:
+
+> **Rule.** versioningit's default tag-glob accepts every reachable
+> tag, including protocol-internal lightweight tags
+> (`qa/*`, `review/*`, `triage/*`, `analysis/*`).
+>
+> **Why.** The default `git describe --tags HEAD` invocation has no
+> `--match` filter, so any non-PEP-440 tag at HEAD breaks
+> `hatchling.build.build_editable`. Found on cycle 1 of
+> `cd-dialog-resize` 2026-05-05; cost the orchestration one full
+> Developer→Integrator→Analyst retry cycle.
+>
+> **How to apply.** Any project using versioningit + this
+> orchestration MUST set `[tool.versioningit.vcs] match = ["v[0-9]*"]`
+> (or equivalent positive allow-list) before running the protocol.
+> Add this check to the Initialization agent's §11 (Target-branch
+> dependency verification) for future efforts.
+
+The third paragraph above ("How to apply") is also a candidate for
+inclusion in `plan/initialization.md` §11 in the `tasking` repo, so
+future efforts catch the issue at session-start instead of at
+runtime. That's a separate change in the `tasking` repo and is the
+user's call.
