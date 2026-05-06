@@ -306,3 +306,91 @@ def test_refresh_unmounted_folder(isolated_qapp, tmp_path, monkeypatch):
   conventions.
 - `~/.claude/CLAUDE.md` `[ALWAYS] Design framing` — robust over
   simple, complete detection of disk-state cases.
+- `build-versioningit-tag-glob-plan.md` — the systemic build fix
+  this slug's v2 cycle pulls in defensively (see Revision history
+  below).
+
+## Revision history
+
+### v2 — same systemic build blocker (third data point)
+
+**Cycle that triggered this revision.** Integrator cycle 1 on
+`feature/overplot-refresh` at SHA
+`c221924d96f6308ed18cef4337de9e966d5e2d6f` (review tag
+`review/overplot-refresh`). The Integrator's todo.md reports the
+**third instance** of the same `versioningit` infrastructure
+failure that surfaced on `cd-dialog-resize` cycle 1 and
+`overplot-axes` cycle 1: `pixi run test-reduction` exits during
+environment preparation before any test is collected, with:
+
+```
+versioningit.errors.InvalidVersionError: Error getting the version
+from source `versioningit`: Cannot parse version 'qa/overplot-refresh'
+```
+
+Three structurally unrelated feature branches (`direct_beam.py`
+dialog refactor, `overplot.py` axes/Plot-mode, `overplot.py`
+refresh-button) hitting identical build-stage failures confirms
+the issue is protocol-systemic, not feature-specific. The
+project-side `pyproject.toml`'s `[tool.versioningit.vcs]` block
+lacks a `match` glob; see `plans/build-versioningit-tag-glob-plan.md`
+for the full diagnosis.
+
+**Why this is not a v1 plan defect.** The v1 two-phase refresh TDD
+seed and the GREEN commit
+`0f9a0ca overplot-refresh: GREEN — two-phase refresh button` are
+both correct and on track. The build never got far enough to run
+the new tests.
+
+**Action for the Developer at v2.** Two cumulative changes on
+`feature/overplot-refresh`:
+
+1. **Defensive build-fix patch** (new). Apply the same one-line
+   `pyproject.toml` patch described in
+   `plans/build-versioningit-tag-glob-plan.md`:
+
+   ```toml
+   [tool.versioningit.vcs]
+   method = "git"
+   default-tag = "0.0.1"
+   match = ["v[0-9]*"]      # NEW LINE — added at v2
+   ```
+
+   Commit it as a separate commit so its history is greppable:
+   `overplot-refresh v2: defensive pyproject build-fix (mirrors build-versioningit-tag-glob)`.
+   This unblocks `overplot-refresh`'s qa cycle independently of when
+   the standalone `feature/build-versioningit-tag-glob` PR is
+   merged. Intentional duplication — when both PRs eventually
+   merge, the overplot-refresh PR's pyproject change is a no-op
+   against the fixed base.
+
+2. **Empty-commit advance is NOT used here.** The v1 refresh tests
+   are unchanged in v2 — but the *implementation* needs the
+   defensive build-fix patch on top, so a real (non-empty) commit
+   advances the feature SHA. Do **not** issue a
+   `git commit --allow-empty` per dry-run Developer findings §3.4 —
+   the build-fix patch is a real change.
+
+**Rejection cause cited (per orchestration.md §6 Analyst loop, "amend
+plan file ... citing the rejection cause"):** `qa/overplot-refresh`
+tag at SHA `0f9a0ca` is consumed by versioningit's default
+`git describe --tags` invocation; the missing `match = ["v[0-9]*"]`
+filter in `[tool.versioningit.vcs]` causes the editable install to
+abort with `InvalidVersionError`. See the Integrator's todo.md on
+`feature/overplot-refresh` SHA `c221924`.
+
+**Acceptance addition for v2.** All v1 acceptance criteria still
+apply (7 refresh-button tests pass; manual REFL-rewrite scenario
+works). Add:
+
+5. The two new tests in `tests/test_versioningit_config.py` (per
+   `plans/build-versioningit-tag-glob-plan.md`) pass on
+   `feature/overplot-refresh` too. Duplicate test coverage is fine
+   across the three v2-amended slugs; only one copy survives the
+   eventual merge into `{base-branch}`.
+
+**Pattern observation.** This is the third v2 amendment in a row
+that boils down to "include the build-fix patch defensively." The
+pattern is now a known shape — if `settings-persistence` (the only
+remaining v1 slug not yet vetted by the Integrator) trips the same
+issue, it will receive the same v2 amendment.
