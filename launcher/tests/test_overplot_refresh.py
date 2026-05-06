@@ -26,9 +26,10 @@ def test_refresh_button_exists(isolated_qapp):
     assert tab.refresh_btn.toolTip()
 
 
-def test_refresh_no_folder(isolated_qapp):
+def test_refresh_no_folder(isolated_qapp, monkeypatch):
     from apps.overplot import Overplot
 
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **k: None)
     tab = Overplot()
     tab.folder_label.setText("")
     tab.refresh()

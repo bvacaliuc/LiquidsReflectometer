@@ -125,6 +125,15 @@ class Overplot(QWidget):
         self.clear_btn = QPushButton("Clear plot")
         controls.addWidget(self.clear_btn)
 
+        # Refresh button — rescan the folder and replot checked files
+        self.refresh_btn = QPushButton("Refresh")
+        self._refresh_tooltip_base = (
+            "Re-read this folder. Keeps current selection where files still "
+            "exist; replots checked files."
+        )
+        self._update_refresh_tooltip(self._read_last_refresh())
+        controls.addWidget(self.refresh_btn)
+
         # Stretch to push controls to top
         controls.addStretch()
 
@@ -156,6 +165,7 @@ class Overplot(QWidget):
         self.choose_folder_btn.clicked.connect(self.choose_folder)
         self.plot_btn.clicked.connect(self.plot_selected)
         self.clear_btn.clicked.connect(self.clear_plot)
+        self.refresh_btn.clicked.connect(self.refresh)
         self.filter_edit.textChanged.connect(self.apply_filter)
         self.select_all_btn.clicked.connect(self.select_all)
         self.deselect_all_btn.clicked.connect(self.deselect_all)
@@ -191,21 +201,79 @@ class Overplot(QWidget):
 
     def populate_file_list(self, folder):
         self.file_list.clear()
-        self._files = []
         try:
-            files = sorted(os.listdir(folder))
-        except Exception as e:
+            self._files = self._scan_folder(folder)
+        except OSError as e:
             QMessageBox.critical(self, "Error", f"Could not list directory: {e}")
+            self._files = []
             return
-        for f in files:
-            if (f.lower().endswith(".dat")) | (f.lower().endswith(".txt")):
-                self._files.append(f)
 
-        # show all initially
         for f in self._files:
             item = QListWidgetItem(f)
             item.setCheckState(QtCore.Qt.Unchecked)
             self.file_list.addItem(item)
+
+    def _scan_folder(self, folder):
+        """List `.dat`/`.txt` filenames in *folder*, sorted. Raises OSError."""
+        files = sorted(os.listdir(folder))
+        return [f for f in files if f.lower().endswith(".dat") or f.lower().endswith(".txt")]
+
+    def _read_last_refresh(self):
+        v = self.settings.value("overplot_last_refresh", "")
+        return v if isinstance(v, str) else ""
+
+    def _update_refresh_tooltip(self, last):
+        suffix = f" Last refreshed: {last or 'never'}."
+        self.refresh_btn.setToolTip(self._refresh_tooltip_base + suffix)
+
+    def refresh(self):
+        """Two-phase refresh: rescan folder preserving check state, then
+        replot whatever is still checked."""
+        folder = self.folder_label.text()
+        if not folder or folder == FOLDER_DIRECTIVE:
+            QMessageBox.warning(self, "Refresh", "Choose a folder first.")
+            return
+
+        pre_checked = {
+            self.file_list.item(i).text()
+            for i in range(self.file_list.count())
+            if self.file_list.item(i).checkState() == QtCore.Qt.Checked
+        }
+
+        try:
+            on_disk = self._scan_folder(folder)
+        except OSError as e:
+            QMessageBox.critical(self, "Refresh failed", f"Could not list {folder}: {e}")
+            return
+
+        self._files = on_disk
+        # Rebuild list applying any currently-typed filter so the visible rows
+        # stay consistent with the filter box; apply_filter reads self._files.
+        self.apply_filter(self.filter_edit.text())
+
+        # Restore check state from pre_checked for files still on disk.
+        for i in range(self.file_list.count()):
+            item = self.file_list.item(i)
+            if item.text() in pre_checked:
+                item.setCheckState(QtCore.Qt.Checked)
+
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.settings.setValue("overplot_last_refresh", timestamp)
+        self._update_refresh_tooltip(timestamp)
+
+        still_checked = pre_checked & set(on_disk)
+        dropped = pre_checked - still_checked
+        if still_checked:
+            self.plot_selected()
+        if dropped:
+            QMessageBox.information(
+                self,
+                "Refresh",
+                f"{len(dropped)} previously-plotted file(s) no longer present on disk:\n"
+                + "\n".join(sorted(dropped)),
+            )
 
     def apply_filter(self, text):
         # preserve checked state
