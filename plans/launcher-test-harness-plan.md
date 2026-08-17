@@ -46,30 +46,41 @@ stdout (the PoC's 10-hour orphan, Developer-Retrospective §B).
 
        for name in ("warning", "information", "critical", "question"):
            monkeypatch.setattr(
-               QtWidgets.QMessageBox, name, staticmethod(lambda *a, **k: None)
+               QtWidgets.QMessageBox,
+               name,
+               staticmethod(lambda *_args, **_kwargs: None),
            )
    ```
+
+   (Underscore-prefixed lambda params: `exp` selects ruff's `ARG` family
+   with no per-file-ignores, so bare `*a, **k` bounces at pre-commit.)
 
 3. `launcher/tests/test_harness.py` — the RED-first seed, **verbatim**:
 
    ```python
    # launcher/tests/test_harness.py
+   import pytest
    from qtpy import QtCore, QtWidgets
 
 
-   def test_no_qmessagebox_fixture_neutralizes_modals(isolated_qapp, no_qmessagebox):
+   @pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+   def test_no_qmessagebox_fixture_neutralizes_modals():
        # Without the fixture this call blocks forever under offscreen Qt
        # (the 10-hour-orphan class); with it, it returns immediately.
        assert QtWidgets.QMessageBox.warning(None, "t", "must not block") is None
 
 
-   def test_isolated_qsettings_roundtrip(isolated_qapp):
+   @pytest.mark.usefixtures("isolated_qapp")
+   def test_isolated_qsettings_roundtrip():
        settings = QtCore.QSettings()
        settings.setValue("harness/probe", "x")
        settings.sync()
        assert settings.value("harness/probe") == "x"
        assert "test-org" in QtCore.QCoreApplication.organizationName()
    ```
+
+   (`usefixtures` marks, not fixture parameters: `ARG001` flags unused
+   fixture args under `exp`'s ruff `select`.)
 
    RED = both tests fail/hang before conftest exists (run first without
    the fixtures to demonstrate; the modal test must be observed to hang
