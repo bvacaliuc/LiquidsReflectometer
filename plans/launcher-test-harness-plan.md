@@ -1,7 +1,10 @@
 # Plan: launcher-test-harness (S0)
 
-**Campaign:** `exp-settings-roi` · base `exp` @ `dccd093` · charter §4 slug 1 (P-2)
+**Campaign:** `exp-settings-roi` · base `exp` @ `2127343` · charter §4 slug 1 (P-2)
 **Retry attempt:** 1
+**Re-verified 2026-08-18** against `agentic/exp` @ `2127343` (lint-baseline
+PR #14 merged): every cited path/line holds; both snippets ruff-clean under
+the new config. Not a retry — no revision-history entry.
 
 Review domains: test-reviewer (advisory)
 
@@ -14,7 +17,7 @@ ports, T2, T3, T1-A1) needs one to run red-green; without it, a single
 `QMessageBox.exec_()` under offscreen Qt hangs pytest forever with zero
 stdout (the PoC's 10-hour orphan, Developer-Retrospective §B).
 
-## Verified state (against `agentic/exp` @ `dccd093`)
+## Verified state (against `agentic/exp` @ `2127343`)
 
 - `launcher/` exists (`launcher/new_launcher.py`, `launcher/apps/*.py`,
   incl. `roi_selector.py`); **`launcher/tests/` absent**.
@@ -52,8 +55,9 @@ stdout (the PoC's 10-hour orphan, Developer-Retrospective §B).
            )
    ```
 
-   (Underscore-prefixed lambda params: `exp` selects ruff's `ARG` family
-   with no per-file-ignores, so bare `*a, **k` bounces at pre-commit.)
+   (Underscore-prefixed lambda params: `exp` selects ruff's `ARG` family —
+   the only per-file-ignores entry is `BLE001` for `launcher/**` (PR #14),
+   `ARG` stays enforced — so bare `*a, **k` bounces at pre-commit.)
 
 3. `launcher/tests/test_harness.py` — the RED-first seed, **verbatim**:
 
@@ -118,7 +122,8 @@ source on `exp`.
 - `pixi run test-launcher` green on the feature branch; both seed tests
   pass; the modal test demonstrably hangs-then-times-out when the
   fixture is removed (RED evidence in the commit body).
-- `pixi run test-reduction` still green (281 tests) and now runs the
+- `pixi run test-reduction` still green (107 tests on `exp`, re-measured
+  2026-08-17 — charter §1's 281 was the PoC base) and now runs the
   launcher suite first via `depends-on`.
 - `pixi run test-reduction -- --collect-only --timeout=1 -k test_does_not_exist`
   exits clean (initialization.md §11 step 3 form).
