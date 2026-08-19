@@ -3,7 +3,10 @@
 **Campaign:** `exp-settings-roi` · base `exp` @ `a4ae8b8` · charter §9
 **amendment 14** / §4 mid-effort addition (2026-08-18, human-ratified) ·
 DAG-independent
-**Retry attempt:** 2
+**Retry attempt:** 3 (final — N=3; the next rejection escalates. The v2
+gate's own read: a converging slug, both new findings six lines apart in
+one fix — but the last retry lands the trap rewrite WITH the plan
+correction, not ahead of it.)
 
 Review domains: design-reviewer (**blocking** — upgraded at the v1
 rejection, same logic the harness slug ratified: when the slug's entire
@@ -190,6 +193,11 @@ that) — the script header and comments must say so.
    cp pixi.lock "$snap" || exit 1
    ```
 
+   *(**Superseded by v3** — this ordering arms the restore trap over the
+   still-empty mktemp file: any exit before the `cp` populates it copies
+   emptiness onto the tracked lock. The v2 gate reproduced repo-root
+   truncation from it. See the v3 entry for the corrected form.)*
+
    With the EXIT trap owning restore+cleanup, delete the end-of-script
    restore/rm so there is exactly one restore path. Re-run the interrupt
    injection (kill mid-check → tree byte-identical, no tmp litter) and
@@ -239,3 +247,74 @@ that) — the script header and comments must say so.
    and a ≥0.68-shim run demonstrating the v7-specific message;
    `bash -n` both scripts and note in the PR body that `scripts/` is
    excluded from pre-commit lint (shellcheck manually if available).
+
+### v3 — 2026-08-19 (after v2 rejection; todo.md @ `ff91bd4`; FINAL retry)
+
+All four v1 findings closed and closed well (the gate calls the B4
+honest-uncertainty fix exemplary; the classifier narrowing and the
+plan-wording deviation were correct-and-flagged properly). Both new
+blocking findings live in one fix — the trap — and **B5 is owned as a
+plan defect**: the v2 fix sketch above prescribed arming the restore
+trap BEFORE populating the snapshot, so any exit in that two-line
+window copies a 0-byte mktemp file onto the tracked repo-root
+`pixi.lock`. The gate reproduced it two ways (ENOSPC-class snapshot-cp
+failure → 327276 → 0 bytes; `ulimit -f` → a 1024-byte truncation whose
+first line still reads `version: 6`, sailing past ALL THREE tripwires
+this slug ships). Strictly worse than the v1 fail-open it replaced. B6:
+a bash INT/TERM trap returns to the script unless it exits — the v2
+handler restored, deleted the snapshot, then execution continued into
+the classifier against a nonexistent file, ending in a fabricated
+drift accusation plus an 8k-line spew (the `--no-verify` inducer), and
+made the ":One restore path, survives an interrupt" comment the
+stated-vs-measured defect one line below the B4 fix for it.
+
+## v3 fixes (final retry — the gate's order; its rewrite adopted verbatim)
+
+1. **B5 + B6 — the six-line trap form, exactly as gate-verified:**
+
+   ```bash
+   snap=$(mktemp) || exit 1
+   # Snapshot BEFORE arming the trap: an EXIT trap installed over an
+   # empty mktemp file would copy that emptiness onto pixi.lock if this
+   # cp failed.
+   cp pixi.lock "$snap" || { rm -f "$snap"; exit 1; }
+   restore() { cp "$snap" pixi.lock 2>/dev/null; rm -f "$snap"; }
+   trap restore EXIT
+   trap 'restore; trap - EXIT; exit 130' INT
+   trap 'restore; trap - EXIT; exit 143' TERM
+   ```
+
+   Re-run the full injection matrix at the v3 tip: snapshot-cp failure
+   (lock intact, exit 1), SIGINT mid-solve (exit 130, zero output, lock
+   byte-identical), subdirectory, no-repo, benign, ≥0.68 v7 shim, drift
+   stub. Reword the restore echo to future tense or move it into
+   `restore()` (v2's printed "has been restored" before the trap ran).
+2. **Single-source the pin (what makes retirement one deletion):** new
+   `scripts/check_lock_format.sh` holding the `version: 6` test and the
+   facility rationale once; the `pixi-lock-format` pre-commit hook
+   (`entry:`) and all three CI steps (`run:`) invoke it. `0.67.2`
+   stays in exactly two places (workflow pin lines + the wrapper's
+   message), each carrying the same one-line rationale comment.
+3. **Retirement block** — five lines in the wrapper's header: the
+   trigger ("analysis.sns.gov pixi upgraded to ≥ 0.68"), the four files
+   to touch (`scripts/pixi_lock_check.sh`, `scripts/check_lock_format.sh`,
+   `.pre-commit-config.yaml`, `.github/workflows/test_and_deploy.yml`),
+   and "remove in ONE commit; the campaign control plane's amendment 14
+   tracks the trigger" — written for a maintainer who has never seen
+   the campaign docs.
+4. **Hardening trio:**
+   `root=$(git rev-parse --show-toplevel) && [ -n "$root" ] && cd "$root" || exit 1`
+   (a bash `cd ""` is a successful no-op — v2's `|| exit 1` never
+   fired; the file test was carrying the failure); print the
+   `SKIP=pixi-lock-check git push` hint exactly when `rc != 0` AND the
+   lock is unchanged-and-v6 (the wedged-network path where the
+   alternative is `--no-verify`);
+   `default_install_hook_types: [pre-commit, pre-push]` in the config
+   so plain `pre-commit install` arms both stages for already-onboarded
+   developers, and `always_run: true` added to `pixi-lock-check` for
+   symmetry with its sibling.
+5. **Recorded, not scoped:** at pre-push the hooks check the working
+   tree, not the pushed ref (`git push agentic other:branch` validates
+   the wrong artifact) — the CI format check is the structural backstop
+   and earns its place for exactly this; state it in the wrapper header
+   and PR body.
