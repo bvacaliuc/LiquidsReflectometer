@@ -4,7 +4,9 @@
 mid-effort addition (2026-08-18) from the S0 gate's advisory findings
 (PR #15 body, test-reviewer; Integrator recommendation: fold in before more
 slugs build on the fixtures) · DAG-independent, **land before T2**
-**Retry attempt:** 2
+**Retry attempt:** 3 (final — N=3; the next rejection escalates, and per
+the v2 gate's own framing that escalation would be the honest outcome,
+not a v4 under another name)
 
 Review domains: test-reviewer (**blocking** — upgraded at the v1
 rejection: the slug's deliverable is self-tested guarantees, so the
@@ -245,3 +247,73 @@ campaign backlog.
 plus an assertion (grep) that no `tests/` item gained a timeout marker
 (the B3 discrimination check); `pixi run test-reduction` green and
 `test-launcher` green as before.
+
+### v3 — 2026-08-19 (after v2 rejection; todo.md @ `ba14217`; FINAL retry)
+
+Everything v1 named is closed and verified (all 8 self-tests
+falsifiable and order-independent; the modal cover pinned on the real
+`QDialog` surface; the collection hook fully pinned; siblings measured
+unaffected). The v3 findings are all "the fix is right but nothing pins
+it" — the natural end state of a hardening slug — plus one live
+incident: the timeout self-test's pipe-based subprocess **deterministically
+orphans the inner hanging test when the outer dies** (`BrokenPipeError`
+in pytest-timeout's `finally` pre-empts its `os._exit`; reproduced 2/2;
+a 52-minute 99.9%-CPU orphan from an earlier probe iteration was found
+live on this host and killed by the Analyst — PID 840666). Two v2-plan
+directions are owned and corrected here: the `_ROOT_POISON` module-level
+`QSettings` this plan prescribed is measured inert-and-misleading
+(delete it), and the widget-drain rationale this plan carried is
+measurably wrong on this env (a fresh `QApplication` per test is the
+common case because the fixture drops its reference) — third occurrence
+of the stated-vs-measured defect class, now corrected in the docstring
+rather than papered over with an impossible consequence test.
+
+## v3 fixes (final retry — the gate's order; every fix below is
+reviewer-verified red/green already)
+
+1. **B3 (2 lines, actively degrading the machine):**
+   `test_timeout_backstop_fires` writes inner output to files in
+   `tmp_path` instead of `capture_output=True` pipes, and wraps the
+   `subprocess.run` in `try/finally: proc.kill()` (use `Popen`;
+   optionally `start_new_session=True` + `os.killpg`). Measured: file
+   mode self-exits ~9 s after a parent SIGKILL; pipe mode never does.
+   While here, cut cost: inner budget ~3 s, outer ~30 s (the test is
+   10 s of a 10.5 s suite; its red costs 100 s as shipped).
+2. **B1 (keeps F1 from silently regressing):** two tests — a
+   **subprocess** probe with fake `HOME`/`XDG_CONFIG_HOME` running a
+   fixture-less, import-time `QSettings` in BOTH formats and asserting
+   nothing lands outside the scratch tree (pins the import block
+   `conftest.py:20-23` and the no-defaultFormat-restore decision — the
+   literal v1 bug, currently restorable in silence); plus
+   `test_native_format_also_lands_in_tmp` under the fixture (pins the
+   `NativeFormat` halves). Both measured red on the import-block
+   deletion / format-narrowing mutations.
+3. **B2 (v1's B5a, now actually closed):** the timeout self-test copies
+   the repo's real `pyproject.toml` into `tmp_path` instead of
+   hand-writing a `pytest.ini` (which made `tmp_path` the rootdir and
+   detached the test from the shipped config — deleting
+   `timeout_method = "thread"` from pyproject stays green today); drop
+   the no-longer-emitted header assertion; the generated test's
+   `@pytest.mark.timeout(3)` supplies the budget. Measured red when the
+   pyproject key is deleted.
+4. **Owned corrections:** delete `_ROOT_POISON` (inert — `setPath` is
+   consulted per construction, so root-poisoning is moot under the
+   shipped mechanism; its comment contradicts the slug's own premise);
+   rewrite the drain docstring to the measured truth (per-test
+   `QApplication` is the common case; the guarded drain stays as cheap
+   defense-in-depth for a future session-scoped app — no false
+   "shared session app" claim); add an `atexit` `shutil.rmtree` for
+   `_SCRATCH_ROOT` (86 stale scratch dirs found on this host; clean
+   only this process's own root).
+5. **PR-body statements (no code):** `no_qfiledialog` is autouse while
+   `no_qmessagebox` is opt-in — a sibling test that forgets the latter
+   still blocks at `roi_selector.py:230/:2038` under the 120 s marker
+   backstop, so the commit's "covers every blocking site" claim must be
+   scoped honestly; record the forward-looking ui-aspects notes
+   (QMessageBox-instance return contract, partial `open()` cover,
+   `exec_()`-runs-no-loop ⇒ `result()` inversion) as known limits.
+
+Acceptance: all previous criteria; the three new/changed tests each
+demonstrated red under their named mutation in the commit bodies; no
+orphan survives a `SIGKILL` of the outer pytest (transcript with PIDs);
+suite wall-time back under ~5 s excluding the ~3 s self-test.
