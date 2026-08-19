@@ -180,6 +180,8 @@ class Overplot(QWidget):
     def save_settings(self):
         self.settings.setValue("overplot_folder", self.folder_edit.text())
         self.settings.setValue("overplot_xscale", self.xscale_combo.currentText())
+        self.settings.setValue("overplot_ytransform", self.ytransform_combo.currentText())
+        self.settings.sync()
 
     def choose_folder(self):
         _dir = QFileDialog.getExistingDirectory(None, "Select a folder:", os.path.expanduser("~"), QFileDialog.ShowDirsOnly)

@@ -21,8 +21,6 @@ class ReductionInterface(QTabWidget):
         layout = QGridLayout()
         self.setLayout(layout)
 
-        self.settings = QtCore.QSettings()
-
         # Overplot tab
         tab_id = 0
         self.overplot_tab = Overplot()
@@ -61,6 +59,13 @@ class ReductionInterface(QTabWidget):
 
 # referenced by pyproject.toml, part of the GUI system
 def main():
+    # One QSettings identity for every layer of the launcher (per-tab UI
+    # preferences here; the reduction- and global-settings layers adopt the
+    # same constants). Must precede QApplication so QSettings() resolves to
+    # this store everywhere.
+    QtCore.QCoreApplication.setOrganizationName("ORNL")
+    QtCore.QCoreApplication.setOrganizationDomain("ornl.gov")
+    QtCore.QCoreApplication.setApplicationName("lr_reduction_new_launcher")
     app = QApplication([])
     window = ReductionInterface()
     window.show()
