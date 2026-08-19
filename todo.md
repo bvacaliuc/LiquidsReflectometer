@@ -1,238 +1,217 @@
-# Integrator review gate — `port-settings-persistence` v1 REJECTED
+# Integrator review gate — `port-settings-persistence` v2 REJECTED
 
-**Disposition: blocking, per the plan's own declaration.** This plan
-declares `ui-aspects-reviewer (**blocking** — QSettings wiring and
-widget-state round-trips are its exact trap list)`, and that reviewer
-returned two blocking findings. No interpretation was needed on my part
-this time — unlike the S2 rejection, where I had to depart from an
-advisory declaration. Calibrating the domain to the risk worked exactly as
-intended.
+Supersedes the v1 rejection recorded in this file at `01d7e6f`
+(`git log -- todo.md`). **Both v1 blocking findings are resolved**, and
+three of the v1 advisories were adopted. The v2 rejection is one new
+blocking finding that **both** reviewers reached independently.
 
-Both blocking findings were verified in source by the Integrator before
-rejecting; they are independent of the test outcome.
+**Disposition: blocking, per the plan's own declaration** —
+`ui-aspects-reviewer (blocking)` returned it, so no Integrator departure
+was needed. The advisory `test-reviewer` found the same defect from a
+different direction and quantified it more precisely; that is now the
+third consecutive cycle in which the non-gating domain contributed
+decisively.
 
-**Test status — read this before chasing anything.** `test-launcher`
-**9 passed** (harness 2 + this slug's 7). `test-reduction` reported
-**2 failed, 105 passed**, but **neither failure is attributable to this
-branch**: `test_compute_sf_with_deadtime_tof_200` and
-`..._tof_200_sort` are the known cross-clone `/tmp` race, the same one
-diagnosed in full during the `port-cd-dialog-resize` cycle.
-`tests/test_scaling_factors_workflow.py` hardcodes `output_dir = "/tmp"`
-and four of its tests share `/tmp/sf_197912_Si_test_dt.cfg`, written
-asynchronously (`wait=False`); another clone was running the same suite
-concurrently (verified by `ps`, distinct env hash). Both failures carry
-the *identical* assertion value (7.057973681032683) across two different
-tests with different parameters — the signature of reading one foreign
-file, not of numerical drift. This branch touches only `launcher/**` and
-cannot affect scaling-factor computation.
+**Gate: green.** `test-launcher` **34 passed** (2 harness + 32 slug),
+`test-reduction` **107 passed**, exit 0, 534.61 s, no race this cycle.
 
-**Confirmed:** both tests re-run **serialized** (after waiting for the
-competing PID to exit) → **2 passed** in 111.96 s, exit 0, at this same
-SHA in an identical environment. The failures are external interference;
-they consumed no retry budget and are not part of this rejection.
+**Retry budget:** the plan records attempt 2; charter §1 sets N = 3. A v3
+is the last retry before the escalation path.
 
-## B1 — the `blockSignals` guard defends against nothing and causes a real desync
+## v1 findings — RESOLVED (verified by the Integrator)
 
-Both reviewers found this independently; the test reviewer supplied the
-argument that settles it.
+- **B1 fixed, and completely.** `_apply_ipts_mode()` is split out
+  (`direct_beam.py:484-493`) and called explicitly after
+  `blockSignals(False)` (`:399`) with a comment naming the invariant; the
+  restore default is now **`False`** (`:395`), preserving deployed
+  first-launch behavior. The blocking reviewer confirmed `:492-493` are the
+  *only* writers of those two enabled states and that every mode-changing
+  path reaches the helper; the restore order (`:399` before the `setText`
+  at `:400-401`) is correct because `setText` works on disabled widgets.
+- **B2 fixed.** The tautological, identity-leaking test is gone, replaced
+  by real tests of real code — five distinct mutations of the
+  identity/migration module are caught.
 
-**Mechanism, verified line by line:**
+**Three v1 advisories were also adopted** — worth naming, because they were
+recorded rather than gated and the Developer picked them up anyway: a
+shared `launcher/app_identity.py` with importable constants, tab-level
+identity establishment for non-GUI entry, and a legacy-store migration.
 
-- `launcher/apps/direct_beam.py:227-228` — `ipts_toggle = QCheckBox(...)`
-  with no `setChecked`, so the widget's own default is **unchecked**.
-- `:348` — `ipts_toggle.toggled.connect(self._ipts_toggled)`, connected
-  **before** `read_settings()`.
-- `:354` — `read_settings()`.
-- `:358-373` — the `save_settings` connections, all **after**
-  `read_settings()`. This includes `:360`'s
-  `ipts_toggle.toggled.connect(lambda _: self.save_settings())`.
-- `:387-393` — restore order is `run_list` → `ipts_edit` → **toggle under
-  `blockSignals`, defaulting to `True`** → `nexus_edit` → `savepath_edit`.
-- `:476-487` — `_ipts_toggled` is the **only** code that enforces
-  `checked ⇒ nexus_edit/savepath_edit disabled`.
+## B3 — BLOCKING: the identity install orphans ~61 of 63 persisted keys
 
-The GREEN commit justifies the guard as "its toggled handler rewrites the
-path fields, so an unguarded restore would overwrite what it just loaded."
-That is not what the ordering does. Without the guard, `_ipts_toggled`
-would fire, derive paths from the already-restored `ipts_edit`, *and*
-disable the fields — and then `:392-393` would overwrite the derived paths
-with the stored values anyway (`setText` works on disabled widgets). The
-net effect of **removing** `blockSignals` is: same stored values, plus the
-correct enabled state. The only other thing it suppresses is the
-`toggled → save_settings` lambda, which is connected *after*
-`read_settings()` and therefore does not exist during the restore.
+`main()` now calls `ensure_identity()` before anything constructs a
+`QSettings`, which repoints the store for the **entire `new_launcher`
+process** — not only the two tabs this slug touches. The accompanying
+`migrate_legacy_settings()` carries `LEGACY_KEYS`, which is two names.
 
-**So the guard protects against nothing that exists, and costs the
-invariant.** After restore the checkbox reads "Use IPTS path structure"
-while NEXUS path and Save path remain **enabled and editable**.
+Ground truth, measured by the Integrator against `agentic/exp`:
 
-**User-visible failure.** Fresh install, Direct-beam tab. The toggle is
-ticked (the restore default is `True`, flipping the deployed first-launch
-behavior, which was unchecked). NEXUS path and Save path look live and
-empty. The scientist types `/SNS/REF_L/IPTS-36776/nexus/` and a custom
-output directory, enters a run list, clicks **Create DB**. `_run_create_db`
-(`:536`) takes the `if self.ipts_toggle.isChecked():` branch, which never
-reads those two fields — **both typed paths are silently discarded** and
-the direct beam is written to the derived
-`/SNS/REF_L/IPTS-<n>/shared/transmission/`. If IPTS happens to be empty
-they instead get "Please provide IPTS when using IPTS path structure"
-while staring at two filled-in path fields. The desync persists until the
-toggle is clicked twice.
-
-**Fix.** Split the handler so the mode can be applied without rewriting
-restored values:
-
-```python
-def _apply_ipts_mode(self, state):        # enable/disable only
-    self.nexus_edit.setEnabled(not state)
-    self.savepath_edit.setEnabled(not state)
-
-def _ipts_toggled(self, state):           # derive paths, then apply mode
-    if state and self.ipts_edit.text().strip():
-        ...  # unchanged derivation
-    self._apply_ipts_mode(state)
+```
+distinct QSettings keys written across launcher/apps : 63
+modules writing them                                 : 11
+keys carried by LEGACY_KEYS                          : 2
 ```
 
-and call `self._apply_ipts_mode(self.ipts_toggle.isChecked())` right after
-`blockSignals(False)`. Simply deleting the guard is also correct per the
-ordering analysis above, but the split states the intent.
+Both reviewers reproduced the loss end-to-end by seeding a realistic
+nameless store and running exactly `ensure_identity(); migrate_legacy_settings()`:
+one measured 9 keys lost from an 11-key sample, the other 54 from the
+ground-truth key list. The Integrator independently confirmed the two
+worst-hit consumers are live `new_launcher` tabs:
+`file_batch.py:324-358` reads **11** keys (`settings_runs`,
+`settings_experiment_id`, `settings_dir`, `settings_file`,
+`settings_datapath`, `settings_DBpath`, `settings_Spath`, …) and
+`sld_calculator.py:57-59` reads 2 — added at `new_launcher.py:39`
+("Batch file") and `:51` ("SLD calculator").
 
-**Also reconsider the `True` default** (`:390`). It is a faithful port —
-PR #11 has the identical line — but it changes the first-launch behavior of
-a *functional* control on a deployed line. `False` preserves what `exp`
-does today. Flagging the inherited choice, not the port.
+**User-visible failure.** A scientist upgrades and launches. Direct beam
+and Overplot remember — the slug's promise, delivered. The **Batch file**
+tab beside them comes up blank: run list, experiment id, settings dir and
+file, data path, DB path, save path, all gone. SLD Calculator is back to
+`Si`/`1.54`. Seven more tabs lose their templates and output directories.
+No error, no warning; the old values still sit in
+`Unknown Organization.conf`, which nothing reads any more.
+**The slug whose stated symptom is "the deployed GUI forgets typed values"
+makes nine of its tabs forget everything, once, on exactly one launch.**
 
-**Guard tests:** construct with `direct_beam_use_ipts_path_structure=True`
-and assert `nexus_edit.isEnabled() is False` and
-`savepath_edit.isEnabled() is False`; repeat for `False`. Add
-`ipts_toggle.isChecked()` and `nexus_edit.isEnabled()` to
-`test_direct_beam_first_launch_defaults` — it currently asserts the IPTS
-field and three TOF spins, i.e. every widget *except* the one whose
-first-launch semantics this slug changed.
-
-## B2 — a test installs the **production** QSettings identity process-globally and never restores it
-
-`launcher/tests/test_settings_persistence.py:76-84`:
-
-```python
-bare = QtCore.QSettings(); bare.setValue("any_key", "legacy_value"); bare.sync()
-QtCore.QCoreApplication.setOrganizationName("ORNL")
-QtCore.QCoreApplication.setApplicationName("lr_reduction_new_launcher")
-new = QtCore.QSettings()
-assert new.fileName() != bare.fileName()
-```
-
-Two defects in nine lines.
-
-**(a) It leaks the production identity into the rest of the pytest
-process.** `organizationName`/`applicationName` are `QCoreApplication`
-statics; neither this test nor `conftest.py`'s `isolated_qapp` restores
-them. Combined with the harness defect I verified earlier this session —
-**Qt caches the settings root at the first `QSettings` construction in a
-process**, so `isolated_qapp`'s per-test `XDG_CONFIG_HOME` redirect is a
-no-op for every test after the first — this is a reachable path to writing
-the developer's **real** `~/.config/ORNL/lr_reduction_new_launcher.conf`,
-which is precisely the production store this slug introduces. The
-ui-aspects reviewer reproduced the write on this machine (and removed the
-file). It does not fire today only because, under `pixi run test-launcher`,
-the first `QSettings` happens to be constructed inside a fixture-scoped
-test — luck of ordering, not design. Adding `pytest-randomly`, a
-fixture-less test, or any module-level widget construction flips it; T2 and
-T3 will add more settings tests on this same fixture.
-
-**(b) It does not test what its name claims.** `bare` is constructed under
-the *fixture's* `test-org-…`/`test-app-…`, not under the legacy launcher's
-org-less identity, so `new.fileName() != bare.fileName()` is a tautology —
-two different org/app pairs always yield different files. It asserts Qt's
-own org/app→path contract, not this repo's code, and it passes on
-unmodified `exp` (the RED commit says so honestly). The real legacy store
-is `~/.config/Unknown Organization.conf`.
-
-**Fix.** Delete or rewrite the test — as written it costs an identity leak
-and buys nothing. If kept, use `QSettings("ORNL", "lr_reduction_new_launcher")`
-explicitly (no global mutation), and compare against a `bare` whose org/app
-are cleared to `""`.
-
-**Harness fix that belongs with it** (in `conftest.py`, benefiting every
-launcher test file including S1's and S2's): capture and restore
-org/app/domain around the `yield`, and make the redirect actually hold with
-`QSettings.setPath(QSettings.IniFormat, QSettings.UserScope, str(tmp_path))`,
-which is **not** subject to the cached path hash. Then assert it took:
+**Honest framing, and it is not a v2 regression in origin.** v1's inline
+`setOrganizationName` had the identical radius, and **both v1 reviews and
+this Integrator missed it.** It becomes v2's to own because v2 is the cycle
+that added a migration, and therefore owns the question *"does the
+migration cover what the identity move breaks."* The GREEN commit's
+"Everything else starts fresh — PR body states the policy" reads as a
+policy only because the fixture holds two keys; stated against 61 it reads
+as a regression. The module comment is also factually wrong on ground
+truth:
 
 ```python
-assert QtCore.QSettings().fileName().startswith(str(tmp_path))
+# The pre-identity store had no organization; these are the only keys it held
+# that are worth carrying forward.
+LEGACY_KEYS = ("overplot_folder", "overplot_xscale")
 ```
 
-That single assertion converts a silent clobber of a developer's real
-config into a loud failure, regardless of test ordering.
+It is not "the only keys it held," and the value judgment is hard to
+defend for `reduction_template`, `settings_datapath`, `template_dir`,
+`30Hz_template` — long facility paths a scientist types once.
 
-## What the Developer got RIGHT (verified, worth stating)
+**Fix.** Migrate wholesale (`for k in legacy.allKeys()`) or from an
+explicit launcher key list, gated on a **sentinel key**
+(`settings_migrated_from_legacy`) rather than inferred from data, so
+"one-shot" is recorded rather than guessed. Two cautions from the blocking
+reviewer if you take the wholesale route: `Unknown Organization.conf` is
+the shared dumping ground for every Qt app on the machine that forgot to
+set an organization, so a blind `allKeys()` copy can import a foreign
+app's keys — the risk concentrates in the generically-named `output_dir`
+(`xrr.py:67,74`) and `db_output_dir` (`quick_reduce.py:98`). Enumerating is
+safer. **If the narrow policy is genuinely intended, that is the human's
+call on the MR, made against the number 61 — not the number 2.**
 
-The ui-aspects reviewer specifically checked this diff for the three defect
-classes that sank S2, and **none is present**:
+Guard test: seed a nameless store with one key per affected module, run the
+`main()` prologue, assert every key survives, and assert a second run is a
+no-op.
 
-- **No write-on-construct.** `read_settings()` runs before every save
-  connection and there is no `save_settings()` call in either `__init__`.
-  The S2 data-loss pattern is absent.
-- **Round-trip symmetry is complete** for all 18 `direct_beam_*` keys and
-  all 3 `overplot_*` keys — every key both written and read, names matching,
-  restoration guarded where the widget has a non-empty default.
-- **No restore re-triggers a save** (checked for all seven spins, both
-  checkboxes, both combos, six line edits).
-- **Scope holds** (charter §3): exactly the four planned files, keys all
-  per-tab and prefixed, nothing reaching into the T2/T3 layers.
-- The `overplot.py` two-liner is the right fix: `overplot_ytransform` was
-  already *read* with an allow-list guard on `exp` but never *written* — a
-  dead read. This completes the round-trip, and `sync()` is correct.
-- The RED commit's self-audit of its own zero-signal tests is exactly the
-  discipline S2's review found missing. Keep doing that.
+## Advisory — carry into v3
 
-## Advisory — carry into v2, not gating
+- **`ensure_identity()`'s `or` predicate leaves the org empty when
+  `applicationName()` is auto-derived.** Two complementary probes, both
+  correct: the Integrator confirmed that with `QApplication([])` — the
+  shipped path — both names stay empty and the identity installs properly;
+  the blocking reviewer showed that `QCoreApplication(["x/script.py"])`
+  auto-fills `applicationName()` from `argv[0]`, so the guard early-returns
+  and the org stays empty, resolving to
+  `Unknown Organization/script.py.conf`. So the shipped entry points are
+  fine, but the module docstring's stated reason for the tab-level call —
+  *"a non-GUI entry point (a script…) resolves the same store"* — fails for
+  any script using the conventional `QApplication(sys.argv)`, and T2/T3 are
+  contractually pointed at this function. Fix: gate on
+  `if app.organizationName(): return` only.
+- **The two shipped entry points now diverge.** `pyproject.toml` ships both
+  `launcher` and `new_launcher`, both include the SLD tab, and
+  `launcher/launcher.py:42-46` does not call `ensure_identity()`. After
+  this slug, `sld_composition`/`sld_wavelength` resolve to the ORNL store
+  under one binary and the nameless store under the other. One line fixes
+  it, but land it **with** the B3 migration, since it widens the orphan set.
+- **`migrate_legacy_settings()` clears the identity outside its `try`**
+  (`app_identity.py:50-60`). If the second or third setter raised, the
+  `finally` never runs and the session is left with an empty organization —
+  the same process-global mutation surface v1 was rejected on. Open the
+  `try` immediately after the capture. Worth a comment that the function is
+  not reentrant, and is safe only because `main()` calls it before
+  `QApplication` exists.
+- **A restored checked toggle can display path text contradicting the IPTS
+  in use** (`direct_beam.py:495-501`): `_ipts_toggled` derives paths only on
+  a toggle edge, and `ipts_edit.editingFinished` saves without re-deriving.
+  `_run_create_db` uses the correct IPTS, so nothing computes wrongly, but
+  the greyed field misstates provenance and v2 is the first version where
+  that survives a restart.
 
-- **13 of 18 `direct_beam` keys have no test**, including `run_list` — the
-  most-typed field in the tab and the first symptom the plan names — and
-  `mod_vals`, the structural twin of the one blob that *is* tested. A
-  parametrized round-trip over all 18 keys is ~15 lines.
-- **All 16 signal→save connections are untested**: every test calls
-  `save_settings()` explicitly, but in production nobody does. Delete
-  `:358-373` entirely and all 7 tests stay green. One test that mutates a
-  widget and emits `editingFinished` covers the block.
-- **No test reaches disk.** A second `QSettings` for the same org/app shares
-  the first's in-memory `QConfFile`, so every "restart" here is satisfied
-  from memory; `deleteLater()` without an event-loop turn never runs.
-  Both `sync()` calls can be deleted with the suite green. One assertion —
-  read `tab.settings.fileName()` and grep the key — makes the write path
-  load-bearing.
-- The identity strings are inline literals in `main()` and re-typed in the
-  test, while the plan makes this slug the **source of truth** T2/T3 must
-  adopt. Hoist to importable constants (`ORG_NAME`, `ORG_DOMAIN`,
-  `APP_NAME`); a typo in a future copy would silently split the store.
-- Identity is set only inside `main()`, so any non-GUI entry point that
-  constructs a tab resolves to a different store. An idempotent
-  `ensure_identity()` called from `main()` and each tab's `__init__` is the
-  robust form.
-- **Store path moves with no migration**: `exp` users' `overplot_folder`
-  and `overplot_xscale` live in the org-less
-  `~/.config/Unknown Organization.conf` and will silently vanish on first
-  launch after upgrade. Two re-typeable preferences, so low blast radius —
-  but decide it now, before T2/T3 add more keys. Either one-shot migrate or
-  state the reset in the PR body.
-- Three GREEN-commit claims are not test-backed and one is wrong: the
-  `_bool` coercion is dead on the tested binding (which returns real
-  `bool`s), the range-clamp claim is asserted by nothing, and the
-  `blockSignals` justification is contradicted by the ordering (B1).
-- Pre-existing on `exp`, not introduced here, but adjacent: `overplot.py`'s
-  `save_settings` stores `folder_edit.text()` unstripped while other sites
-  compare `.strip()`ed — a trailing space saves fine and then fails
-  `isdir` next launch. Worth a follow-up.
+## Test discrimination — real improvement, one structural gap left
 
-## Suggested v2 order
+**Closed:** all 18 keys now have a parametrized round-trip (was 5 of 18,
+with `run_list` — the most-typed field — uncovered); a genuine
+reaches-disk assertion exists and makes `DirectBeamTab.save_settings`'s
+`sync()` load-bearing; the identity/migration module has five caught
+mutations. 12 of 33 mutation probes are now caught, against near-zero at v1.
 
-1. B1 — split `_ipts_toggled` / apply the mode after restore, and settle
-   the `True` default. Add the enabled-state assertions.
-2. B2 — delete or rewrite the identity test; fix `conftest.py` isolation
-   (restore org/app, `setPath`, assert the redirect took). The conftest fix
-   benefits S1 and S2 as well.
-3. Then the advisory coverage gaps, highest value first: one signal-driven
-   save test, one disk assertion, the 18-key parametrization, and the
-   survives-a-degraded-restore test.
+**The one that matters most is still open, and it is structural.** No test
+crosses a process boundary, so the string→type coercion layer a real
+restart depends on is entirely unexercised. Demonstrated: inverting
+`_bool`'s string branch leaves **32/32 green**, while a genuine two-process
+restart against the same mutated code returns the IPTS toggle and the plot
+checkbox **inverted**. Credit where it is due — the same probe against the
+*unmutated* code round-trips all 18 keys correctly, including INI-escaped
+JSON and the comma-bearing run list: **the production code is right, the
+suite simply cannot tell.** The cause is that Qt serves a second in-process
+`QSettings()` from the first's cached `QConfFile`, so in-process restart
+testing of QSettings is structurally impossible.
+
+One subprocess restart test closes six gaps at once (`_bool`'s string
+branch, the float coercion, the non-dict guard, the range clamp, a real
+disk round-trip for all 18 keys, and `main()`'s identity wiring). Shape:
+spawn `sys.executable -c …` twice with `HOME`/`XDG_CONFIG_HOME` in
+`tmp_path`; phase 1 saves, phase 2 constructs a fresh tab and prints the
+values as JSON. **Comment why the subprocess is required**, or someone will
+"simplify" it back in-process.
+
+Also still open, highest value first:
+
+- **1 of 16 signal→save connections is covered.** Dropping the other 15,
+  individually or together, leaves the suite green — and the two
+  `save_settings()` calls after the Cd/moderator dialogs are revertible
+  too, which matters because they are the *only* persistence path for
+  `cd_vals`/`mod_vals`. One table-driven test over
+  `(widget, signal, setter, key)` takes this from 1/16 to 16/16 in ~15
+  lines.
+- **`_ipts_toggled`'s own `_apply_ipts_mode(state)` call is revertible** —
+  only the *restore* call site is covered, so the path a scientist actually
+  exercises (clicking the toggle) has no test. A regression there
+  reproduces B1's symptom from the other direction.
+- **`ensure_identity()` in both tab constructors is revertible**, and it is
+  not dead code: removed, a directly-constructed tab resolves to the
+  nameless store. Uncovered because the fixture always pre-installs an
+  identity, so the install branch is never taken where it matters.
+- **`test_migrate_legacy_settings_never_overwrites` is order-dependent** —
+  with the never-overwrite guard deleted it fails when run with its
+  neighbour but **passes when run alone**, because it relies on the
+  preceding test's leftover value. Seed its own distinct legacy value.
+- **`test_migrate_legacy_settings_copies_and_restores_identity` blanks the
+  process-global identity without `try/finally`** — structurally the
+  pattern B2 was rejected for. Correct-and-flag on the GREEN commit body:
+  it says "that test now restores in a `finally`," which is true of
+  `test_ensure_identity_installs_when_unset` but **not** of this one.
+- Both identity tests assert Qt statics where `QSettings().fileName()` —
+  the user-visible consequence — is available.
+- Overplot's `folder`/`xscale` keys and its newly added `sync()` remain
+  uncovered.
+
+## Suggested v3 order
+
+1. **B3** — widen the migration with a sentinel gate, and build its fixture
+   from the ground-truth key list rather than a hand-picked pair. If the
+   narrow policy is intended instead, say so in the PR body against the
+   real number and let the human decide on the MR.
+2. **The subprocess restart test** — highest leverage remaining; closes six
+   gaps and would have caught the `_bool` inversion.
+3. `ensure_identity()` org-only predicate; `try` opened before the clears;
+   `ensure_identity()` in `launcher/launcher.py` (land with item 1).
+4. The 16-connection table test, the live-toggle test, and making
+   `never_overwrites` self-contained.
