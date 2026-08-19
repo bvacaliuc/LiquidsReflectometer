@@ -43,6 +43,17 @@ TOF-rebin spinboxes that did not exist when the PR was written.
   `read_settings` already reads `overplot_ytransform` (176) — the missing
   *save* half is this slug's overplot change. (S2 owns `overplot_mode` /
   `overplot_last_refresh`; keys are disjoint.)
+  **Addendum 2026-08-19 (from S2's v1 rejection, todo.md @ `1c0fc43`,
+  advisory section):** S2's mode gating force-resets the transform combo
+  to `"None"` whenever R*Q⁴ is disabled (one direct-beam plot does it) and
+  never restores the prior choice. Once THIS slug saves
+  `overplot_ytransform`, that forced reset would silently overwrite the
+  user's stored preference. The save half must not persist a forced
+  reset: either skip the `overplot_ytransform` write while the R*Q⁴ combo
+  entry is disabled, or remember/restore the user's explicit choice when
+  it re-enables — implementer's pick, with a test either way (plot a DB
+  fixture, then assert the stored `overplot_ytransform` still holds the
+  user's prior explicit choice).
 - `new_launcher.py`: has a real `main()` (pyproject GUI entry point) —
   org/app lines land **inside `main()`**, before `QApplication([])`; the
   PR's `__main__`-block placement is obsolete. `ReductionInterface.__init__`
