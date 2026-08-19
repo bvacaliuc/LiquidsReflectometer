@@ -248,7 +248,14 @@ class Overplot(QWidget):
             self.plot_mode_combo.setCurrentText(_mode)
 
     def save_settings(self):
-        self.settings.setValue("overplot_folder", self.folder_edit.text())
+        # Only persist a folder we actually have. read_settings leaves the
+        # field empty when the stored path is not a directory (an unmounted
+        # /SNS at launch), and __init__ reaches save_settings via
+        # _on_plot_mode_changed — writing "" there would destroy the user's
+        # stored path just for opening the app before the mount came up.
+        folder = self.folder_edit.text().strip()
+        if folder:
+            self.settings.setValue("overplot_folder", folder)
         self.settings.setValue("overplot_xscale", self.xscale_combo.currentText())
         self.settings.setValue("overplot_mode", self.plot_mode_combo.currentText())
 
