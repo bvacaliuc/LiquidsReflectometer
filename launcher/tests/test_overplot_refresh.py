@@ -29,12 +29,16 @@ def test_refresh_button_exists():
 
 @pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
 def test_refresh_no_folder(monkeypatch):
+    """Captures the guard's warning — the prior form asserted only the value
+    it had just set, and passed even with the guard deleted."""
     from launcher.apps.overplot import Overplot
 
-    monkeypatch.setattr(QMessageBox, "warning", lambda *_a, **_k: None)
+    captured = {}
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **_k: captured.setdefault("warn", a))
     tab = Overplot()
     tab.folder_edit.setText("")
     tab.refresh()
+    assert "warn" in captured
     assert tab.folder_edit.text() == ""
 
 
@@ -122,3 +126,70 @@ def test_refresh_unmounted_folder(monkeypatch):
     tab.refresh()
     assert "crit" in captured
     assert tab.folder_edit.text() == "/nonexistent/path/12345"
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_row_click_toggles_check(tmp_path):
+    """B3: the checkbox is the single notion of 'chosen'; a click drives it."""
+    from launcher.apps.overplot import Overplot
+
+    (tmp_path / "a.dat").write_text("0.01 0.5\n")
+    tab = Overplot()
+    tab.folder_edit.setText(str(tmp_path))
+    tab.populate_file_list(str(tmp_path))
+    item = tab.file_list.item(0)
+    assert item.checkState() == QtCore.Qt.Unchecked
+    tab.file_list.itemClicked.emit(item)
+    assert item.checkState() == QtCore.Qt.Checked
+    tab.file_list.itemClicked.emit(item)
+    assert item.checkState() == QtCore.Qt.Unchecked
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_highlight_without_check_does_not_plot(tmp_path):
+    """B3: highlight-only rows were a hidden input to plot_selected."""
+    from launcher.apps.overplot import Overplot
+
+    (tmp_path / "a.dat").write_text("0.01 0.5\n")
+    tab = Overplot()
+    tab.folder_edit.setText(str(tmp_path))
+    tab.populate_file_list(str(tmp_path))
+    item = tab.file_list.item(0)
+    item.setSelected(True)
+    tab.plot_selected()
+    assert tab.figure.axes == []
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_refresh_preserves_checks_across_sort_shift(tmp_path):
+    """Kills the named revert: index-keyed check restore."""
+    from launcher.apps.overplot import Overplot
+
+    (tmp_path / "b.dat").write_text("0.01 0.5\n")
+    (tmp_path / "c.dat").write_text("0.01 0.7\n")
+    tab = Overplot()
+    tab.folder_edit.setText(str(tmp_path))
+    tab.populate_file_list(str(tmp_path))
+    _check(tab, "c.dat")
+    # sorts ahead of both, shifting every index by one
+    (tmp_path / "0aaa.dat").write_text("0.01 0.9\n")
+    tab.refresh()
+    states = _states(tab)
+    assert states["c.dat"] == QtCore.Qt.Checked
+    assert states["b.dat"] == QtCore.Qt.Unchecked
+    assert states["0aaa.dat"] == QtCore.Qt.Unchecked
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_refresh_button_click_picks_up_new_file(tmp_path):
+    """Kills the named revert: refresh_btn.clicked disconnected."""
+    from launcher.apps.overplot import Overplot
+
+    (tmp_path / "a.dat").write_text("0.01 0.5\n")
+    tab = Overplot()
+    tab.folder_edit.setText(str(tmp_path))
+    tab.populate_file_list(str(tmp_path))
+    (tmp_path / "c.dat").write_text("0.01 0.9\n")
+    tab.refresh_btn.click()
+    items = [tab.file_list.item(i).text() for i in range(tab.file_list.count())]
+    assert "c.dat" in items
