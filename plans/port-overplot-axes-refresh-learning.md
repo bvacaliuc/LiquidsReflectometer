@@ -76,3 +76,74 @@ ordinary `pixi run` issued from `tests/`.
 explicit paths rather than `git add -A`. Note the plan for this slug already
 carried the caveat, which is why it was caught — a plan that names the trap
 is worth more than a reviewer who has to notice it.
+
+## 3. "Seed PR" does not mean "verified against facility data"
+
+*Added after the v1 rejection (Integrator todo.md `1c0fc43`); the sections
+above are from the v1 cycle.*
+
+**Rule.** When a slug ports logic that parses a *data format*, validate the
+ported logic against the repository's real files before calling it green — not
+against the seed PR, not against a fixture written by the same PR. A plan that
+says "copy verbatim" transfers the seed's defects too.
+
+**Why.** PR #9's `classify_file` scanned a fixed 10-line window for the
+reflectivity header marker. Both reduction writers put that marker after a
+metadata preamble carrying one line per stitched angle, so in this repo's own
+tracked corpus it sits at lines 13, 18, 19, 19 and 20:
+
+```
+tests/data/reference_short_nobck.txt        line 13
+tests/data/reference_rq_201282.txt          line 18
+tests/data/reference_rq.txt, _avg           line 19
+tests/data/reference_rq_avg_overlap.txt     line 20
+launcher/tests/data/refl_fixture.txt        line 2   <- the only hit
+```
+
+Every real reflectivity file classified `unknown`; only the seven-line
+synthetic fixture the PR itself shipped classified `reflectivity`. Direct beam
+was asymmetric — its marker lands on line 8, inside the window — which is what
+made the second defect bite: `_resolve_modes` dropped `unknown` before testing
+homogeneity, so one recognized direct-beam file dragged a whole selection of
+real R(Q) curves onto `λ [Å]` / `I` axes with no warning.
+
+The user-visible result is the part worth remembering: **the slug made its own
+primary case worse than before it existed.** Before, real reflectivity plotted
+under `Q`/`R` with `R*Q⁴` working; after, `x`/`y` with `R*Q⁴` greyed out and
+silently reset — or, in the mixed case, confidently wrong axis labels on real
+measurements. A slug whose stated purpose is "stop the axes lying" shipped
+axes that lie differently.
+
+**How to apply.** Three checks, none expensive: (a) if the ported code reads a
+file format, find the writer in `src/` and read what it actually emits
+(`output.py:236`, `save_reduced_data.py:54-56` here — a *second* writer with a
+different marker that no version of the port handled); (b) parametrize the
+guard test over the real tracked corpus, listed explicitly — the `REFL_*.txt`
+siblings are gitignored test-run byproducts and a glob over them collects zero
+cases on a fresh clone or in CI; (c) treat a synthetic fixture as a
+convenience for edge cases, never as evidence that the classifier works.
+
+## 4. A green suite can be evidence of nothing — check that the tests can fail
+
+**Rule.** Before claiming a slug green, ask which test would fail if the
+feature were reverted. If the answer is "none", the suite is decoration.
+
+**Why.** v1's 15 tests passed while all four blocking defects were live. The
+reviewer enumerated partial reverts that keep the whole suite green: revert the
+popout labels to `'x'`/`'y'`; swap check-state restore from name-keyed to
+index-keyed; drop the filter-honoring rebuild; hardcode `_set_rq4_enabled` to
+`False`; delete the entire explicit-override block; delete the `[kind]` legend
+suffix; disconnect `refresh_btn.clicked` altogether — no test clicks the
+button. And `test_refresh_no_folder` asserted the value it had just set, so it
+passed with the guard deleted.
+
+The v1 tests were green because they were written against the same mental model
+as the code, using the same synthetic fixture. That is the failure mode: tests
+derived from the implementation confirm the implementation.
+
+**How to apply.** For each behaviour a slug adds, write the test so that
+deleting the behaviour makes it red, and say so in the commit body. The v2
+suite is built this way — twelve tests that fail first, each naming its
+finding, plus four written explicitly as guards against reverts the reviewer
+named. Where a test lands green at RED, state that plainly instead of letting
+a total ("15 passed") imply coverage it does not have.
