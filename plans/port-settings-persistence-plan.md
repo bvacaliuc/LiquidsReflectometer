@@ -4,7 +4,7 @@
 #11 disposition ("re-implement on `exp` — highest user value: the deployed
 GUI forgets typed values") · seed `agentic/feature/settings-persistence` @
 `18ff75b`
-**Retry attempt:** 1
+**Retry attempt:** 2
 
 Review domains: ui-aspects-reviewer (**blocking** — QSettings wiring and
 widget-state round-trips are its exact trap list), test-reviewer (advisory).
@@ -156,3 +156,98 @@ same-file overlap in the draft-PR body so the human orders the merges.
 - Draft PR body: supersedes PR #11 (human closes it per charter §3); notes
   the T2/T3 org-app adoption contract (constants above) and the S1
   overlap if S1 is unmerged.
+
+## Revision history
+
+### v2 — 2026-08-19 (after v1 rejection; todo.md @ `01d7e6f`)
+
+Blocking fired per this plan's own declaration (ui-aspects) — no
+disposition dispute this cycle. Two findings, both re-verified by the
+Analyst on the feature branch:
+
+- **B1 is partly a plan defect, owned here:** v1's instruction
+  "`ipts_toggle` set under `blockSignals` (its `toggled` handler mutates
+  path fields)" ported PR #11's guard together with a false premise. The
+  ordering analysis in the todo is correct: the save connections attach
+  *after* `read_settings()`, and an unguarded restore would derive paths
+  and then have them overwritten by the stored values anyway — the guard
+  suppresses only `_ipts_toggled`'s enable/disable side, leaving
+  `nexus_edit`/`savepath_edit` editable under a checked toggle
+  (restore at `:389-391`, the only enforcement in `_ipts_toggled`, the
+  consuming branch `_run_create_db:536` — typed paths silently
+  discarded). The v1 failure-mode row "blockSignals around the restore"
+  is superseded by the v2 fix below.
+- **B2:** `test_isolation_from_legacy_launcher` installs the production
+  identity (`ORNL`/`lr_reduction_new_launcher`) via `QCoreApplication`
+  statics, never restores, and — combined with Qt's cached settings
+  root — reachably writes the developer's real `~/.config` (reproduced
+  by the reviewer). Its assertion is also a tautology (two different
+  org/app pairs always differ). v1 inherited the test verbatim from
+  PR #11.
+- The two `test-reduction` failures were the known cross-clone `/tmp`
+  race (identical foreign value in both, serialized re-run 2/2 green) —
+  external interference, zero retry budget consumed; strengthens the
+  parked `test-tmp-isolation` proposal.
+
+## v2 fixes
+
+**B1 — apply the mode, don't suppress it** (`launcher/apps/direct_beam.py`):
+split the handler per the todo's sketch —
+
+```python
+def _apply_ipts_mode(self, state):
+    """Enable/disable the manual-path fields for the IPTS-structure mode."""
+    self.nexus_edit.setEnabled(not state)
+    self.savepath_edit.setEnabled(not state)
+```
+
+`_ipts_toggled(state)` keeps its derivation branch and ends with
+`self._apply_ipts_mode(state)`; `read_settings()` calls
+`self._apply_ipts_mode(self.ipts_toggle.isChecked())` immediately after
+`blockSignals(False)` (keep the guard only to avoid a redundant
+derivation pass — with the mode applied explicitly it is now harmless
+either way). **Restore default flips to `False`**
+(`direct_beam_use_ipts_path_structure`, `:390`): PR #11's `True` is an
+inherited first-launch behavior change on a deployed line — `False`
+preserves what `exp` does today (deviation from the seed PR, flagged
+here deliberately). Tests: enabled-state assertions for both stored
+values (construct with the key pre-seeded `True` → both fields
+disabled; `False` → enabled), and `test_direct_beam_first_launch_defaults`
+extended to assert `ipts_toggle.isChecked() is False` and
+`nexus_edit.isEnabled() is True` — the two widgets whose first-launch
+semantics this slug touches.
+
+**B2 — delete `test_isolation_from_legacy_launcher`.** It buys nothing
+(asserts Qt's org/app→path contract, green on unmodified `exp`) and
+costs a process-global production-identity leak. The distinct-store
+property is delivered and asserted by the `harness-hardening` slug's
+conftest work (`setPath` isolation + org/app restore + the
+`fileName().startswith(tmp_path)` assertion), which is implemented and
+at the Integrator's gate. **Do not touch `launcher/tests/conftest.py`
+in this slug** — that file is `harness-hardening`'s; if its PR has
+merged into `exp` by v2 time, a regular merge of `exp` into this
+feature branch may pick it up, otherwise proceed without it.
+
+**Promoted from the review's advisory list (cheap, named, in scope):**
+
+1. Identity constants become importable: new `launcher/app_identity.py`
+   with `ORG_NAME = "ORNL"`, `ORG_DOMAIN = "ornl.gov"`,
+   `APP_NAME = "lr_reduction_new_launcher"` and an idempotent
+   `ensure_identity()` (set the three statics only if unset/different);
+   `main()` calls it, and each settings-bearing tab calls it first in
+   `__init__` — non-GUI entry points then resolve the same store. The
+   plan's T2/T3 adoption contract now points at this module, not at
+   inline literals.
+2. One-shot migration of the two legacy keys: on first launch with an
+   empty new store, copy `overplot_folder` / `overplot_xscale` from the
+   org-less legacy store (`QSettings()` with cleared identity) if
+   present; PR body states the policy (everything else starts fresh).
+3. Coverage that makes the wiring load-bearing: a parametrized
+   round-trip over all 18 `direct_beam_*` keys; one signal-driven save
+   test (mutate a field, emit `editingFinished`, fresh tab reads it
+   back — no explicit `save_settings()` call); one disk assertion
+   (`tab.settings.fileName()` exists and contains a written key after
+   `sync()`).
+
+Everything else from v1 stands (scope, strip list, keys, queue note,
+pixi.lock caveat).
