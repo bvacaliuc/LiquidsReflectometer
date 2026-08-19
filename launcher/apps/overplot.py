@@ -19,6 +19,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from launcher.app_identity import ensure_identity
+
 # Try a few possible Qt backends for matplotlib (Qt5, QtAgg, Qt4)
 FigureCanvas = None
 NavigationToolbar = None
@@ -54,6 +56,7 @@ class Overplot(QWidget):
         QWidget.__init__(self)
         self.setWindowTitle("Overplot")
 
+        ensure_identity()
         self.settings = QtCore.QSettings()
         self._files = []  # full list of .dat filenames in chosen folder
 

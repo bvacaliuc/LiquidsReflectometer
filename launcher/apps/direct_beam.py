@@ -18,6 +18,8 @@ from qtpy.QtWidgets import (
     QWidget,
 )
 
+from launcher.app_identity import ensure_identity
+
 # Try matplotlib Qt backends
 FigureCanvas = None
 NavigationToolbar = None
@@ -202,6 +204,7 @@ class DirectBeamTab(QWidget):
     def __init__(self):
         QWidget.__init__(self)
         self.setWindowTitle('Direct beam')
+        ensure_identity()
         self.settings = QtCore.QSettings()
 
         # UI layout: left controls, right canvas
@@ -386,9 +389,14 @@ class DirectBeamTab(QWidget):
 
         self.run_list_edit.setText(str(s.value("direct_beam_run_list", "")))
         self.ipts_edit.setText(str(s.value("direct_beam_ipts", "")))
+        # Default False preserves exp's deployed first-launch behaviour; PR #11
+        # defaulted True, which silently flips it on a line already in use.
         self.ipts_toggle.blockSignals(True)
-        self.ipts_toggle.setChecked(_bool(s.value("direct_beam_use_ipts_path_structure", True), True))
+        self.ipts_toggle.setChecked(_bool(s.value("direct_beam_use_ipts_path_structure", False), False))
         self.ipts_toggle.blockSignals(False)
+        # The guard suppresses _ipts_toggled, which is the only code that
+        # enforces the enable/disable invariant — apply it explicitly.
+        self._apply_ipts_mode(self.ipts_toggle.isChecked())
         self.nexus_edit.setText(str(s.value("direct_beam_nexus_path", "")))
         self.savepath_edit.setText(str(s.value("direct_beam_save_path", "")))
         savename = s.value("direct_beam_save_name", "")
@@ -473,18 +481,24 @@ class DirectBeamTab(QWidget):
             self.mod_vals = vals
             self.save_settings()
 
+    def _apply_ipts_mode(self, state):
+        """Enable/disable the manual path fields for the IPTS-structure mode.
+
+        Split out of _ipts_toggled so a restore can apply the mode without
+        re-deriving paths: _run_create_db ignores these two fields when the
+        toggle is checked, so leaving them editable invites the user to type
+        paths that are silently discarded.
+        """
+        self.nexus_edit.setEnabled(not state)
+        self.savepath_edit.setEnabled(not state)
+
     def _ipts_toggled(self, state):
         if state:
             ipts = self.ipts_edit.text().strip()
             if ipts:
                 self.nexus_edit.setText(f"/SNS/REF_L/IPTS-{ipts}/nexus/")
                 self.savepath_edit.setText(f"/SNS/REF_L/IPTS-{ipts}/shared/transmission/")
-            # disable manual edits
-            self.nexus_edit.setEnabled(False)
-            self.savepath_edit.setEnabled(False)
-        else:
-            self.nexus_edit.setEnabled(True)
-            self.savepath_edit.setEnabled(True)
+        self._apply_ipts_mode(state)
 
     def _parse_run_list(self, text):
         import re

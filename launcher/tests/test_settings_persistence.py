@@ -193,3 +193,98 @@ def test_ipts_mode_applied_on_restore(stored, expect_enabled):
     assert tab.ipts_toggle.isChecked() is stored
     assert tab.nexus_edit.isEnabled() is expect_enabled
     assert tab.savepath_edit.isEnabled() is expect_enabled
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_ensure_identity_does_not_clobber_existing():
+    """Idempotent and non-clobbering: a test fixture's throwaway identity (or a
+    second call) must survive, or tabs would drag every store to the
+    production identity mid-session."""
+    from launcher.app_identity import ensure_identity
+
+    before = (
+        QtCore.QCoreApplication.organizationName(),
+        QtCore.QCoreApplication.applicationName(),
+    )
+    ensure_identity()
+    ensure_identity()
+    after = (
+        QtCore.QCoreApplication.organizationName(),
+        QtCore.QCoreApplication.applicationName(),
+    )
+    assert after == before
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_ensure_identity_installs_when_unset():
+    """Restores the identity itself: installing the production org/app
+    process-wide and leaving it there is the very leak B2 was rejected for —
+    a later test would resolve QSettings to the developer's real config."""
+    from launcher import app_identity
+
+    saved = (
+        QtCore.QCoreApplication.organizationName(),
+        QtCore.QCoreApplication.organizationDomain(),
+        QtCore.QCoreApplication.applicationName(),
+    )
+    try:
+        QtCore.QCoreApplication.setOrganizationName("")
+        QtCore.QCoreApplication.setOrganizationDomain("")
+        QtCore.QCoreApplication.setApplicationName("")
+        app_identity.ensure_identity()
+        assert QtCore.QCoreApplication.organizationName() == app_identity.ORG_NAME
+        assert QtCore.QCoreApplication.organizationDomain() == app_identity.ORG_DOMAIN
+        assert QtCore.QCoreApplication.applicationName() == app_identity.APP_NAME
+    finally:
+        QtCore.QCoreApplication.setOrganizationName(saved[0])
+        QtCore.QCoreApplication.setOrganizationDomain(saved[1])
+        QtCore.QCoreApplication.setApplicationName(saved[2])
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_migrate_legacy_settings_copies_and_restores_identity():
+    """The migration reads an org-less store, so it mutates the process-global
+    identity; it must put it back even though it succeeded."""
+    from launcher import app_identity
+
+    identity_before = (
+        QtCore.QCoreApplication.organizationName(),
+        QtCore.QCoreApplication.organizationDomain(),
+        QtCore.QCoreApplication.applicationName(),
+    )
+
+    org, domain, name = identity_before
+    QtCore.QCoreApplication.setOrganizationName("")
+    QtCore.QCoreApplication.setOrganizationDomain("")
+    QtCore.QCoreApplication.setApplicationName("")
+    legacy = QtCore.QSettings()
+    legacy.setValue("overplot_folder", "/legacy/folder")
+    legacy.setValue("overplot_xscale", "log")
+    legacy.sync()
+    QtCore.QCoreApplication.setOrganizationName(org)
+    QtCore.QCoreApplication.setOrganizationDomain(domain)
+    QtCore.QCoreApplication.setApplicationName(name)
+
+    app_identity.migrate_legacy_settings()
+
+    current = QtCore.QSettings()
+    assert current.value("overplot_folder") == "/legacy/folder"
+    assert current.value("overplot_xscale") == "log"
+    identity_after = (
+        QtCore.QCoreApplication.organizationName(),
+        QtCore.QCoreApplication.organizationDomain(),
+        QtCore.QCoreApplication.applicationName(),
+    )
+    assert identity_after == identity_before
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_migrate_legacy_settings_never_overwrites():
+    """One-shot: a value the user has already set in the new store wins."""
+    from launcher import app_identity
+
+    current = QtCore.QSettings()
+    current.setValue("overplot_folder", "/current/folder")
+    current.sync()
+    app_identity.migrate_legacy_settings()
+    assert QtCore.QSettings().value("overplot_folder") == "/current/folder"
