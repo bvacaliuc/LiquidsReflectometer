@@ -4,7 +4,7 @@
 #11 disposition ("re-implement on `exp` — highest user value: the deployed
 GUI forgets typed values") · seed `agentic/feature/settings-persistence` @
 `18ff75b`
-**Retry attempt:** 2
+**Retry attempt:** 3 (final — N=3; the next rejection escalates)
 
 Review domains: ui-aspects-reviewer (**blocking** — QSettings wiring and
 widget-state round-trips are its exact trap list), test-reviewer (advisory).
@@ -242,6 +242,8 @@ feature branch may pick it up, otherwise proceed without it.
    empty new store, copy `overplot_folder` / `overplot_xscale` from the
    org-less legacy store (`QSettings()` with cleared identity) if
    present; PR body states the policy (everything else starts fresh).
+   *(**Superseded by v3** — the two-key scope orphans ~61 of 63 launcher
+   keys; see the v3 revision entry.)*
 3. Coverage that makes the wiring load-bearing: a parametrized
    round-trip over all 18 `direct_beam_*` keys; one signal-driven save
    test (mutate a field, emit `editingFinished`, fresh tab reads it
@@ -251,3 +253,78 @@ feature branch may pick it up, otherwise proceed without it.
 
 Everything else from v1 stands (scope, strip list, keys, queue note,
 pixi.lock caveat).
+
+### v3 — 2026-08-19 (after v2 rejection; todo.md @ `c32ee5f`; FINAL retry)
+
+Both v1 findings RESOLVED and verified; three v1 advisories adopted
+unbidden; gate green (34+107, no race). The one new blocking finding is
+a **blast-radius under-measurement owned by this plan**: v2 directed a
+two-key migration on the v1 review's "two re-typeable preferences"
+framing without measuring what the identity switch actually repoints —
+`ensure_identity()` in `main()` moves the store for the whole process:
+**63 keys across 11 launcher modules** (ground truth, measured by the
+gate; both reviewers reproduced the loss end-to-end). On first launch
+the Batch-file tab loses 11 keys, SLD 2, seven more tabs lose templates
+and output paths — a one-time mass-forget from the slug whose symptom
+statement is "the GUI forgets typed values". The radius existed in v1's
+inline identity too and every reviewer missed it then; v2 owns it
+because v2 added the migration and with it the question "does the
+migration cover the break". Analyst re-verified the key citations:
+both `pyproject` gui-scripts ship (launcher.py never installs the
+identity), and `migrate_legacy_settings` clears the three identity
+statics *outside* its `try` (one raise leaves the process nameless).
+
+## v3 fixes (final retry — the gate's order)
+
+1. **B3 — migrate the enumerated launcher key set behind a sentinel.**
+   Build the list from ground truth at implementation time (grep every
+   `settings.value`/`setValue` key across `launcher/**`; the gate
+   counted 63 across 11 modules) and commit it as the module-level
+   `LEGACY_KEYS` with a per-module comment. Enumerated, NOT wholesale
+   `allKeys()`: `Unknown Organization.conf` is the shared dumping ground
+   for every identity-less Qt app on the machine, and generic names
+   (`output_dir` at `xrr.py:67,74`, `db_output_dir` at
+   `quick_reduce.py:98`) concentrate the foreign-import risk. Gate the
+   one-shot on a **sentinel key** (`settings_migrated_from_legacy`)
+   written after a successful copy — recorded, not inferred from data;
+   never overwrite an existing new-store value. Fix the docstring (the
+   old text's "the only keys it held" is factually wrong). PR body
+   states the policy against the real number — the human can still
+   narrow it at the MR, but decides against 63, not 2. Guard test per
+   the gate: seed one key per affected module in a nameless store, run
+   the `main()` prologue, assert every key survives and a second run is
+   a no-op.
+2. **Subprocess restart test** (highest remaining leverage; closes six
+   gaps at once — today inverting `_bool`'s string branch leaves 32/32
+   green while a real restart returns two widgets inverted): spawn
+   `sys.executable -c …` twice with `HOME`/`XDG_CONFIG_HOME` pointed
+   into `tmp_path`; phase 1 saves all 18 `direct_beam_*` keys through a
+   real tab, phase 2 constructs a fresh tab and prints the read-back as
+   JSON; assert equality. **Comment in the test why the subprocess is
+   required** (Qt serves the second in-process `QSettings` from the
+   first's cached `QConfFile` — in-process "restarts" never touch the
+   coercion layer), or someone will simplify it back.
+3. **Identity hardening, landed WITH item 1** (each widens/narrows the
+   same radius): `ensure_identity()` guards on
+   `if app.organizationName(): return` only (the current `or` predicate
+   early-returns when `applicationName()` is auto-derived from argv —
+   `QApplication(sys.argv)` scripts end up as
+   `Unknown Organization/script.py.conf`, and T2/T3 are contractually
+   pointed here); add `ensure_identity()` to `launcher/launcher.py`'s
+   `main()` (the second shipped binary — otherwise the SLD tab splits
+   stores between binaries); open `migrate_legacy_settings`'s `try`
+   BEFORE the three identity clears, and comment the non-reentrancy.
+4. **Coverage the gate named** : one table-driven test over the 16
+   `(widget, signal, setter, key)` save connections (1/16 → 16/16,
+   including the Cd/moderator dialog saves — the only persistence path
+   for `cd_vals`/`mod_vals`); a live-toggle test covering
+   `_ipts_toggled`'s own `_apply_ipts_mode` call (the click path, not
+   just the restore path); make `never_overwrites` self-contained
+   (seed its own legacy value); wrap the migration test's identity
+   blanking in `try/finally` (correct-and-flag: the GREEN body's
+   "restores in a finally" claim is true of the *other* identity test,
+   not this one); prefer `QSettings().fileName()` assertions over Qt
+   statics where the file is the consequence that matters.
+5. **Optional, drop first if anything wobbles:** Overplot
+   `folder`/`xscale`/`sync()` coverage; the greyed-path-provenance
+   advisory stays recorded, not scoped.
