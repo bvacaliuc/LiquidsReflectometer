@@ -4,10 +4,13 @@
 #9 + #10 ("port, adapted — one overplot series") · seeds
 `agentic/feature/overplot-axes` @ `300d040`,
 `agentic/feature/overplot-refresh` @ `7bc34b2`
-**Retry attempt:** 1
+**Retry attempt:** 2
 
-Review domains: ui-aspects-reviewer (advisory — matplotlib-in-Qt axes +
-widget state), test-reviewer (advisory).
+Review domains: ui-aspects-reviewer (**blocking** — upgraded at the v1
+rejection: charter §5 ties blocking to bug-fix phases, and v1 proved this
+slug is one; the v1 "advisory" premise — reviewed PoC code, tests catch
+adaptation slips — was falsified by four verified functional findings on a
+green suite), test-reviewer (advisory).
 
 ## Symptom
 
@@ -149,4 +152,131 @@ a lock not starting `version: 6`.
   `launcher/tests/test_overplot_refresh.py`, `launcher/tests/data/*` (2
   files).
 - Draft PR body notes: supersedes PRs #9 + #10 (human closes both per
-  charter §3).
+  charter §3), and calls out the B3 chosen-semantics change (below) as a
+  deliberate change to pre-existing `exp` behavior.
+
+## Revision history
+
+### v2 — 2026-08-19 (after v1 rejection; todo.md @ `1c0fc43`)
+
+Tests were green (17 launcher + 107 reduction); the rejection is entirely
+from the review gate. The Integrator departed from v1's advisory
+declaration and the **Analyst upholds the blocking disposition**: B1/B2
+mean the feature fails its stated purpose on every real reflectivity file
+in the repo (and B2 puts confidently-wrong λ/I axes on real R(Q) — the
+exact trust surface scientists read at face value), B3 reports a stale
+plot as refreshed, B4 is a new regression that destroys the user's saved
+folder when the app starts before `/SNS` mounts. All four verified in
+source by the Integrator AND re-verified by the Analyst against
+`a4ae8b8` (`output.py` writes the Q-marker after a 12–19-line preamble;
+`save_reduced_data.py` is a second writer with a different marker;
+the checked-OR-highlighted semantics predates the port). The green-suite
+finding stands too: v1's tests could not discriminate — the named partial
+reverts all pass. v2 adds the discrimination tests as mandatory.
+Cause class: v1 ported the PoC logic verbatim where the PoC logic itself
+was defective on real data formats — "seed PR" does not mean "verified
+against facility data". Review-domains line upgraded (ui-aspects →
+blocking). Fix directions in "## v2 fixes" below; the v2 source branch is
+the EXISTING `feature/port-overplot-axes-refresh` with the Integrator's
+todo.md on top (never re-branch from `exp`).
+
+## v2 fixes (B1–B4, in the todo's order) + mandatory discrimination tests
+
+**B1 — classify the real formats** (`launcher/apps/overplot.py`):
+replace the fixed 10-line window with a leading-comment-block scan and a
+marker *set* covering both facility writers:
+
+```python
+REFLECTIVITY_MARKERS = ("q [1/angstrom]", "columns = q, r, dr, dq")
+DIRECT_BEAM_HEADER_MARKER = "lambda intensity error"
+
+
+def classify_file(path):
+    """Classify by the leading comment block ('#' lines, capped at 200)."""
+    try:
+        with open(path) as fh:
+            for _ in range(200):
+                line = fh.readline()
+                if not line or not line.startswith("#"):
+                    break
+                low = line.lower()
+                if any(marker in low for marker in REFLECTIVITY_MARKERS):
+                    return "reflectivity"
+                if DIRECT_BEAM_HEADER_MARKER in low:
+                    return "direct_beam"
+    except (OSError, UnicodeDecodeError):
+        return "unknown"
+    return "unknown"
+```
+
+(`output.py:236` writes `# Q [1/Angstrom] R dR dQ [FWHM]` after the
+preamble — real files carry it at lines 13–20; `save_reduced_data.py`
+`_build_header` writes `columns = Q, R, dR, dQ (sigma)[, L, dL, T, dT]`,
+matched by the second marker's prefix. Keep the narrow exception tuple —
+a binary file must classify `unknown`, not crash, and blanket `except`
+bounces off ruff BLE-discipline in `src/`-style review even though
+`launcher/**` ignores BLE001.)
+
+RED-first mandatory test: parametrize `classify_file` over the real
+**tracked** corpus — exactly `tests/data/reference_rq.txt`,
+`reference_rq_201282.txt`, `reference_rq_avg.txt`,
+`reference_rq_avg_overlap.txt`, `reference_short_nobck.txt` →
+`"reflectivity"` (markers sit at lines 13–20; all five classify
+`unknown` under v1 — red first), plus a 3-line synthetic in the
+`save_reduced_data` format, plus the existing fixtures.
+*(Correct-and-flag on the todo's file list: the `REFL_*.txt` files it
+also cites are **gitignored test-run byproducts** — present only after
+a `test-reduction` run, so a glob over them collects zero cases on a
+fresh clone/CI. The five tracked files cover the same marker depths;
+do not parametrize over untracked paths.)*
+
+**B2 — unknown is a kind** (`_resolve_modes`): the homogeneity test must
+not drop `unknown`:
+
+```python
+per = [classify_file(p) for p in paths]
+kinds = set(per)
+if not kinds or kinds == {"unknown"}:
+    return per, "unknown"
+if len(kinds) == 1:
+    return per, next(iter(kinds))
+return per, "mixed"
+```
+
+Test: one classified-DB file + one headerless file → `sel_mode ==
+"mixed"` (v1 returns `"direct_beam"` — red first).
+
+**B4 — never persist an empty folder** (`save_settings`): write
+`overplot_folder` only when `self.folder_edit.text().strip()` is
+non-empty, and store it stripped (aligns the one unstripped site).
+Keep the mode save-on-change. Test: pre-seed `QSettings`
+`overplot_folder=/nonexistent/xyz`, construct `Overplot` (isdir fails →
+field empty), assert the stored value is unchanged after `__init__`.
+
+**B3 — checkbox is the single "chosen" notion** (robust form, per the
+ui-aspects hidden-input trap): set `file_list` selection mode to
+`NoSelection`, connect `itemClicked` to toggle the item's `checkState`,
+and drop `or item.isSelected()` from `plot_selected`. This changes
+pre-existing `exp` behavior (highlight-only rows used to plot) —
+deliberate, PR-body callout required. `refresh()`'s check-only snapshot
+is then coherent by construction. Tests: a row click toggles the check
+(drive the `itemClicked` handler); an unchecked row never plots; check
+preservation across a sort-order-shifting insert (drop an `0aaa.dat`
+into the folder between populate and refresh — kills the index-keyed
+revert).
+
+**Remaining mandatory discrimination tests** (each kills a named v1
+revert): popout label path (monkeypatch module `plt`, `canvas=None`,
+assert `_axis_labels` output reaches `set_xlabel/set_ylabel` — close the
+figure in the test); `test_refresh_no_folder` upgraded to capture the
+`QMessageBox.warning` call and assert it fired; R*Q⁴ re-enabled after a
+real-format reflectivity plot (kills the hardcoded-`False` revert);
+refresh via `refresh_btn.click()` picks up a new file (kills the
+dropped-connect revert). Strongly recommended, not gating: the
+override-mismatch warning test and the `[kind]` legend-suffix test.
+
+**Advisory items:** recorded, not gated: the R*Q⁴→None reset consumes
+the user's stored transform once S3 saves `overplot_ytransform` — flagged
+into S3's plan (addendum on the analysis branch); pyplot fallback leaks a
+figure per refresh; check-state has no memory across disappear/reappear.
+Do not expand v2 scope for these.
