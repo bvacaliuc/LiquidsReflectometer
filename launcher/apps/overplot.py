@@ -62,10 +62,16 @@ def classify_file(path):
     one line per stitched angle.
     """
     try:
-        with open(path) as fh:
+        # Both writers emit non-ASCII (Å) in the preamble above the marker, so
+        # the decode must not depend on the ambient locale: a UnicodeDecodeError
+        # here would reproduce B1's symptom (everything classifies "unknown").
+        with open(path, encoding="utf-8", errors="replace") as fh:
             for _ in range(200):
                 line = fh.readline()
-                if not line or not line.startswith("#"):
+                if not line:
+                    break
+                if line.strip() and not line.startswith("#"):
+                    # First real data row: the header block is over.
                     break
                 low = line.lower()
                 if any(marker in low for marker in REFLECTIVITY_MARKERS):
@@ -136,6 +142,9 @@ class Overplot(QWidget):
         # The check box is the single notion of "chosen": highlight-only rows
         # used to plot as a hidden input that refresh() could not see, so a
         # refresh reported success while leaving a stale plot on screen.
+        # NoSelection retires that second notion; the view's own delegate still
+        # toggles the indicator on click, so no click handler is needed here —
+        # adding one toggles the state straight back and the box stops working.
         self.file_list.setSelectionMode(QListWidget.NoSelection)
         controls.addWidget(self.file_list)
 
@@ -225,7 +234,6 @@ class Overplot(QWidget):
         self.select_all_btn.clicked.connect(self.select_all)
         self.deselect_all_btn.clicked.connect(self.deselect_all)
         self.folder_edit.editingFinished.connect(self.folder_changed)
-        self.file_list.itemClicked.connect(self._toggle_item_checked)
         self.plot_mode_combo.currentTextChanged.connect(self._on_plot_mode_changed)
 
         # Populate from previous session
@@ -258,7 +266,7 @@ class Overplot(QWidget):
         # _on_plot_mode_changed — writing "" there would destroy the user's
         # stored path just for opening the app before the mount came up.
         folder = self.folder_edit.text().strip()
-        if folder:
+        if folder and os.path.isdir(folder):
             self.settings.setValue("overplot_folder", folder)
         self.settings.setValue("overplot_xscale", self.xscale_combo.currentText())
         self.settings.setValue("overplot_mode", self.plot_mode_combo.currentText())
@@ -328,14 +336,21 @@ class Overplot(QWidget):
             if item.text() in pre_checked:
                 item.setCheckState(QtCore.Qt.Checked)
 
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.settings.setValue("overplot_last_refresh", timestamp)
-        self._update_refresh_tooltip(timestamp)
-
         still_checked = pre_checked & set(on_disk)
         dropped = pre_checked - still_checked
         if still_checked:
             self.plot_selected()
+        elif pre_checked:
+            # Everything that was plotted has gone from disk. Leaving those
+            # curves up while stamping "last refreshed" is the freshness lie
+            # this button exists to prevent.
+            self.clear_plot()
+
+        # Stamped after the replot, so the tooltip cannot claim a refresh the
+        # canvas has not caught up with.
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.settings.setValue("overplot_last_refresh", timestamp)
+        self._update_refresh_tooltip(timestamp)
         if dropped:
             QMessageBox.information(
                 self,
@@ -354,14 +369,6 @@ class Overplot(QWidget):
                 item = QListWidgetItem(f)
                 item.setCheckState(QtCore.Qt.Checked if f in checked else QtCore.Qt.Unchecked)
                 self.file_list.addItem(item)
-
-    def _toggle_item_checked(self, item):
-        """A row click toggles its check box (rows are not separately
-        selectable, so clicking is the only way a user 'picks' a file)."""
-        if item.checkState() == QtCore.Qt.Checked:
-            item.setCheckState(QtCore.Qt.Unchecked)
-        else:
-            item.setCheckState(QtCore.Qt.Checked)
 
     def select_all(self):
         for i in range(self.file_list.count()):
@@ -545,7 +552,7 @@ class Overplot(QWidget):
 
                 # Annotate mixed-selection labels with detected kind so the
                 # plot is honest about its contents.
-                if sel_mode == "mixed" and fmode in ("reflectivity", "direct_beam"):
+                if sel_mode == "mixed":
                     label = f"{os.path.basename(fname)} [{fmode}]"
                 else:
                     label = os.path.basename(fname)
@@ -559,6 +566,11 @@ class Overplot(QWidget):
                     QMessageBox.warning(self, "Plot error", f"Failed to plot {fname}: {e}")
 
             if not any_plotted:
+                # The figure was cleared above; push that to the widget so the
+                # canvas cannot keep showing the previous plot while the dialog
+                # says nothing was drawn.
+                if self.canvas is not None:
+                    self.canvas.draw()
                 QMessageBox.information(self, "No data", "No data was plotted")
                 return
 
@@ -589,7 +601,7 @@ class Overplot(QWidget):
 
                 # Annotate mixed-selection labels with detected kind so the
                 # plot is honest about its contents.
-                if sel_mode == "mixed" and fmode in ("reflectivity", "direct_beam"):
+                if sel_mode == "mixed":
                     label = f"{os.path.basename(fname)} [{fmode}]"
                 else:
                     label = os.path.basename(fname)

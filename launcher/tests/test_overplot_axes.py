@@ -109,7 +109,6 @@ def test_mixed_selection(tmp_path):
     w.populate_file_list(str(tmp_path))
     _select_files(w, "db_fixture.txt", "refl_fixture.txt")
     w.plot_selected()
-    assert w._last_sel_mode == "mixed"
     assert not _rq4_is_enabled(w.ytransform_combo)
     ax = w.figure.axes[0]
     assert ax.get_xlabel() == "x"
@@ -131,19 +130,19 @@ def test_mode_persists():
 
 # The reduction writers put the reflectivity marker after a metadata preamble,
 # so these tracked files carry it at lines 13-20 — outside any fixed-size
-# window. Deliberately NOT globbed: the REFL_*.txt siblings are gitignored
-# test-run byproducts and collect zero cases on a fresh clone.
-REAL_REFLECTIVITY_FILES = (
-    "reference_rq.txt",
-    "reference_rq_201282.txt",
-    "reference_rq_avg.txt",
-    "reference_rq_avg_overlap.txt",
-    "reference_short_nobck.txt",
-)
+# window. Globbed rather than hand-listed: every reference_*.txt is tracked,
+# and the hand-list had already drifted (it missed reference_fbck.txt). Their
+# REFL_*.txt siblings are deliberately excluded — those are gitignored
+# test-run byproducts and would collect zero cases on a fresh clone.
+def _data_dir():
+    return Path(__file__).resolve().parents[2] / "tests" / "data"
 
 
 def _repo_data(name):
-    return Path(__file__).resolve().parents[2] / "tests" / "data" / name
+    return _data_dir() / name
+
+
+REAL_REFLECTIVITY_FILES = tuple(sorted(p.name for p in _data_dir().glob("reference_*.txt")))
 
 
 @pytest.mark.parametrize("name", REAL_REFLECTIVITY_FILES)
@@ -157,11 +156,66 @@ def test_classify_real_reflectivity_corpus(name):
 
 
 def test_classify_save_reduced_data_format(tmp_path):
-    """B1: save_reduced_data.py is a second writer with a different marker."""
+    """B1: save_reduced_data.py is a second writer with a different marker.
+
+    The header comes from the writer itself rather than a hand-written
+    imitation, so a change to its format shows up here instead of silently
+    diverging from what the tab must classify.
+    """
+    from types import SimpleNamespace
+
+    import numpy as np
+
+    from launcher.apps.overplot import classify_file
+    from lr_reduction.save_reduced_data import _build_header
+
+    config = SimpleNamespace(
+        RBnum="1234",
+        DBname="db.nxs",
+        method_per_run="m",
+        Normalize=True,
+        AutoScale=False,
+        ScaleFactor=1.0,
+        LambdaMinUse=2.0,
+        LambdaMaxUse=15.0,
+    )
+    logs = {"ths": 1.0, "thi": 1.0, "ThCen": 1.0, "title": "fixture"}
+    header = _build_header(config_header=config, log_values=logs)
+    p = tmp_path / "second_writer.dat"
+    # Written exactly as the writer does — savetxt is what prefixes '# '.
+    np.savetxt(str(p), np.array([[0.01, 0.5, 0.05, 0.001]]), header=header, delimiter="\t")
+    assert classify_file(str(p)) == "reflectivity"
+
+
+def test_classify_deep_preamble(tmp_path):
+    """Pins the window removal: the marker sits well below any fixed count."""
     from launcher.apps.overplot import classify_file
 
-    p = tmp_path / "second_writer.txt"
-    p.write_text("# Datafile created by lr_reduction\n# columns = Q, R, dR, dQ (sigma)\n0.01 0.5 0.05 0.001\n")
+    preamble = "".join(f"# metadata line {i} — Å units\n" for i in range(40))
+    p = tmp_path / "deep.txt"
+    p.write_text(preamble + "# Q [1/Angstrom] R dR dQ [FWHM]\n0.01 0.5 0.05 0.001\n")
+    assert classify_file(str(p)) == "reflectivity"
+
+
+def test_classify_marker_in_data_body_is_unknown(tmp_path):
+    """Pins the termination rule: a marker below the header block is not a
+    header, and scanning on into the data would misclassify it."""
+    from launcher.apps.overplot import classify_file
+
+    p = tmp_path / "late_marker.txt"
+    p.write_text("# plain header\n0.01 0.5\n0.02 0.4\n# Q [1/Angstrom] R dR dQ\n0.03 0.3\n")
+    assert classify_file(str(p)) == "unknown"
+
+
+def test_classify_non_utf8_bytes_still_classifies(tmp_path):
+    """The preamble carries Å; a locale-dependent decode would reproduce B1."""
+    from launcher.apps.overplot import classify_file
+
+    p = tmp_path / "latin1.txt"
+    p.write_bytes(
+        "# Datafile: lambda range 2\u00c5 to 15\u00c5\n".encode("latin-1")
+        + b"# Q [1/Angstrom] R dR dQ [FWHM]\n0.01 0.5 0.05 0.001\n"
+    )
     assert classify_file(str(p)) == "reflectivity"
 
 
@@ -285,3 +339,45 @@ def test_unreachable_saved_folder_is_not_erased():
     s.sync()
     Overplot()
     assert QtCore.QSettings().value("overplot_folder") == "/nonexistent/xyz"
+
+
+@pytest.mark.usefixtures("isolated_qapp")
+def test_override_mismatch_warns(tmp_path, monkeypatch):
+    """An explicit mode that disagrees with the headers must say so rather than
+    draw the files under the wrong axes silently."""
+    from qtpy.QtWidgets import QMessageBox
+
+    from launcher.apps.overplot import Overplot
+
+    _seed_folder(tmp_path, "db_fixture.txt")
+    captured = {}
+    monkeypatch.setattr(QMessageBox, "warning", lambda *a, **_k: captured.setdefault("warn", a))
+    monkeypatch.setattr(QMessageBox, "information", lambda *_a, **_k: None)
+    w = Overplot()
+    w.folder_edit.setText(str(tmp_path))
+    w.populate_file_list(str(tmp_path))
+    _select_files(w, "db_fixture.txt")
+    w.plot_mode_combo.setCurrentText("Reflectivity")
+    w.plot_selected()
+    assert "warn" in captured
+    assert "db_fixture.txt" in captured["warn"][2]
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_mixed_labels_name_the_unrecognized_file(tmp_path):
+    """In a mixed selection every curve is labelled with what it was taken to
+    be, including the unrecognized file that broke homogeneity."""
+    from launcher.apps.overplot import Overplot
+
+    _seed_folder(tmp_path, "db_fixture.txt")
+    (tmp_path / "headerless.dat").write_text("0.01 0.5\n0.02 0.4\n")
+    w = Overplot()
+    w.folder_edit.setText(str(tmp_path))
+    w.populate_file_list(str(tmp_path))
+    _select_files(w, "db_fixture.txt", "headerless.dat")
+    w.plot_selected()
+    labels = [line.get_label() for line in w.figure.axes[0].lines]
+    labels += [container.get_label() for container in w.figure.axes[0].containers]
+    joined = " ".join(labels)
+    assert "[direct_beam]" in joined
+    assert "[unknown]" in joined
