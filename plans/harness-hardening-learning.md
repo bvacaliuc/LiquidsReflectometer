@@ -112,3 +112,77 @@ an undo and do need one) and never the format.
 from the parts that must hold for the process lifetime, and put the latter at
 import scope. Then ask, for each thing teardown restores, what a later
 construction resolves to — the answer is what the next test inherits.
+
+## 5. A test that spawns a hanging process must own that process's death
+
+*Added after the v2 rejection; sections 1-4 are from the v2 cycle.*
+
+**Rule.** When a test starts a subprocess that may hang by design, give it a
+process group, capture its output to files rather than pipes, and kill the
+group in a `finally`. Otherwise the safety net you are testing becomes the
+thing that leaks.
+
+**Why.** The timeout self-test ran its inner pytest with
+`capture_output=True`. Kill the outer process and the inner one inherits a dead
+pipe; when pytest-timeout fires, its own `finally` raises `BrokenPipeError`
+writing the stack dump, and that exception pre-empts the `os._exit` that would
+have ended the run. The hang then outlives everything. One of these ran **52
+minutes at 99.9% CPU** on a shared host before the review found it (PID 840666).
+
+The part worth keeping is not the mechanism but the miss: that PID appeared in
+my own `ps` sweeps more than once while I was working, and I read it as a
+transient scan artifact because it was not in my clone's environment hash.
+An orphan audit that only recognises processes you expect is not an audit. The
+session-exit checklist says "kill or report anything this session spawned" —
+the failure was in *recognising* it, not in the rule.
+
+Measured after the fix (files + `start_new_session=True` + `killpg` in a
+`finally`):
+
+```
+inner hanging pytest PID=969531 ; outer pytest PID=969417
+SIGKILLed outer 969417
+NO ORPHAN: inner PID 969531 self-exited after the outer was killed
+```
+
+**How to apply.** For any deliberately-hanging child: `Popen` with
+`start_new_session=True`, redirect stdout/stderr to files in `tmp_path`, and
+`os.killpg(os.getpgid(proc.pid), SIGKILL)` in a `finally`. Then prove it by
+killing the parent mid-run and recording the PIDs. And when a periodic sweep
+shows a long-running process you cannot immediately account for, account for it
+— the cost of checking is a second, the cost of assuming is an hour of a shared
+machine.
+
+## 6. A test that writes its own config is testing itself
+
+**Rule.** When a test needs a configuration file, copy the shipped one. A
+hand-written stand-in silently decouples the test from the thing it is meant to
+guard.
+
+**Why.** The self-test wrote its own `pytest.ini` into `tmp_path`, which made
+that directory the rootdir. The inner run then read the ini rather than the
+repo's `pyproject.toml`, so deleting `timeout_method = "thread"` from the
+shipped config left the test green — the exact regression it exists to catch.
+Copying the real `pyproject.toml` restores the link:
+
+```
+delete timeout_method from pyproject  ->  1 failed in 25.16s
+```
+
+**How to apply.** Prefer copying the shipped config; where a test must
+synthesize one, add a mutation probe that deletes the real setting and shows
+the test going red. Same discipline as §2 — the question is never "does it
+pass", it is "what makes it fail".
+
+## 7. Cleaning up after the harness is part of the harness
+
+**Rule.** Anything a conftest creates outside `tmp_path` — a scratch root, a
+process, a redirected global — needs an explicit teardown, because pytest's own
+fixtures will not do it for you.
+
+**Why.** The isolation redirect installs a `tempfile.mkdtemp()` root at conftest
+import, which is deliberately outside pytest's `tmp_path` machinery (it must
+exist before collection). Nothing removed it: **119** stale
+`/tmp/launcher-tests-settings-*` directories had accumulated on this host. Now
+registered with `atexit.register(shutil.rmtree, _SCRATCH_ROOT, True)`, removing
+only this process's own root so a concurrent run is untouched.
