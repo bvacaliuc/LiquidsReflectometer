@@ -78,3 +78,63 @@ PRs. The import stayed where the PR had it.
 flight touches those lines (`git diff <other-feature-branch> -- <file>`).
 Cleanups belong in a slug that owns the region, or in a follow-up after both
 have merged.
+
+## 4. A guard inherited from a seed PR needs its own justification, not a plausible one
+
+*Added after the v1 rejection (Integrator todo.md `01d7e6f`); sections 1-3 are
+from the v1 cycle.*
+
+**Rule.** When a port carries a defensive construct — a `blockSignals`, a
+try/except, a re-entrancy flag — reconstruct the argument for it against the
+code you are landing it in. If the argument does not hold there, the guard is
+not free: it suppresses something, and what it suppresses may be the only thing
+enforcing an invariant.
+
+**Why.** This is a correction to section 1 of this file, and the correction is
+sharper than the original. Section 1 said the restore must run before the
+save-on-change connections, which is true. From that I justified PR #11's
+`blockSignals` around the toggle restore as protecting the loaded paths from
+being overwritten by the handler. That argument is wrong on its own ordering:
+the save connections attach *after* `read_settings()`, so the
+`toggled -> save_settings` lambda does not exist during the restore, and the
+handler's derived paths are overwritten by the stored values two lines later
+regardless (`setText` works on disabled widgets). Removing the guard yields the
+same stored values.
+
+What the guard *did* do was suppress `_ipts_toggled`, the only code enforcing
+"IPTS structure checked implies the manual path fields are disabled". So a
+restored session showed a ticked toggle above two enabled, empty path fields.
+The scientist fills them in, clicks Create DB, and `_run_create_db` takes the
+`isChecked()` branch that never reads those fields: the typed paths are
+silently discarded and output lands in the derived directory. Wrong answers,
+no error, until the toggle is clicked twice.
+
+The fix is not to delete the guard but to stop conflating two jobs: a new
+`_apply_ipts_mode(state)` does the enable/disable half and is called explicitly
+after the restore, while `_ipts_toggled` keeps its derivation branch and ends
+by calling it. The mode is applied whether or not signals fired.
+
+**How to apply.** For each inherited guard, write down what would happen
+without it — concretely, against the real ordering in the file — before
+keeping it. If the answer is "the same thing", the guard is buying nothing and
+may be costing an invariant. And when a plan hands you the guard *and* a
+rationale, the rationale is the plan's hypothesis, not evidence: this one made
+it into a plan, a commit message, and a review before anyone checked it against
+the line numbers.
+
+## 5. Restoring a default is a behaviour change on a deployed line
+
+**Rule.** A persistence layer's "default when the key is absent" silently
+becomes the product's first-launch behaviour. Match what the deployed code does
+today unless changing it is the point of the work.
+
+**Why.** PR #11 restored `direct_beam_use_ipts_path_structure` defaulting to
+`True`. exp's checkbox is constructed unchecked, so shipping the port as
+written would have flipped first-launch behaviour for every existing user of a
+deployed line — a change nobody asked for, arriving inside a slug whose stated
+purpose is "remember what the user typed". v2 restores to `False`.
+
+**How to apply.** For every restore default, compare against the widget's
+constructed state on the target branch, not against the seed PR. Where they
+differ, either match the target or flag the change explicitly in the plan and
+PR body as deliberate.
