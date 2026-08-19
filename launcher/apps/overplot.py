@@ -133,7 +133,10 @@ class Overplot(QWidget):
 
         # File list
         self.file_list = QListWidget(self)
-        self.file_list.setSelectionMode(QListWidget.MultiSelection)
+        # The check box is the single notion of "chosen": highlight-only rows
+        # used to plot as a hidden input that refresh() could not see, so a
+        # refresh reported success while leaving a stale plot on screen.
+        self.file_list.setSelectionMode(QListWidget.NoSelection)
         controls.addWidget(self.file_list)
 
         # Select all / Deselect all
@@ -222,6 +225,7 @@ class Overplot(QWidget):
         self.select_all_btn.clicked.connect(self.select_all)
         self.deselect_all_btn.clicked.connect(self.deselect_all)
         self.folder_edit.editingFinished.connect(self.folder_changed)
+        self.file_list.itemClicked.connect(self._toggle_item_checked)
         self.plot_mode_combo.currentTextChanged.connect(self._on_plot_mode_changed)
 
         # Populate from previous session
@@ -351,17 +355,23 @@ class Overplot(QWidget):
                 item.setCheckState(QtCore.Qt.Checked if f in checked else QtCore.Qt.Unchecked)
                 self.file_list.addItem(item)
 
+    def _toggle_item_checked(self, item):
+        """A row click toggles its check box (rows are not separately
+        selectable, so clicking is the only way a user 'picks' a file)."""
+        if item.checkState() == QtCore.Qt.Checked:
+            item.setCheckState(QtCore.Qt.Unchecked)
+        else:
+            item.setCheckState(QtCore.Qt.Checked)
+
     def select_all(self):
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
             item.setCheckState(QtCore.Qt.Checked)
-            item.setSelected(True)
 
     def deselect_all(self):
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
             item.setCheckState(QtCore.Qt.Unchecked)
-            item.setSelected(False)
 
     def folder_changed(self):
         folder = self.folder_edit.text().strip()
@@ -482,7 +492,7 @@ class Overplot(QWidget):
         items = []
         for i in range(self.file_list.count()):
             item = self.file_list.item(i)
-            if item.checkState() == QtCore.Qt.Checked or item.isSelected():
+            if item.checkState() == QtCore.Qt.Checked:
                 items.append(item.text())
 
         if len(items) == 0:
