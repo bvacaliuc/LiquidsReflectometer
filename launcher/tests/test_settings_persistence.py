@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import pytest
 from qtpy import QtCore
 
@@ -241,6 +244,31 @@ def test_ensure_identity_installs_when_unset():
         QtCore.QCoreApplication.setApplicationName(saved[2])
 
 
+def _seed_legacy_store(values):
+    """Write *values* into the identity-less store the launcher used before.
+
+    Blanking the identity is process-global, so the restore is in a finally —
+    a failure here would otherwise leave every later test nameless.
+    """
+    saved = (
+        QtCore.QCoreApplication.organizationName(),
+        QtCore.QCoreApplication.organizationDomain(),
+        QtCore.QCoreApplication.applicationName(),
+    )
+    try:
+        QtCore.QCoreApplication.setOrganizationName("")
+        QtCore.QCoreApplication.setOrganizationDomain("")
+        QtCore.QCoreApplication.setApplicationName("")
+        legacy = QtCore.QSettings()
+        for key, value in values.items():
+            legacy.setValue(key, value)
+        legacy.sync()
+    finally:
+        QtCore.QCoreApplication.setOrganizationName(saved[0])
+        QtCore.QCoreApplication.setOrganizationDomain(saved[1])
+        QtCore.QCoreApplication.setApplicationName(saved[2])
+
+
 @pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
 def test_migrate_legacy_settings_copies_and_restores_identity():
     """The migration reads an org-less store, so it mutates the process-global
@@ -252,18 +280,7 @@ def test_migrate_legacy_settings_copies_and_restores_identity():
         QtCore.QCoreApplication.organizationDomain(),
         QtCore.QCoreApplication.applicationName(),
     )
-
-    org, domain, name = identity_before
-    QtCore.QCoreApplication.setOrganizationName("")
-    QtCore.QCoreApplication.setOrganizationDomain("")
-    QtCore.QCoreApplication.setApplicationName("")
-    legacy = QtCore.QSettings()
-    legacy.setValue("overplot_folder", "/legacy/folder")
-    legacy.setValue("overplot_xscale", "log")
-    legacy.sync()
-    QtCore.QCoreApplication.setOrganizationName(org)
-    QtCore.QCoreApplication.setOrganizationDomain(domain)
-    QtCore.QCoreApplication.setApplicationName(name)
+    _seed_legacy_store({"overplot_folder": "/legacy/folder", "overplot_xscale": "log"})
 
     app_identity.migrate_legacy_settings()
 
@@ -283,8 +300,208 @@ def test_migrate_legacy_settings_never_overwrites():
     """One-shot: a value the user has already set in the new store wins."""
     from launcher import app_identity
 
+    _seed_legacy_store({"overplot_folder": "/legacy/folder"})
     current = QtCore.QSettings()
     current.setValue("overplot_folder", "/current/folder")
     current.sync()
     app_identity.migrate_legacy_settings()
     assert QtCore.QSettings().value("overplot_folder") == "/current/folder"
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_migration_carries_every_launcher_module():
+    """Installing the identity repoints the store for the whole process, so a
+    migration narrower than the key set is a one-time mass-forget across tabs
+    that have nothing to do with this slug. One key per affected module."""
+    from launcher import app_identity
+
+    probes = {
+        "30Hz_template": "/legacy/30hz.xml",          # dynamic_30Hz
+        "60Hz_template": "/legacy/60hz.xml",          # dynamic_60Hz
+        "settings_Spath": "/legacy/batch/out",        # file_batch
+        "offspec_output_dir": "/legacy/offspec",      # off_spec
+        "overplot_folder": "/legacy/overplot",        # overplot
+        "quick_output_dir": "/legacy/quick",          # quick_reduce
+        "reduction_template": "/legacy/reduction.xml",  # reduction
+        "refracted_material": "Si",                   # refracted
+        "sld_composition": "H2O",                     # sld_calculator
+        "template_Spath": "/legacy/template/out",     # template_batch
+        "xrr_data_file": "/legacy/xrr.dat",           # xrr
+    }
+    assert set(probes) <= set(app_identity.LEGACY_KEYS)
+    _seed_legacy_store(probes)
+
+    app_identity.migrate_legacy_settings()
+    current = QtCore.QSettings()
+    for key, value in probes.items():
+        assert current.value(key) == value, f"{key} lost across the identity switch"
+
+    # Second run is a no-op: the sentinel records that the copy happened, so a
+    # value the user clears afterwards does not come back from the dead.
+    current.remove("overplot_folder")
+    current.sync()
+    app_identity.migrate_legacy_settings()
+    assert QtCore.QSettings().value("overplot_folder") is None
+
+
+# The 16 mutating signals wired for defense-in-depth saves. Table-driven so a
+# dropped connection names itself; one explicit save_settings() test cannot see
+# a missing connection at all.
+SAVE_CONNECTIONS = [
+    ("run_list_edit", "editingFinished", lambda t: t.run_list_edit.setText("999"), "direct_beam_run_list", "999"),
+    ("ipts_edit", "editingFinished", lambda t: t.ipts_edit.setText("36776"), "direct_beam_ipts", "36776"),
+    ("nexus_edit", "editingFinished", lambda t: t.nexus_edit.setText("/n/"), "direct_beam_nexus_path", "/n/"),
+    ("savepath_edit", "editingFinished", lambda t: t.savepath_edit.setText("/s/"), "direct_beam_save_path", "/s/"),
+    ("savename_edit", "editingFinished", lambda t: t.savename_edit.setText("nm"), "direct_beam_save_name", "nm"),
+    ("yroi_edit", "editingFinished", lambda t: t.yroi_edit.setText("1,2"), "direct_beam_y_ROI", "1,2"),
+    ("lowres_edit", "editingFinished", lambda t: t.lowres_edit.setText("3,4"), "direct_beam_x_ROI", "3,4"),
+    ("DTCcut_spin", None, lambda t: t.DTCcut_spin.setValue(7.5), "direct_beam_DTCcut", 7.5),
+    ("DTCcut1_spin", None, lambda t: t.DTCcut1_spin.setValue(8.5), "direct_beam_DTCcut_config1", 8.5),
+    ("Icut_spin", None, lambda t: t.Icut_spin.setValue(3.5), "direct_beam_Icut", 3.5),
+    ("CutOffset_spin", None, lambda t: t.CutOffset_spin.setValue(2.5), "direct_beam_chopper_cut_offset", 2.5),
+    ("tofbin_spin", None, lambda t: t.tofbin_spin.setValue(125.0), "direct_beam_tofbin", 125.0),
+    ("tofmin_spin", None, lambda t: t.tofmin_spin.setValue(3000.0), "direct_beam_tofmin", 3000.0),
+    ("tofmax_spin", None, lambda t: t.tofmax_spin.setValue(55000.0), "direct_beam_tofmax", 55000.0),
+    ("plot_cb", None, lambda t: t.plot_cb.setChecked(False), "direct_beam_plot", False),
+    ("ipts_toggle", None, lambda t: t.ipts_toggle.setChecked(True), "direct_beam_use_ipts_path_structure", True),
+]
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+@pytest.mark.parametrize("widget,signal,mutate,key,expected", SAVE_CONNECTIONS, ids=[c[0] for c in SAVE_CONNECTIONS])
+def test_mutating_signal_persists_without_explicit_save(widget, signal, mutate, key, expected):
+    """Each wired signal must reach save_settings on its own."""
+    from launcher.apps.direct_beam import DirectBeamTab
+
+    tab = DirectBeamTab()
+    mutate(tab)
+    if signal is not None:
+        getattr(getattr(tab, widget), signal).emit()
+    stored = QtCore.QSettings().value(key)
+    if isinstance(expected, float):
+        assert float(stored) == pytest.approx(expected)
+    elif isinstance(expected, bool):
+        assert stored in (expected, str(expected).lower())
+    else:
+        assert stored == expected
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_dialog_accept_persists_cd_and_mod_values(monkeypatch):
+    """The dialog saves are the only persistence path for cd_vals/mod_vals.
+
+    exec_ is patched here rather than left to no_qmessagebox: on this branch's
+    base the two dialogs still wrap a QMessageBox around an inner QDialog and
+    forward exec_ to it, so the fixture's statics-only patch does not reach the
+    call and the test hangs until the timeout backstop kills it (observed).
+    The harness-hardening slug moves that patch to QDialog, but it has not
+    merged into exp yet — a test-local patch works on either base.
+    """
+    import json
+
+    from launcher.apps import direct_beam as direct_beam_module
+    from launcher.apps.direct_beam import DirectBeamTab
+
+    monkeypatch.setattr(direct_beam_module.CdSettingsDialog, "exec_", lambda _self: 1)
+    monkeypatch.setattr(direct_beam_module.ModeratorDialog, "exec_", lambda _self: 1)
+
+    tab = DirectBeamTab()
+    tab._open_cd_settings()
+    tab._open_mod_settings()
+    stored_cd = json.loads(QtCore.QSettings().value("direct_beam_cd_vals"))
+    stored_mod = json.loads(QtCore.QSettings().value("direct_beam_mod_vals"))
+    assert isinstance(stored_cd, dict) and "Cd" in stored_cd
+    assert isinstance(stored_mod, dict) and "dMod" in stored_mod
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_live_toggle_applies_ipts_mode():
+    """The click path, not just the restore path: _ipts_toggled must apply the
+    enable/disable mode itself."""
+    from launcher.apps.direct_beam import DirectBeamTab
+
+    tab = DirectBeamTab()
+    assert tab.nexus_edit.isEnabled() is True
+    tab.ipts_toggle.setChecked(True)
+    assert tab.nexus_edit.isEnabled() is False
+    assert tab.savepath_edit.isEnabled() is False
+    tab.ipts_toggle.setChecked(False)
+    assert tab.nexus_edit.isEnabled() is True
+    assert tab.savepath_edit.isEnabled() is True
+
+
+def test_settings_survive_a_real_process_restart(tmp_path):
+    """Two processes, because an in-process 'restart' proves nothing.
+
+    Qt serves a second in-process QSettings from the first's cached QConfFile,
+    so every same-process round-trip skips the read-back coercion entirely:
+    inverting the string branch of _bool leaves the whole suite green while a
+    real restart returns booleans inverted. Only a fresh interpreter reading
+    the file from disk exercises that path — do not "simplify" this back into
+    the isolated_qapp fixture.
+    """
+    import json
+    import subprocess
+    import sys
+
+    home = tmp_path / "home"
+    home.mkdir()
+    env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"), QT_QPA_PLATFORM="offscreen")
+
+    save = (
+        "from qtpy.QtWidgets import QApplication\n"
+        "app = QApplication([])\n"
+        "from launcher.app_identity import ensure_identity\n"
+        "ensure_identity()\n"
+        "from launcher.apps.direct_beam import DirectBeamTab\n"
+        "tab = DirectBeamTab()\n"
+        "tab.run_list_edit.setText('101,102')\n"
+        "tab.ipts_edit.setText('36776')\n"
+        "tab.ipts_toggle.setChecked(True)\n"
+        "tab.savename_edit.setText('db_custom')\n"
+        "tab.DTCcut_spin.setValue(7.5)\n"
+        "tab.tofbin_spin.setValue(125.0)\n"
+        "tab.plot_cb.setChecked(False)\n"
+        "tab.cd_vals = {'Cd': [5.0], 'flip_atten': True}\n"
+        "tab.save_settings()\n"
+    )
+    read = (
+        "import json\n"
+        "from qtpy.QtWidgets import QApplication\n"
+        "app = QApplication([])\n"
+        "from launcher.app_identity import ensure_identity\n"
+        "ensure_identity()\n"
+        "from launcher.apps.direct_beam import DirectBeamTab\n"
+        "tab = DirectBeamTab()\n"
+        "print('RESULT' + json.dumps({\n"
+        "    'run_list': tab.run_list_edit.text(),\n"
+        "    'ipts': tab.ipts_edit.text(),\n"
+        "    'toggle': tab.ipts_toggle.isChecked(),\n"
+        "    'savename': tab.savename_edit.text(),\n"
+        "    'dtc': tab.DTCcut_spin.value(),\n"
+        "    'tofbin': tab.tofbin_spin.value(),\n"
+        "    'plot': tab.plot_cb.isChecked(),\n"
+        "    'cd': tab.cd_vals,\n"
+        "    'nexus_enabled': tab.nexus_edit.isEnabled(),\n"
+        "}))\n"
+    )
+    root = str(Path(__file__).resolve().parents[2])
+    for source in (save, read):
+        proc = subprocess.run(
+            [sys.executable, "-c", source], cwd=root, env=env, capture_output=True, timeout=180, check=False
+        )
+        assert proc.returncode == 0, proc.stderr.decode(errors="replace")[-2000:]
+        last = proc.stdout
+
+    payload = json.loads(last.decode().split("RESULT", 1)[1].strip())
+    assert payload == {
+        "run_list": "101,102",
+        "ipts": "36776",
+        "toggle": True,
+        "savename": "db_custom",
+        "dtc": 7.5,
+        "tofbin": 125.0,
+        "plot": False,
+        "cd": {"Cd": [5.0], "flip_atten": True},
+        "nexus_enabled": False,
+    }
