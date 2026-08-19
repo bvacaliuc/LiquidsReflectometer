@@ -3,9 +3,12 @@
 **Campaign:** `exp-settings-roi` · base `exp` @ `a4ae8b8` · charter §9
 **amendment 14** / §4 mid-effort addition (2026-08-18, human-ratified) ·
 DAG-independent
-**Retry attempt:** 1
+**Retry attempt:** 2
 
-Review domains: design-reviewer (advisory). No GUI surface.
+Review domains: design-reviewer (**blocking** — upgraded at the v1
+rejection, same logic the harness slug ratified: when the slug's entire
+deliverable is a guard, the domain that judges whether the guard guards
+must gate it). No GUI surface.
 
 ## Symptom
 
@@ -146,3 +149,93 @@ Record every transcript in the commit bodies:
 - `pixi run test-reduction` green; draft PR body states the CI-pin
   consequence (workflow runs now install pixi v0.67.2) and cites
   amendment 14.
+
+## Revision history
+
+### v2 — 2026-08-19 (after v1 rejection; todo.md @ `3c1808b`)
+
+Gate green; rejection entirely from review. The Integrator departed
+from v1's advisory declaration and the **Analyst upholds it** (domains
+line upgraded): three findings show the guard permitting, causing, or
+instructing the harm it exists to prevent — the drift failure message
+tells a ≥0.68 user to run `pixi lock` (the v7 rewrite itself,
+reproduced); the missing-lock path fails OPEN and writes a 0-byte
+`pixi.lock` in the cwd (no repo-root or file assertion; reproduced from
+a subdirectory, and with real pixi the parent-dir manifest search makes
+it rewrite the REAL lock while restoring nothing); no `trap`, so an
+interrupt during the network solve — an everyday event this commit's
+own body reports hitting — leaves the tree converted to v7 with the
+snapshot lost in an anonymous tmp file. B4 is the campaign's
+stated-vs-measured class in a new costume: the script comment asserts
+as "Measured on 0.67.2" a drift-rc experiment the SAME commit's body
+says was never completed. Two v1-Developer judgment calls are ratified
+and must survive v2 unchanged: exact-`cp` restore (never
+`git checkout`), and content-based drift classification (never trust
+the unverified rc). **Framing decision (the gate asked for one): this
+guard's contract is "a push never carries a non-v6 lock" — achievable;
+"the tree is never dirty" is NOT the contract** (everyday pixi
+activity restamps; amendment 14's restore-don't-stage discipline covers
+that) — the script header and comments must say so.
+
+## v2 fixes (the gate's order; all reviewer-verified)
+
+1. **B2 + B3 (~4 lines, the fail-open and the interrupt hole):** at the
+   top —
+
+   ```bash
+   cd "$(git rev-parse --show-toplevel)" || exit 1
+   [ -f pixi.lock ] || { echo "pixi-lock-check: no pixi.lock at repo root (fail closed)"; exit 1; }
+   snap=$(mktemp) || exit 1
+   trap 'cp "$snap" pixi.lock 2>/dev/null; rm -f "$snap"' EXIT INT TERM
+   cp pixi.lock "$snap" || exit 1
+   ```
+
+   With the EXIT trap owning restore+cleanup, delete the end-of-script
+   restore/rm so there is exactly one restore path. Re-run the interrupt
+   injection (kill mid-check → tree byte-identical, no tmp litter) and
+   the subdirectory injection (immediate loud failure, no file created).
+2. **B1:** immediately after `pixi lock --check`, branch on
+   `head -1 pixi.lock | grep -qx 'version: 6'` BEFORE any generic drift
+   handling; the v7 branch restores from the snapshot and fails with:
+   "your pixi wrote lock-format v7 — analysis.sns.gov pixi (< 0.68)
+   cannot read it. Do NOT commit this lock; pin instead:
+   `pixi self-update --version 0.67.2`". The generic drift message
+   loses the "run 'pixi lock' and commit" instruction — replace with
+   "regenerate UNDER A ≤0.67.x PIXI and commit" wording.
+3. **B4:** rewrite the header comment to the honest record: the restamp
+   at exit 0 IS measured (0.67.2, twice, plus the campaign's live
+   observations); the rc under genuine drift is **UNVERIFIED** (three
+   probe attempts, three different walls — cite the v1 commit body) —
+   and that uncertainty is itself the justification for content-based
+   classification. Never state an untaken measurement as taken.
+4. **Reach the machines that need it (promoted advisory):** a two-line
+   format check step BEFORE the first `setup-pixi` in each workflow job
+   that touches the lock (`head -1 pixi.lock | grep -qx 'version: 6' ||
+   { echo "pixi.lock is lock-format v7 — unreadable by the facility
+   pixi (< 0.68); regenerate under 0.67.x"; exit 1; }`) — the pin alone
+   turns a v7 lock into an inscrutable CI parse error;
+   `docs/developer/developer.rst` hook line becomes
+   `pre-commit install --hook-type pre-commit --hook-type pre-push`
+   (today's doc installs no pre-push hook at all, making the wrapper
+   dead code for doc-followers), and document the escape hatch
+   `SKIP=pixi-lock-check git push` for network-wedged pushes (an
+   undocumented wedge invites `--no-verify`, which kills the tripwire
+   too).
+5. **Smaller promoted items:** reinstate the restore-notice echo (a
+   silent restore hides a mutating toolchain — and v1's commit body
+   cited that line as output it could not have produced;
+   correct-and-flag it in the v2 body); narrow the awk strip to the
+   `version:`/`sha256:` lines *within* the `- pypi: ./` stanza (today
+   any real change inside the stanza — `requires_dist`,
+   `editable: true` — is invisible); compute the classification diff
+   once; drop the `head -20` truncation (print the full format hunk or
+   name the line count); replace both dead "charter amendment 14"
+   citations with the self-contained inline condition ("analysis.sns.gov
+   pixi < 0.68 cannot read lock v7"), keeping the amendment name as a
+   provenance note only; comment each of the three workflow
+   `v0.67.2` pins with the same one-liner.
+6. **Verification additions:** all v1 injection transcripts re-run at
+   the v2 tip, plus the two new injections (interrupt, subdirectory)
+   and a ≥0.68-shim run demonstrating the v7-specific message;
+   `bash -n` both scripts and note in the PR body that `scripts/` is
+   excluded from pre-commit lint (shellcheck manually if available).
