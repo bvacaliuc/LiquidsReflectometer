@@ -44,30 +44,35 @@ except Exception:
 FOLDER_DIRECTIVE = "Click to choose a folder containing .dat files"
 
 
-REFLECTIVITY_HEADER_MARKER = "q [1/angstrom]"
+# Two reduction writers produce reflectivity: output.py emits
+# "# Q [1/Angstrom] R dR dQ [FWHM]" and save_reduced_data.py emits
+# "# columns = Q, R, dR, dQ (sigma)[, ...]". Both sit after a metadata
+# preamble — real files carry the marker at lines 13-20 — so the scan must
+# follow the comment block, not a fixed line count.
+REFLECTIVITY_MARKERS = ("q [1/angstrom]", "columns = q, r, dr, dq")
 DIRECT_BEAM_HEADER_MARKER = "lambda intensity error"
 
 
 def classify_file(path):
-    """Classify a plot input by inspecting its first few header lines.
+    """Classify a plot input by its leading comment block.
 
-    Returns one of "reflectivity", "direct_beam", or "unknown". The
-    canonical reflectivity header begins with `# Q [1/Angstrom]` (autoreduce
-    output); the canonical direct-beam header is
-    `# columns = lambda intensity error`.
+    Returns one of "reflectivity", "direct_beam", or "unknown". Scans the
+    leading `#` lines (capped at 200) rather than a fixed window: the
+    facility writers put the column marker after a variable-length preamble,
+    one line per stitched angle.
     """
     try:
         with open(path) as fh:
-            for _ in range(10):
+            for _ in range(200):
                 line = fh.readline()
-                if not line:
+                if not line or not line.startswith("#"):
                     break
                 low = line.lower()
-                if REFLECTIVITY_HEADER_MARKER in low:
+                if any(marker in low for marker in REFLECTIVITY_MARKERS):
                     return "reflectivity"
                 if DIRECT_BEAM_HEADER_MARKER in low:
                     return "direct_beam"
-    except Exception:
+    except (OSError, UnicodeDecodeError):
         return "unknown"
     return "unknown"
 
@@ -396,10 +401,12 @@ class Overplot(QWidget):
             return ["reflectivity"] * len(paths), "reflectivity"
         if combo_mode == "Direct Beam":
             return ["direct_beam"] * len(paths), "direct_beam"
-        # Auto
+        # Auto. "unknown" is a kind: a selection mixing recognized and
+        # unrecognized files is heterogeneous, and must fall back to x/y
+        # rather than let one recognized file label all the others.
         per = [classify_file(p) for p in paths]
-        kinds = {k for k in per if k != "unknown"}
-        if not kinds:
+        kinds = set(per)
+        if not kinds or kinds == {"unknown"}:
             return per, "unknown"
         if len(kinds) == 1:
             return per, next(iter(kinds))
