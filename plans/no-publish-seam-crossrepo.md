@@ -92,3 +92,21 @@ with `--no-publish` produces no monitor.sns.gov publication.
 The `PIXI_PREFIX=/SNS/users/6ov/...` personal path (pixi-deploy seam), the
 `new_publish` value (operator/deploy decision), `CONDA_ENV`, the positional
 argv handling and its pre-existing `IndexError` on fewer than two arguments.
+
+---
+
+## RESOLVED 2026-08-18 (Analyst record)
+
+The human pushed the branch the same day: `a8e2eb9` is on
+`origin/wip/enable-exp-parallel-reduction`, followed by human-side
+follow-ons — `016e016` "per Becky, if new workflow is enabled, run it
+even if old workflow fails" (exit-code tracking; production failure no
+longer blocks the shadow), `new_publish = True` (shadow publishing
+enabled — the composed gate from this slug is now load-bearing:
+`--no-publish`/`--no_publish` callers suppress BOTH paths), the shadow
+script resolved as `Path(sys.argv[0]).parent / "new_reduce_REF_L.py"`
+(now tracked in-repo; deploys beside the shim), env name
+`lr_reduction_exp`, and the forwarded spelling flipped to `--no-publish`
+(safe: the deployed gdccd093 build carries a9af9df). Checker re-run
+GREEN against the pushed tip. Terminal state cleared:
+needs-human-push -> done.
