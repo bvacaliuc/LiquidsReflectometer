@@ -4,10 +4,13 @@
 mid-effort addition (2026-08-18) from the S0 gate's advisory findings
 (PR #15 body, test-reviewer; Integrator recommendation: fold in before more
 slugs build on the fixtures) · DAG-independent, **land before T2**
-**Retry attempt:** 1
+**Retry attempt:** 2
 
-Review domains: test-reviewer (advisory — it authored the findings; this
-closes them), ui-aspects-reviewer (advisory).
+Review domains: test-reviewer (**blocking** — upgraded at the v1
+rejection: the slug's deliverable is self-tested guarantees, so the
+domain that measures whether the guarantees hold must gate it; the v1
+"advisory — it authored the findings" premise inverted the logic),
+ui-aspects-reviewer (advisory).
 
 ## Symptom (the three verified findings + tail items)
 
@@ -153,3 +156,92 @@ benefit automatically at their next branch-from-exp); the `pixi.lock`
   `launcher/tests/test_harness.py`, `pyproject.toml`.
 - Draft PR body cites PR #15's advisory findings as the origin and states
   the deploy consequence per charter §7.
+
+## Revision history
+
+### v2 — 2026-08-19 (after v1 rejection; todo.md @ `7497b28`)
+
+Tests green; rejection entirely from the gate, and the Analyst
+**upholds the blocking departure**: measured probes (qtpy 2.4.3 →
+PyQt5 5.15.11) showed F1 only partially closed (the `setPath` redirect
+covers `IniFormat` while teardown restores `defaultFormat` to
+`NativeFormat` — a real-config write was reproduced *against the new
+fixture*; v1's matrix row "setPath applies process-wide once set" is
+false as implemented and is superseded), F2 not closed for any
+production call site (`'exec_' not in QMessageBox.__dict__` — the patch
+shadows a class whose instances are never exec'd in `launcher/`, while
+`QDialog().exec_()` at `roi_selector.py:230`/`:2038` — **T1's own
+sites** — blocks), F3 closed for the inner loop but the collection hook
+is session-global (adds `timeout(120)` to the reduction suite in any
+combined invocation; with the thread method a firing timeout is
+`os._exit` mid-suite), the teardown can skip its own restores (drain
+precedes them, unguarded) and the drain never dispatches
+`DeferredDelete`, and **all three self-tests are defective** (the
+subprocess timeout test never loads the repo ini — passes with both F3
+changes deleted; the settings test is order-dependent; the exec test
+guards a dead surface). Same defect shape as S3's B1: stated
+justifications contradicted by measured ordering. v1's additive-only
+"no autouse" line is consciously revised (see fixes). Also recorded,
+out of scope: `launcher/` configures 8 `QMessageBox` instances it never
+shows — a pre-existing error-dialogs-never-appear bug, parked for the
+campaign backlog.
+
+## v2 fixes (the todo's order; each self-test must be able to fail)
+
+1. **Modal backstop targets the base class**
+   (`launcher/tests/conftest.py`): patch
+   `QtWidgets.QDialog.exec_`/`exec`/`open` (with `hasattr` guards —
+   distinct slots in PyQt5), **returning `QtWidgets.QDialog.Accepted`**
+   — never `QMessageBox.Ok` (1024): every production comparison is
+   `== 1` / `== QDialog.Accepted` / `!= QDialog.Accepted`, so a 1024
+   return silently turns accept paths into cancel paths the moment the
+   base-class patch lands. Keep the four `QMessageBox` statics.
+   `monkeypatch` handles the inherited-attribute case cleanly
+   (`notset` → `delattr`). Make `no_qfiledialog` **`autouse=True`**
+   (deviation from v1's no-autouse line, directed by the gate: 26
+   uncovered sites and nothing opts in; a test wanting a real path
+   overrides locally). Fix the shared-list nit: return a fresh list per
+   call for `getOpenFileNames`.
+2. **Isolation becomes process-wide** — at conftest **import** scope
+   (before any collection-time construction):
+   `QSettings.setDefaultFormat(IniFormat)` and `QSettings.setPath` for
+   **both** `IniFormat` and `NativeFormat` (`UserScope`) into a
+   session-scoped scratch root; per-test `tmp_path` refinement stays in
+   the fixture. Teardown restores **org/app/domain only** — never
+   `defaultFormat` (setPath has no undo; the permanent half is the
+   harmless half, and restoring the format is what re-opened the
+   window).
+3. **Timeout hook scoped and polite**: in
+   `pytest_collection_modifyitems`, add the marker only when
+   `item.path.is_relative_to(Path(__file__).parent)` AND
+   `item.config.getoption("timeout", None) is None` (an explicit
+   `--timeout` — the documented RED technique — must win).
+4. **Teardown that cannot skip itself**: `try/finally`; identity
+   restores first inside `finally`; then the drain with per-widget
+   `except RuntimeError` guards, and
+   `sendPostedEvents(None, QEvent.DeferredDelete)` after
+   `processEvents()` (measured: without it nothing is ever deleted).
+5. **Self-tests made falsifiable**:
+   - timeout: run the hanging file in a `tmp_path` tree that contains a
+     **copy of the shipped conftest** and a minimal ini carrying
+     `timeout_method = "thread"`, pass **no** `--timeout` on the CLI;
+     assert the `timeout: 120.0s`/`method: thread` header, nonzero rc,
+     and the Timeout banner. (The copied conftest's own path filter
+     then applies to the copied tree — this test exercises fix 3
+     positively; deleting either F3 half turns it red.)
+   - settings: construct one `QSettings()` at `test_harness.py`
+     **module import** (deterministically poisons the cached root
+     before any fixture) and keep the `fileName().startswith(tmp_path)`
+     assertion — order-independent redness against the v1 defect.
+   - exec: retarget at `QDialog().exec_()` under the fixture, assert it
+     returns `QDialog.Accepted` immediately — the surface with the four
+     production sites, T1's included.
+6. Tail (directed): convert `test_harness.py`'s remaining
+   `usefixtures`-mark tests to fixture-argument form (the `ARG001`
+   ignore blesses it) and state the one convention in the PR body.
+
+**v2 acceptance additions**: transcript of a combined-session probe
+`pixi run python -m pytest tests launcher/tests --collect-only -q`
+plus an assertion (grep) that no `tests/` item gained a timeout marker
+(the B3 discrimination check); `pixi run test-reduction` green and
+`test-launcher` green as before.
