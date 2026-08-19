@@ -4,7 +4,7 @@
 #9 + #10 ("port, adapted — one overplot series") · seeds
 `agentic/feature/overplot-axes` @ `300d040`,
 `agentic/feature/overplot-refresh` @ `7bc34b2`
-**Retry attempt:** 2
+**Retry attempt:** 3 (final — N=3; the next rejection escalates)
 
 Review domains: ui-aspects-reviewer (**blocking** — upgraded at the v1
 rejection: charter §5 ties blocking to bug-fix phases, and v1 proved this
@@ -255,7 +255,9 @@ field empty), assert the stored value is unchanged after `__init__`.
 
 **B3 — checkbox is the single "chosen" notion** (robust form, per the
 ui-aspects hidden-input trap): set `file_list` selection mode to
-`NoSelection`, connect `itemClicked` to toggle the item's `checkState`,
+`NoSelection`, connect `itemClicked` to toggle the item's `checkState`
+*(the `itemClicked` half is **superseded by v3** — it double-toggles
+indicator clicks; see the v3 revision entry)*,
 and drop `or item.isSelected()` from `plot_selected`. This changes
 pre-existing `exp` behavior (highlight-only rows used to plot) —
 deliberate, PR-body callout required. `refresh()`'s check-only snapshot
@@ -280,3 +282,74 @@ the user's stored transform once S3 saves `overplot_ytransform` — flagged
 into S3's plan (addendum on the analysis branch); pyplot fallback leaks a
 figure per refresh; check-state has no memory across disappear/reappear.
 Do not expand v2 scope for these.
+
+### v3 — 2026-08-19 (after v2 rejection; todo.md @ `d09c16b`; FINAL retry)
+
+All four v1 findings are RESOLVED and Integrator-verified (15/15 real
+reflectivity files classify; six behavior-level reverts now pinned;
+suite 17 → 32 tests). The v2 rejection is a single new defect **in this
+plan's own prescribed mechanism, owned here**: v2 directed
+`itemClicked` → toggle under `NoSelection`, but Qt's
+`QStyledItemDelegate::editorEvent` already toggles `checkState` for a
+release in the indicator rect, and the view emits `clicked` *before*
+its edited-check — so the slot toggles the state straight back and
+**the check box itself became unclickable** (proved by `QTest`
+probes at indicator vs text coordinates plus a control run without the
+connection; the emit-based v2 test bypassed the delegate and could not
+see it). Same defect class the harness cycle named: a mechanism
+specified from intent, not from measured event dispatch. The blocking
+route worked exactly as declared — ui-aspects returned it under this
+plan's own blocking flag.
+
+## v3 fixes (final retry — minimal, each half provable)
+
+1. **F1 (the one blocking item):** delete the `itemClicked` connection
+   (`:228`) and `_toggle_item_checked` (`:358-364`) entirely. Keep
+   `NoSelection` and the `isSelected()` removal — the Integrator's
+   control run proves the native delegate then handles indicator
+   clicks correctly, keyboard Space still toggles, and `refresh()`'s
+   check-only snapshot stays coherent. Do NOT add the
+   viewport-event-filter whole-row variant on the last retry — text
+   clicks not toggling matches deployed `exp`. Tests: replace the
+   emit-based test with real `QTest.mouseClick` probes — indicator
+   rect toggles (`style().subElementRect(SE_ItemViewItemCheckIndicator,
+   …)`), text-area click does not, and pin the B3 halves separately:
+   `assert tab.file_list.selectedItems() == []` after
+   `setSelected(True)` under `NoSelection`, plus a forced-
+   `MultiSelection` regression probe.
+2. **F3:** the folder save guard gains validity:
+   `if folder and os.path.isdir(folder):` — same data-loss class as
+   v1's B4, one condition. Test: seed a good stored folder, type a bad
+   one (field keeps text per `folder_changed`), touch the plot-mode
+   combo, assert the stored value is still the good folder.
+3. **F5:** `classify_file` opens with `encoding="utf-8",
+   errors="replace"` (both real writers emit `Å` above the marker —
+   locale-dependent decode reproduces B1's symptom), and terminates on
+   the first non-blank non-`#` line (`if line.strip() and not
+   line.startswith("#"): break`; EOF still breaks).
+4. **F6:** the corpus parametrization becomes
+   `sorted((Path("tests/data")).glob("reference_*.txt"))` — all six are
+   tracked and the hand-list already drifted by one.
+5. **F2 (small, measured, same freshness-lie class):**
+   `canvas.draw()` before `plot_selected`'s all-failed early return,
+   and move the `overplot_last_refresh` stamp/tooltip to after the
+   replot call. Test: two checked files deleted from disk between
+   populate and refresh → canvas cleared AND stamp still updates only
+   with the post-replot ordering.
+6. **Discrimination pins (named by the gate, all cheap):**
+   deep-preamble fixture (~40 `#` lines, marker below line 20) and a
+   marker-in-data-body fixture that must classify `unknown` (pins the
+   window removal AND the termination rule); writer-2 fixture built by
+   calling `save_reduced_data._build_header(...)` at test time instead
+   of a hand-written imitation; one test each for the explicit-override
+   mismatch warning and the filter-preserving rebuild; drop the
+   redundant `_last_sel_mode` private asserts where the axis-label
+   assert exists.
+7. **F4 — optional, drop first if anything wobbles:** in `mixed`
+   selections suffix the *unrecognized* files too (`[unknown]`), so the
+   file that broke homogeneity is identifiable.
+
+Unchanged: strip list, pixi.lock caveat, source branch = the EXISTING
+feature branch with the Integrator's todo.md on top. The authoritative
+clean `test-reduction` run belongs at the v3 tip (this cycle's single
+failure was the known cross-clone /tmp race, third occurrence).
