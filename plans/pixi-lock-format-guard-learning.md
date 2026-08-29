@@ -85,3 +85,75 @@ change blocks; a removed package blocks.
 paste it into the code, and let the ignore-list be that list. A tolerance
 justified by reasoning alone is a guess about a tool's behaviour; a tolerance
 justified by a pasted diff is a record of it.
+
+## 4. Arm a restore trap only after the thing it restores from exists
+
+*Added after the v2 rejection; sections 1-3 are from the v2 cycle.*
+
+**Rule.** A cleanup trap that copies a saved file back is only safe once that
+file holds the saved content. Arming it over an empty `mktemp` creates a window
+in which any exit destroys the very artifact the script exists to protect.
+
+**Why.** The v2 wrapper did:
+
+```bash
+snap=$(mktemp) || exit 1
+trap 'cp "$snap" pixi.lock …' EXIT INT TERM   # armed over an EMPTY file
+cp pixi.lock "$snap" || exit 1                 # …populated only here
+```
+
+If that second `cp` fails — a full disk, a quota, an `ulimit -f` — the EXIT
+trap copies zero bytes onto the tracked `pixi.lock`. That is strictly worse
+than the fail-open it replaced, and the reason is worth keeping: a *truncated*
+lock whose first line still reads `version: 6` passes every tripwire this guard
+ships. A guard's own failure mode has to be measured against its own detectors,
+not against intuition about what "a broken file" looks like.
+
+Correct order, with the failure path owning its own cleanup:
+
+```bash
+snap=$(mktemp) || exit 1
+cp pixi.lock "$snap" || { rm -f "$snap"; exit 1; }
+restore() { cp "$snap" pixi.lock 2>/dev/null; rm -f "$snap"; }
+trap restore EXIT
+```
+
+**How to apply.** For any save/restore trap, ask what the handler would do if
+fired *right now*, at each line between `mktemp` and the end of the save. If the
+answer at any point is "write something wrong", the trap is armed too early.
+
+## 5. A bash INT/TERM handler returns to the script unless it exits
+
+**Rule.** `trap handler INT` does not end the script. After the handler runs,
+execution resumes at the interrupted point — so a handler that tears down state
+must also exit, and must disarm the EXIT trap so the teardown does not run
+twice.
+
+**Why.** v2 shared one handler across `EXIT INT TERM`. On SIGINT it restored the
+lock, deleted the snapshot, and then returned into the classifier, which
+compared against a file that no longer existed: a fabricated drift accusation
+followed by an 8k-line diff. The user-visible result of pressing Ctrl-C was the
+guard loudly claiming their lock was broken — precisely the experience that
+teaches people to reach for `--no-verify`, which would disable the format
+tripwire too.
+
+```bash
+trap restore EXIT
+trap 'restore; trap - EXIT; exit 130' INT
+trap 'restore; trap - EXIT; exit 143' TERM
+```
+
+Measured after the fix: SIGINT mid-solve gives exit 130, zero output, a
+byte-identical lock and no temp litter.
+
+The pattern to notice: v2's comment claimed "one restore path, and it survives
+an interrupt" — a statement about control flow that the control flow did not
+support, sitting one line below that same commit's fix for a stated-vs-measured
+defect. The class is not limited to measurements; a claim about *what the code
+does* deserves the same "did I check?" as a claim about what a tool does.
+
+**How to apply.** Where a script installs signal handlers, exercise them: send
+the signal mid-run and read the exit code and the output, not just the final
+file state. Note that `setsid` forks, so a probe must signal the script's real
+PID — an early version of this very probe signalled a wrapper that had already
+exited, and reported a false pass.
