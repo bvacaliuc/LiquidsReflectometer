@@ -5,7 +5,7 @@ addition 2026-08-29 (human-reported: `pixi run pytest` from the repo root
 fails 9 tests on every clone of `exp`, blocking comfortable merging of
 PRs #16–#18) · DAG-independent, **stage immediately** — it gates the
 human's merge confidence and every future bare-pytest run
-**Retry attempt:** 1
+**Retry attempt:** 2
 
 Review domains: test-reviewer (**blocking** — bug-fix phase per charter
 §5), design-reviewer (advisory).
@@ -120,3 +120,87 @@ never commit a non-v6 lock).
   pre-campaign provenance (`ce1a3ae`-era, identical at `dccd093`), and
   recommends the human merge THIS PR first, then verify their
   invocation, then merge #16–#18 at leisure.
+
+## Revision history
+
+### v2 — 2026-08-30 (after v1 rejection; todo.md @ `aac75a9`)
+
+The fix core is RATIFIED by the gate (both halves red-green against the
+structural blindness; the raise-over-`1,0,0,0` call verified correct —
+the tidy alternative silently produces unscaled-but-plausible R(Q);
+blast radius traced clean). The rejection is about verification
+honesty, and **one finding revises this plan's own acceptance
+criterion and root-cause statement, owned here**: v1's "bare pytest →
+107 passed" was satisfiable *accidentally* — `test_reduction.py:230`
+(`test_reduce_functional_bck`) does an **unrestored `os.chdir` into
+`tests/`**, so every later test inherits the gate's cwd regardless of
+invocation. That leak is also the missing half of the original
+root-cause: the nine failures are exactly the sf-path tests defined
+BEFORE line 229 (1 in test_dead_time + 8 in test_reduction, with the
+×4 parametrization), while the two sf-tests after it passed. The
+Integrator also corrected its own first "109 passed" report in the
+same document — both sides of this cycle practiced the
+stated-vs-measured discipline. Advisory 1 matters most: v1's upward
+anchoring walk can silently bind a same-named sf file the template
+author never declared — the *same* silent-wrong-number hazard the
+raise half closes, re-opened by the fallback. v2 removes the walk.
+
+## v2 fixes (the gate's order, plus the walk removal)
+
+1. **Fix the leak, then measure honestly**: `test_reduction.py:230`
+   restores cwd (`monkeypatch.chdir(...)` — pytest restores
+   automatically — or `try/finally os.chdir(old)`), then re-run bare
+   `pytest` from the repo root and state the REAL number in the commit
+   body before fixing anything it surfaces.
+2. **Anchoring = the template's own directory, exactly — no upward
+   walk.** Delete `_SCALING_FACTOR_ANCHOR_DEPTH` and the parent
+   traversal; precedence stays absolute → as-given-cwd →
+   `dirname(template_path)` → raise listing all candidates tried. This
+   kills the silent wrong-file binding (advisory 1's probe found a
+   stale same-named cfg two levels up in an IPTS-shaped layout), the
+   depth off-by-one, and most of B2's decoy surface in one stroke.
+3. **Make the tests pin the feature (B2, B3)**:
+   - the cwd-independence test asserts the *precondition* (the fixture
+     template still declares a non-absolute path) and the *identity*
+     (`os.path.samefile(resolved, "tests/data/sf_197912_Si_auto.cfg")`),
+     not bare `isfile`;
+   - a precedence test with decoys at BOTH the cwd-relative and the
+     template-dir locations asserts as-given-cwd wins (deleting
+     as-given-first must go red);
+   - keep the missing-file raise test.
+4. **Auditability (advisories 1–3, adopted)**: when the winning
+   candidate differs from the declared string, `logger.notice` both
+   (declared → resolved); record the resolved path in the output
+   metadata (`meta_data["scaling_factor_file"]`); add a
+   `logger.warning` on the pre-existing silent no-match
+   `return 1, 0, 0, 0` at `template.py:207` (same
+   plausible-unscaled-R(Q) axis; log only — behavior unchanged).
+5. **Reader parity (advisory 5)**: apply the same anchoring call in
+   `new_reduction_from_template.py:460`'s forked `read_template` (one
+   line; the fork's unification TODO stays parked — a refactor does not
+   ride a bug-fix retry).
+6. **Residual cwd-relative sites — fixed, not renegotiated**: the
+   gate's enumerated list (reads `test_time_resolved.py:19-20,56-57`,
+   `test_scaling_factors_workflow.py:72,91,119,147,176`; writes via
+   `output.py:185` at `test_reduction.py:370,406`,
+   `test_time_resolved.py:18,55`) — each the same one-line
+   `template_dir`/`tmp_path` substitution already applied once at
+   `test_reduction.py:159`. This makes the acceptance criterion honest
+   rather than narrower.
+7. **PR-body notes**: the `time_resolved.py:257/:374` bare excepts
+   swallow the new raise into a print (pre-existing; fail-loud is not
+   global); the `/tmp` cross-clone race hit its 6th occurrence at this
+   gate (parked slug `test-tmp-isolation` awaits the human's nod).
+
+## v2 acceptance criteria (supersede v1's)
+
+- `test_reduction.py` leaks no cwd change (run any later test alone
+  from the root: green).
+- Bare `pixi run pytest` from the repo root: **all green, honestly** —
+  and spot-checks the pollution can no longer mask:
+  `pytest tests/test_scaling_factors_workflow.py` and
+  `pytest tests/test_time_resolved.py` each green from the root.
+- `pixi run test-reduction` and `test-launcher` green as before;
+  pre-commit clean; no `pixi.lock` changes.
+- Each blocking finding's mutation goes red: fixture absolutized +
+  anchoring deleted → red; as-given-first deleted → red.
