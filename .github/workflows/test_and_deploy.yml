@@ -41,10 +41,16 @@ jobs:
           git config --global url."https://gitlab-ci-token:${TOKEN}@code.ornl.gov/".insteadOf "https://code.ornl.gov/"
           
       - name: Download test data
+        env:
+          TOKEN: ${{ secrets.DATA_READ_TOKEN }}
         run: |
           git submodule update --init
-          git submodule foreach --recursive git lfs pull
-          echo "data repo size: $(du -sh tests/data/liquidsreflectometer-data)"
+          if [ -n "$TOKEN" ]; then
+            git submodule foreach --recursive git lfs pull
+            echo "data repo size: $(du -sh tests/data/liquidsreflectometer-data)"
+          else
+            echo "DATA_READ_TOKEN not available; skipping LFS data download (tests requiring data will be skipped)"
+          fi
 
       - name: Test with coverage
         run: |
