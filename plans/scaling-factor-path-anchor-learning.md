@@ -147,3 +147,70 @@ should say so, rather than relying on the reader's working directory.
 that are each explainable in a sentence is a resolution rule; a loop is a
 search, and a search that silently accepts its first hit is a guess. If a
 fixture only resolves under a search, fix the fixture.
+
+## 6. Co-collection is the same accident as cwd inheritance, and it caught me verifying the fix for cwd inheritance
+
+*Added after the v2 rejection; sections 4-5 are from the v2 cycle.*
+
+**Rule.** "Each of these files passes on its own" requires one invocation per
+file. Passing them together to pytest measures the union, and the union hides
+exactly the coupling the claim is about.
+
+**Why.** v2's acceptance asked for two files to be green standalone from the
+repo root. The command run was
+
+```
+pytest tests/test_time_resolved.py tests/test_scaling_factors_workflow.py   ->  7 passed
+```
+
+— one invocation, reported as if it were two. Alone, `test_time_resolved.py` was
+**2 failed**: `ValueError: ... File "REF_L_198413" not found`, because it never
+sets Mantid's `default.facility`. `amend_config` sets facility only when passed
+a `new_config`, and those tests pass `data_dir` only, so the module was green by
+being collected after one that set it.
+
+That is the identical shape to the defect this slug exists to fix — a test that
+passes because of what ran before it — and it was committed *in the act of
+verifying that fix*. The lesson is not "be careful"; it is that a claim of
+independence has a specific experimental form, and combining the subjects into
+one run silently violates it. Section 4 is the cwd instance of this and section
+6 the collection-order instance; they are the same error with different global
+state.
+
+**How to apply.** When the property is "X passes without Y", run X without Y —
+literally, as its own process — and record the numbers separately, per file. If
+that is too slow to do routinely, hoist the shared setup into `conftest.py` so
+the coupling cannot exist: the fix here was a session-scoped autouse fixture
+setting facility and instrument, which makes the question moot rather than
+answerable.
+
+## 7. Make the next test report the leak, not a reviewer months later
+
+**Rule.** When a defect class is "one test corrupts global state for the rest of
+the session", add a cheap autouse assertion that fires on the *causing* test.
+Detection belongs where the cause is, not where a symptom eventually surfaces.
+
+**Why.** The unrestored `os.chdir` that invalidated a whole suite's worth of
+results sat in the file for as long as it did because nothing was watching for
+it — it was found by a reviewer reading code, weeks and several gates later. Four
+lines in `conftest.py` close that permanently:
+
+```python
+@pytest.fixture(autouse=True)
+def _no_cwd_leak():
+    before = os.getcwd()
+    yield
+    assert os.getcwd() == before, (...)
+```
+
+Verified by reintroducing the leak: `AssertionError: test changed the working
+directory and did not restore it: /media/.../lr_reduction -> /tmp`. The message
+names the remedy (`monkeypatch.chdir`), because the person who trips it will be
+mid-task on something unrelated.
+
+**How to apply.** For any process-global a suite depends on — cwd, environment
+variables, a framework's config singleton, a registry — an autouse
+snapshot-and-compare fixture is a few lines and converts a class of silent,
+order-dependent corruption into an immediate, named failure. Pair it with
+hoisting the *setup* of that global into `conftest.py`, so the suite both
+establishes the state once and refuses to let a test mutate it unnoticed.
