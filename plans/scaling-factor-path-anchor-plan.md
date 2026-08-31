@@ -5,7 +5,7 @@ addition 2026-08-29 (human-reported: `pixi run pytest` from the repo root
 fails 9 tests on every clone of `exp`, blocking comfortable merging of
 PRs #16–#18) · DAG-independent, **stage immediately** — it gates the
 human's merge confidence and every future bare-pytest run
-**Retry attempt:** 2
+**Retry attempt:** 3 (final — N=3; the next rejection escalates)
 
 Review domains: test-reviewer (**blocking** — bug-fix phase per charter
 §5), design-reviewer (advisory).
@@ -204,3 +204,75 @@ raise half closes, re-opened by the fallback. v2 removes the walk.
   pre-commit clean; no `pixi.lock` changes.
 - Each blocking finding's mutation goes red: fixture absolutized +
   anchoring deleted → red; as-given-first deleted → red.
+
+### v3 — 2026-08-31 (after v2 rejection; todo.md @ `6c34cd7`; FINAL retry)
+
+v2 is ratified in full by the gate: all v1 findings closed
+red-on-revert (six mutations), all six advisories taken, the cwd leak's
+11 masked tests fixed with checked arithmetic — and the fixture change
+made the anchoring load-bearing under `cd tests/` too, so deleting the
+fix now reds the campaign gate itself (the gate's structural blindness
+to this class is retired; say so in the PR). One blocking finding —
+**B1's species, one cycle later**: `tests/test_time_resolved.py` never
+sets Mantid's `default.facility` (`amend_config` sets it only when
+`new_config` is passed; these tests pass `data_dir` only), so it is
+green only when co-collected after a module that sets it. The v2
+spot-check ran the two files in ONE invocation and reported the
+combined green as standalone — the exact accident class this slug
+exists to eliminate. Also reconciled: the gate's closing note on the
+`/tmp` write side is already resolved — the human merged PR #21
+(`test-tmp-isolation`) after this review was written; `exp` @ `633950c`
+carries it.
+
+## v3 fixes (final retry — the gate's order)
+
+1. **B4**: session-scoped autouse fixture in `tests/conftest.py`
+   setting `mtd_api.config["default.facility"] = "SNS"` and
+   `["default.instrument"] = "REF_L"` (hoisted, per the gate, so no
+   module can be silently coupled again — reviewer-verified: 2 passed
+   alone from the root). Commit/PR body states the spot-checks as
+   SEPARATE invocations with each file's standalone number.
+2. **Close the class, not the instance** (both reviewer-verified):
+   delete the now-vestigial `chdir` at `tests/test_reduction.py:235`
+   (every path in that test is absolute; 1 passed alone from root with
+   the line gone — the suite then contains zero cwd mutations), and add
+   the four-line `_no_cwd_leak` autouse fixture (before/after
+   `os.getcwd()` assert) so a reintroduced leak is caught by the next
+   test in the file rather than a human months later.
+3. **Guard-file hygiene** (`tests/test_template_paths.py`): refresh the
+   stale docstring (pre-v2 fixture path; the "gate structurally cannot
+   see" claim v2 made false; "Both tests" → four); precondition uses
+   `re.findall` over all `<scaling_factor_file>` occurrences asserting
+   none absolute (the current `re.search` reads sequence 1 while the
+   test exercises sequence 7); route the two private
+   `_resolve_scaling_factor_file` tests through `read_template` so the
+   public seam is what is pinned.
+4. **Optional — drop first if anything wobbles**: fix the seventh
+   template's dead `test/data/sf_186529_Si_auto.cfg` path in
+   `tests/data/template_with_instrument_settings.xml` (last
+   old-convention template; now emits the new resolve-warning on every
+   read — gate noise); guard `meta_data["scaling_factor_file"]` so the
+   skip branch does not record a file that was never read; the one-line
+   anchor of `template.py:466`'s dead cwd-relative write (behind
+   `OUTPUT_NORM_DATA = False`).
+5. **PR-body only (recorded, not scoped)**: the `amend_config`
+   `datasearch.directories` restore bug (backup taken, never restored —
+   14 tests lean on the leak; the PR claims **cwd**-independence, not
+   global-state independence generally) is parked as its own proposed
+   slug with a todo stub (`plan/todo-amend-config-restore.md` on the
+   tasking branch — the convention followed this time);
+   `new_reduction_from_template.py` parity untested + its
+   `write_template` serializes resolved absolute paths (mixed-convention
+   saved templates); `time_resolved.py` bare excepts (confirmed
+   non-vacuous by the gate).
+
+## v3 acceptance criteria (supersede v2's spot-check wording)
+
+- `pytest tests/test_time_resolved.py` alone from the repo root: green.
+- `pytest tests/test_scaling_factors_workflow.py` alone from the root:
+  green. Stated as separate invocations with numbers.
+- Bare `pixi run pytest` from the root AND `pixi run test-reduction`:
+  green (currently 111 + launcher 10).
+- Revert probes: remove the facility fixture → `test_time_resolved.py`
+  alone red; reintroduce a bare `os.chdir` in any test → the next
+  test's `_no_cwd_leak` fails.
