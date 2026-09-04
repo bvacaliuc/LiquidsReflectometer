@@ -53,6 +53,13 @@ jobs:
           git submodule foreach --recursive git lfs pull
           echo "data repo size: $(du -sh tests/data/liquidsreflectometer-data)"
 
+      - name: Ensure release tags exist
+        run: |
+          # Create a test tag if none matching v[0-9]* exist
+          if ! git describe --tags --match='v[0-9]*' HEAD 2>/dev/null; then
+            git tag v2.10.0
+          fi
+
       - name: Test with coverage
         run: |
           pixi run test-reduction
