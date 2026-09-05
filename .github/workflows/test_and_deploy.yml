@@ -55,9 +55,23 @@ jobs:
 
       - name: Ensure release tags exist
         run: |
-          # Create a test tag if none matching v[0-9]* exist
+          # The fork carries no v-tags, so versioningit would fall back to its
+          # default-tag and compute a version that fails the no-regression test.
+          # Fetch the real tags from upstream instead of synthesizing one: a
+          # hard-coded `git tag v2.10.0` freezes the version and makes HEAD
+          # describe as a clean release at distance 0 rather than a dev build.
+          # Nothing is pushed to the fork — its own workflow triggers on
+          # tags: [v*], so pushing the upstream tags would fire a CI+publish run
+          # per tag on the old commits they point at.
+          # No-op wherever a v-tag is already reachable (upstream, or a fork
+          # that later gains them).
           if ! git describe --tags --match='v[0-9]*' HEAD 2>/dev/null; then
-            git tag v2.10.0
+            # Refspec wildcards are a single '*' — a character class like
+            # v[0-9]* is rejected outright ("fatal: invalid refspec"), which
+            # `|| true` would then hide. Fetch the v-prefixed tags and let
+            # describe's --match do the numeric filtering.
+            git fetch --quiet https://github.com/neutrons/LiquidsReflectometer.git \
+              'refs/tags/v*:refs/tags/v*' || true
           fi
 
       - name: Test with coverage
