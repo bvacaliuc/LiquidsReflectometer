@@ -505,3 +505,94 @@ def test_settings_survive_a_real_process_restart(tmp_path):
         "cd": {"Cd": [5.0], "flip_atten": True},
         "nexus_enabled": False,
     }
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_direct_beam_plot_does_not_destroy_stored_ytransform(tmp_path):
+    """S2<->S3 interaction: plotting direct-beam data must not erase the
+    user's stored R*Q^4 preference.
+
+    #17 disables the R*Q^4 entry off-reflectivity and resets the combo to
+    "None" — correct for the axes. But save_settings then writes that reset
+    value, so one direct-beam plot silently destroys the stored preference.
+    The display reset is intended; the persistence of it is not.
+    """
+    from launcher.apps.overplot import Overplot
+
+    (tmp_path / "db.txt").write_text("# columns = lambda intensity error\n1.0 100.0 1.0\n2.0 200.0 1.4\n")
+    s = QtCore.QSettings()
+    s.setValue("overplot_ytransform", "R*Q^4")
+    s.sync()
+
+    tab = Overplot()
+    assert tab.ytransform_combo.currentText() == "R*Q^4", "precondition: stored value restored"
+    tab.folder_edit.setText(str(tmp_path))
+    tab.populate_file_list(str(tmp_path))
+    for i in range(tab.file_list.count()):
+        tab.file_list.item(i).setCheckState(QtCore.Qt.Checked)
+    tab.plot_selected()
+
+    assert QtCore.QSettings().value("overplot_ytransform") == "R*Q^4", (
+        "a direct-beam plot destroyed the stored transform preference"
+    )
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_stored_ytransform_survives_a_round_trip_through_direct_beam(tmp_path):
+    """The same, one plot later — the case a disabled-only guard misses.
+
+    Re-enabling R*Q^4 does not restore the combo, so the next reflectivity
+    plot saves the residual "None" with the entry *enabled*. A guard that only
+    skips the write while disabled therefore delays the destruction by one
+    plot rather than preventing it.
+    """
+    from launcher.apps.overplot import Overplot
+
+    (tmp_path / "db.txt").write_text("# columns = lambda intensity error\n1.0 100.0 1.0\n2.0 200.0 1.4\n")
+    (tmp_path / "refl.txt").write_text("# Q [1/Angstrom] R dR dQ\n0.01 0.5 0.05 0.001\n0.02 0.4 0.04 0.001\n")
+    s = QtCore.QSettings()
+    s.setValue("overplot_ytransform", "R*Q^4")
+    s.sync()
+
+    tab = Overplot()
+    tab.folder_edit.setText(str(tmp_path))
+    tab.populate_file_list(str(tmp_path))
+
+    def _check_only(name):
+        for i in range(tab.file_list.count()):
+            item = tab.file_list.item(i)
+            item.setCheckState(QtCore.Qt.Checked if item.text() == name else QtCore.Qt.Unchecked)
+
+    _check_only("db.txt")
+    tab.plot_selected()
+    _check_only("refl.txt")
+    tab.plot_selected()
+
+    assert QtCore.QSettings().value("overplot_ytransform") == "R*Q^4", (
+        "the stored transform did not survive a direct-beam plot followed by a reflectivity plot"
+    )
+
+
+@pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
+def test_user_choice_of_none_is_not_resurrected():
+    """The set-aside value must not override a choice the user actually makes.
+
+    Restoring a displaced R*Q^4 is right after a programmatic reset; it would be
+    wrong after the user selects None themselves, so an explicit pick clears it.
+    """
+    from launcher.apps.overplot import Overplot
+
+    s = QtCore.QSettings()
+    s.setValue("overplot_ytransform", "R*Q^4")
+    s.sync()
+
+    tab = Overplot()
+    tab._set_rq4_enabled(False)
+    assert tab._rq4_displaced_choice == "R*Q^4", "precondition: the choice was set aside"
+
+    tab._on_ytransform_chosen(tab.ytransform_combo.currentIndex())  # the user picks None
+    tab.save_settings()
+
+    assert QtCore.QSettings().value("overplot_ytransform") == "None"
+    tab._set_rq4_enabled(True)
+    assert tab.ytransform_combo.currentText() == "None", "a user's own choice must not be overridden"

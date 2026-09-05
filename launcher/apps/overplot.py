@@ -109,6 +109,10 @@ class Overplot(QWidget):
         self.settings = QtCore.QSettings()
         self._files = []  # full list of .dat filenames in chosen folder
         self._last_sel_mode = None
+        # The user's transform choice, set aside while R*Q^4 is unavailable.
+        # #17 resets the combo to "None" off-reflectivity, which is right for
+        # the axes but must not be mistaken for the user changing their mind.
+        self._rq4_displaced_choice = None
 
         # Main layout: two columns (controls | canvas)
         main_layout = QHBoxLayout()
@@ -238,6 +242,9 @@ class Overplot(QWidget):
         self.deselect_all_btn.clicked.connect(self.deselect_all)
         self.folder_edit.editingFinished.connect(self.folder_changed)
         self.plot_mode_combo.currentTextChanged.connect(self._on_plot_mode_changed)
+        # `activated` fires only on user interaction, unlike currentTextChanged,
+        # so this cannot be tripped by the programmatic reset above.
+        self.ytransform_combo.activated.connect(self._on_ytransform_chosen)
 
         # Populate from previous session
         self.read_settings()
@@ -273,7 +280,12 @@ class Overplot(QWidget):
             self.settings.setValue("overplot_folder", folder)
         self.settings.setValue("overplot_xscale", self.xscale_combo.currentText())
         self.settings.setValue("overplot_mode", self.plot_mode_combo.currentText())
-        self.settings.setValue("overplot_ytransform", self.ytransform_combo.currentText())
+        # Persist the user's preference. While R*Q^4 is unavailable the combo
+        # shows a reset value that the user did not choose; writing it would
+        # destroy a stored preference they never changed.
+        self.settings.setValue(
+            "overplot_ytransform", self._rq4_displaced_choice or self.ytransform_combo.currentText()
+        )
         self.settings.sync()
 
     def choose_folder(self):
@@ -408,10 +420,20 @@ class Overplot(QWidget):
         flags = item.flags()
         if enabled:
             item.setFlags(flags | QtCore.Qt.ItemIsEnabled)
+            # Back on data where R*Q^4 means something: give the user their
+            # choice back, unless they have since chosen something themselves.
+            if self._rq4_displaced_choice and self.ytransform_combo.currentText() == "None":
+                self.ytransform_combo.setCurrentText(self._rq4_displaced_choice)
+            self._rq4_displaced_choice = None
         else:
             item.setFlags(flags & ~QtCore.Qt.ItemIsEnabled)
             if self.ytransform_combo.currentText() == "R*Q^4":
+                self._rq4_displaced_choice = "R*Q^4"
                 self.ytransform_combo.setCurrentText("None")
+
+    def _on_ytransform_chosen(self, _index):
+        """The user picked a transform; forget any value we set aside."""
+        self._rq4_displaced_choice = None
 
     def _on_plot_mode_changed(self, mode):
         """User picked an explicit Plot mode; gate the transform combo."""
