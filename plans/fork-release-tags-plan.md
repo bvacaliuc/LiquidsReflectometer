@@ -90,7 +90,7 @@ upstream tags). So:
 
 | Case | Detection | Handling |
 |---|---|---|
-| Upstream reachability blip in fork CI (the (c) cost) | step's `\|\| true` + the `if !` guard | non-fatal; if no tag results, versioningit falls to `default-tag` and the regression test fails LOUDLY (not a silent wrong version) — a visible CI red, not a bad publish |
+| Upstream reachability blip in fork CI (the (c) cost) | step's `\|\| true` + the `if !` guard | non-fatal; if no tag results, versioningit falls to `default-tag` and the regression test fails LOUDLY in the `tests` job — a visible CI red. ~~not a bad publish~~ **CORRECTED 2026-09-05 (Integrator gate + Analyst verify): this half is FALSE.** `publish`/`deploy-exp` are `needs: [build]`, NOT `[tests]` (`test_and_deploy.yml`), so a red `tests` job does not gate the artifact — see `todo-fork-publish-not-gated-on-tests.md`. The `\|\| true` is still defensible (option (c) is a strict improvement over the synthetic-tag status quo, and this slug edits only the `tests`-job step), but its safety must not rest on "blocks publish". Verified latent: the fork's `publish` currently fails on every `exp` run (no token), so nothing ships regardless — the publish-gating fix is a separate human deploy decision, not this slug's scope. |
 | Someone re-adds `git tag v2.10.0` later | version string is clean `2.10.0` in CI log | PR-body note; the honest-dev-string check catches it |
 | Hunk leaks into an upstream PR | `.github/` file in the PR diff | net-diff excludes `.github/`; strip note + reviewer check |
 | Local seat clone loses its v-tags during the throwaway sim | sim runs in a `git worktree`, not the clone | explicit worktree instruction above |
