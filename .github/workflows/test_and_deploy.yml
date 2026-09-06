@@ -29,6 +29,14 @@ jobs:
           fetch-tags: true # Fetch tags to ensure versioning works correctly
           submodules: recursive
 
+      - name: Ensure release tags exist
+        run: |
+          # Fetch the real tags from upstream if none matching v[0-9]* exist
+          if ! git describe --tags --match='v[0-9]*' HEAD 2>/dev/null; then
+            git fetch --quiet https://github.com/neutrons/LiquidsReflectometer.git \
+              'refs/tags/v*:refs/tags/v*' || true
+          fi
+
       - name: Check pixi.lock format
         run: bash scripts/check_lock_format.sh
 
@@ -52,14 +60,6 @@ jobs:
           git submodule update --init
           git submodule foreach --recursive git lfs pull
           echo "data repo size: $(du -sh tests/data/liquidsreflectometer-data)"
-
-      - name: Ensure release tags exist
-        run: |
-          # Fetch the real tags from upstream if none matching v[0-9]* exist
-          if ! git describe --tags --match='v[0-9]*' HEAD 2>/dev/null; then
-            git fetch --quiet https://github.com/neutrons/LiquidsReflectometer.git \
-              'refs/tags/v*:refs/tags/v*' || true
-          fi
 
       - name: Test with coverage
         run: |
