@@ -119,3 +119,74 @@ into this diff.
 files before editing it. For anything that survives on a tolerance, compute the
 margin before and after and put both numbers in the commit body — "still
 passes" is not the same claim as "still has headroom".
+
+## 5. Check your baselines are distinct before deriving a tolerance from them
+
+**Rule.** Before trusting any number measured by comparing outputs against a
+set of reference files, verify the references are **pairwise distinct**. A
+duplicated baseline does not fail — it silently answers a different question
+than the one you asked.
+
+**Why.** v1 of this slug derived its entire fitted-parameter tolerance budget
+from measurement, recorded the measurement next to the number, and was still
+wrong, because two of the four references were byte-identical:
+
+```
+14d3e256da9dee40e9b575e322754a5e  sf_197912_Si_dt_par_46_200.cfg
+14d3e256da9dee40e9b575e322754a5e  sf_197912_Si_dt_par_46_300.cfg
+```
+
+So `test_compute_sf_with_deadtime_tof_300` compared a **300**-step computation
+against a **200**-step reference. Regenerating the 300 reference and diffing it
+against the 200 output reproduces v1's "worst observed delta" table exactly —
+b 6.748e-04, a 5.648e-05, error_a 3.046e-05, error_b 2.268e-05. Not close: the
+same numbers. Four of the five cases reproduce to ≤1e-11; 100% of the budget
+came from the one contaminated case, read as fit noise.
+
+**Two lessons, and the second is the sharper one.**
+
+*Measuring is not enough; you must know what you measured against.* "Derived
+from measurement" felt like rigour and was the vehicle for the error. The
+measurement was real — it measured the difference between two TOF binnings.
+
+*A rationale invented to explain a number is worse than no rationale.* v1
+explained b's large delta as "a near-zero slope, so relative error is
+inherently noisier". That is plausible, it is physics-flavoured, and it is
+false — b is simply the parameter most sensitive to the TOF binning change.
+A comment that instructs future maintainers with a fabricated cause is more
+durable damage than a loose constant, because the constant can be re-measured
+while the explanation gets believed. When a number surprises you, the honest
+options are "diagnosed, here is the cause" or "not yet diagnosed" — never a
+story that fits.
+
+**How to apply.** `md5sum` the reference set — that was the whole cost of
+catching this. Better, encode it: this slug now carries a guard asserting each
+reference pair differs on at least one field the comparator actually looks at,
+which is stronger than distinct bytes (a header-only difference would not
+count). And ask of any passing test: *what would have to break for this to
+fail?* Hard-coding `DeadTimeTOFStep = 200` and running `-k tof_300` answered
+that in 50 seconds — it passed under v1, and fails now.
+
+## 6. A regenerated baseline pins regressions; it does not validate physics
+
+**Rule.** When no independent ground truth exists, regenerating a reference
+from the code under test is still worth doing — but say plainly which of the
+two jobs it does.
+
+**Why.** For `S1W` there *was* ground truth: the run log. For the fitted
+parameters at 300 there is none — the only way to obtain a 300 baseline is to
+run the code. That makes it self-fulfilling for correctness, and the temptation
+is to conclude the test is therefore worthless and `xfail` it.
+
+That is wrong. The regenerated baseline restores the property that actually
+matters to a regression suite: with it, hard-coding `DeadTimeTOFStep = 200`
+makes the test **fail**; without it, the test passed no matter what the code
+did with its own parameter. It cannot tell you today's 300 output is right; it
+can tell you tomorrow's differs from today's.
+
+**How to apply.** Commit the writer's verbatim output, header and all —
+`# Version:`, `# Generated on`, `#    deadtime_tof_step: 300.0`. None of the
+four committed references carried that block; they had been hand-trimmed, and
+that is exactly how a duplicate hid in plain sight for as long as it did.
+Then state in the commit body which job the baseline does, so nobody later
+mistakes "the test is green" for "the physics is verified".
