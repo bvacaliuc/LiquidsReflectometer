@@ -10,58 +10,91 @@ mtd_api.config["default.instrument"] = "REF_L"
 from lr_reduction.scaling_factors import workflow as sf_workflow
 from lr_reduction.utils import amend_config
 
-# Relative tolerances, per field, measured rather than inherited.
+# Per-field comparison bars, measured against UNCONTAMINATED references.
 #
-# The old helper carried a single 0.02 bar that only ever ran against `error_b`.
-# These come from the actual agreement of this suite against its references —
-# 45 row-comparisons (9 rows x 5 tests), worst case per field:
+# Read the history before touching these. v1 of this slug set the fitted bars
+# to 1e-3 from a "worst observed delta" of ~5.6e-05 on `a` and 6.7e-04 on `b`,
+# and explained `b`'s size as "a near-zero slope, so relative error is noisier".
+# Both the number and the explanation were wrong, for the same reason:
+# sf_197912_Si_dt_par_46_300.cfg was a byte-identical COPY of the _200 file
+# (md5 14d3e256... for both), so `test_compute_sf_with_deadtime_tof_300` was
+# comparing a 300-step computation against a 200-step reference. The entire
+# tolerance budget was the physical 200->300 binning difference, read as fit
+# noise. Regenerating the 300 reference from a real 300-step run reproduces
+# that difference exactly — b 6.748e-04, a 5.648e-05, error_a 3.046e-05,
+# error_b 2.268e-05 — which is what those v1 "noise" figures actually were.
 #
-#   LambdaRequested, S1H, S2iH   0.0       (45/45 bit-exact)
-#   S1W, S2iW                    0.0       (45/45 bit-exact once the stale row
-#                                            in sf_197912_Si_auto.cfg is repaired)
-#   a        5.6e-05      error_a  3.0e-05
-#   b        6.7e-04      error_b  2.3e-05
+# With all four references distinct, worst relative delta per case:
 #
-# Instrument metadata is copied verbatim from the run logs, so it must
-# round-trip; 1e-12 rather than exact equality only so a one-ulp difference
-# from another Mantid build is not a failure. A physically meaningful change
-# is caught nine orders of magnitude before that bar — the 0.04 mm stale-slit
-# discrepancy this slug found is 2e-03.
+#   case                                          a         b   error_a   error_b
+#   test_compute_sf                        1.80e-14  3.36e-14  6.73e-14  5.18e-14
+#   ..._with_deadtime                      8.43e-13  4.64e-11  4.28e-12  4.26e-12
+#   ..._with_deadtime_tof_200              9.58e-14  2.88e-12  1.68e-12  1.42e-12
+#   ..._with_deadtime_tof_200_sort         9.58e-14  2.88e-12  1.68e-12  1.42e-12
+#   ..._with_deadtime_tof_300              0.00e+00  0.00e+00  0.00e+00  0.00e+00
 #
-# The fitted parameters get roughly an order of magnitude of headroom over the
-# worst observed delta. `b` is looser because it is a near-zero slope
-# (~1e-06 against a ~1-9), where relative error is inherently noisier.
+# All nine instrument-metadata fields are 0.0 in every case.
 #
-# If CI on another platform exceeds one of these, widen it from a MEASUREMENT
-# and say so — never to turn a red suite green.
-_METADATA_TOL = 1e-12
+# The honest basis for 1e-8 is NOT "an order of magnitude over measured noise"
+# — on this platform the fits reproduce to ~1e-11. It is a **cross-platform
+# fit-reproducibility allowance** for a platform we have not measured (another
+# Mantid build, another BLAS), sized ~200x the worst delta seen here. It is
+# still about six orders inside the fit's OWN uncertainty: `error_a/a` runs
+# 1.74%-4.39% across the 36 reference rows. A regression large enough to matter
+# scientifically cannot hide under it, and v1's 1e-3 — which would have passed
+# a 0.1% shift in the scaling factor that multiplies every R(Q) — cannot recur.
+#
+# Comparison is hybrid, `|calc - ref| <= atol + rtol * |ref|`, for every field:
+# `b` spans 4.8 decades across the references (5.537e-07 to 3.449e-02) and some
+# rows sit within 1 sigma of zero, where a pure relative bar is meaningless.
+# The atol is what handles that; v1 instead had a `v_ref == 0.0` branch that
+# compared an ABSOLUTE delta against a RELATIVE bar, and which no reference row
+# could ever reach.
+#
+# Note on the review's suggested `b: rtol=1e-3, atol=1e-8`: that predates the
+# corrected measurement. With a clean 300 baseline `b` reproduces to 4.645e-11,
+# so a 1e-3 relative bar would be seven orders looser than the evidence
+# supports. The atol is what the near-zero rows need; the loose rtol is not.
+# If CI on another platform exceeds these, widen from THAT measurement and
+# record it — never to turn a red suite green. That is the mistake this
+# comment exists to prevent repeating.
+_METADATA = (1e-12, 0.0)      # copied verbatim from run logs; must round-trip
+_FITTED = (1e-8, 0.0)         # least-squares outputs
 _TOL = {
-    "LambdaRequested": _METADATA_TOL,
-    "S1H": _METADATA_TOL,
-    "S2iH": _METADATA_TOL,
-    "S1W": _METADATA_TOL,
-    "S2iW": _METADATA_TOL,
-    "a": 1e-3,
-    "error_a": 1e-3,
-    "error_b": 1e-3,
-    "b": 5e-3,
+    "LambdaRequested": _METADATA,
+    "S1H": _METADATA,
+    "S2iH": _METADATA,
+    "S1W": _METADATA,
+    "S2iW": _METADATA,
+    "a": _FITTED,
+    "error_a": _FITTED,
+    "error_b": _FITTED,
+    # 1e-12 absolute is ~6 orders below the smallest |b| in any reference and
+    # ~6 orders below error_b, so it only ever governs a genuinely near-zero
+    # slope — where the relative delta carries no information.
+    "b": (1e-8, 1e-12),
 }
-# A field nobody anticipated is held to the fitted-parameter bar rather than
-# skipped, so adding one to the writer cannot quietly go unchecked.
-_DEFAULT_TOL = 1e-3
 
 
 def _parse_cfg(path):
     """
     Parse a scaling-factor cfg into one dict of {field: value-string} per row,
     skipping comments and blank lines.
+
+    Duplicate keys within a row are an error rather than a silent last-wins
+    overwrite — that silent-collapse is the exact class of bug this helper was
+    fixed for, and dict() would reintroduce it one level down.
     """
     rows = []
     with open(path, "r") as fd:
-        for line in fd:
+        for lineno, line in enumerate(fd, 1):
             if line.startswith("#") or not line.strip():
                 continue
-            rows.append(dict(tok.split("=", 1) for tok in line.split() if "=" in tok))
+            pairs = [tok.split("=", 1) for tok in line.split() if "=" in tok]
+            keys = [k for k, _ in pairs]
+            duplicates = sorted({k for k in keys if keys.count(k) > 1})
+            assert not duplicates, f"{path} line {lineno}: duplicate field(s) {duplicates}"
+            rows.append(dict(pairs))
     return rows
 
 
@@ -69,10 +102,14 @@ def check_results(data_file, reference):
     """
     Check every field of a scaling factor file against its reference.
 
-    Numeric fields are compared by relative delta against the per-field bar in
+    Fields are compared per key against the per-field `(rtol, atol)` bar in
     `_TOL`; non-numeric fields (IncidentMedium) are compared exactly. The row
-    count and the field set of each row are checked too, so a truncated file or
-    a vanished field fails instead of silently comparing a prefix.
+    count, each row's field set, and the field ORDER are all checked.
+
+    Returns the number of field comparisons performed, so a caller can assert
+    the helper actually did the work — a helper that silently compares nothing
+    is what this slug exists to fix, and a positive control that only asserts
+    "does not raise" cannot tell the two apart.
     """
     cfg_data = _parse_cfg(data_file)
     cfg_ref = _parse_cfg(reference)
@@ -81,10 +118,17 @@ def check_results(data_file, reference):
         f"{data_file} has {len(cfg_data)} data rows, reference {reference} has {len(cfg_ref)}"
     )
 
+    comparisons = 0
     for i, (row, ref) in enumerate(zip(cfg_data, cfg_ref)):
-        assert set(row) == set(ref), (
-            f"row {i}: field set differs from the reference; "
-            f"missing={sorted(set(ref) - set(row))} unexpected={sorted(set(row) - set(ref))}"
+        # Order, not just membership: template.py's consumer reads this format
+        # POSITIONALLY (`keys[3]`, `keys[5]` at :184-185) to stay backward
+        # compatible with older S2H spellings. A writer that reordered fields
+        # would keep the same set, pass a set-equality check, and then make the
+        # consumer mismatch and fall through to "proceeding unscaled" — a
+        # plausible, silently unscaled R(Q).
+        assert list(row) == list(ref), (
+            f"row {i}: field order differs from the reference; "
+            f"got {list(row)} expected {list(ref)}"
         )
         for key, ref_str in ref.items():
             value_str = row[key]
@@ -92,6 +136,7 @@ def check_results(data_file, reference):
                 v_ref = float(ref_str)
             except ValueError:
                 assert value_str == ref_str, f"row {i} {key}: {value_str!r} != reference {ref_str!r}"
+                comparisons += 1
                 continue
             try:
                 v_calc = float(value_str)
@@ -99,25 +144,25 @@ def check_results(data_file, reference):
                 raise AssertionError(
                     f"row {i} {key}: {value_str!r} is not numeric but the reference {ref_str!r} is"
                 )
-            tol = _TOL.get(key, _DEFAULT_TOL)
-            delta = np.fabs(v_calc - v_ref) if v_ref == 0.0 else np.fabs((v_ref - v_calc) / v_ref)
-            assert delta < tol, (
+            rtol, atol = _TOL[key]
+            delta = np.fabs(v_calc - v_ref)
+            bar = atol + rtol * np.fabs(v_ref)
+            assert delta <= bar, (
                 f"row {i} {key}: {v_calc!r} vs reference {v_ref!r} "
-                f"(delta {delta:.3e}, tolerance {tol:.0e})"
+                f"(|delta| {delta:.3e} > {bar:.3e} = {atol:.0e} + {rtol:.0e}*|ref|)"
             )
+            comparisons += 1
+    return comparisons
 
 
-# --------------------------------------------------------------------------
-# Helper-level guards for check_results itself.
-#
-# These exist because the helper silently stopped comparing anything: a bare
-# rebind in its token loop kept only the LAST token of each row, and the
-# comparison index was unused, so every assertion was error_b against itself.
-# Nine of the ten fields — including `a`, which multiplies every R(Q) produced
-# from this path — were never checked. A test helper that cannot fail is worse
-# than no test, because the suite reports assurance it does not have; so the
-# helper now has tests of its own.
-# --------------------------------------------------------------------------
+# Every committed reference this module compares against. Used by the
+# pairwise-distinguishability guard below.
+_REFERENCE_CFGS = (
+    "sf_197912_Si_auto.cfg",
+    "sf_197912_Si_dt_par_42_200.cfg",
+    "sf_197912_Si_dt_par_46_200.cfg",
+    "sf_197912_Si_dt_par_46_300.cfg",
+)
 
 _REF_ROWS = [
     "IncidentMedium=Si LambdaRequested=9.74 S1H=0.391 S2iH=0.25 S1W=20.005 S2iW=20.0 "
@@ -143,11 +188,86 @@ def _mutated(row, key, value):
     return " ".join(toks)
 
 
+# 2 rows x 10 fields. Asserted as a literal so that a helper which silently
+# stops comparing — this slug's entire subject — fails the positive control
+# instead of passing it. (The v2 review estimated 18; the rows carry ten fields
+# each, IncidentMedium included, so the true count is 20.)
+_EXPECTED_COMPARISONS = 20
+
+
 def test_check_results_accepts_an_identical_file(tmp_path):
-    """Positive control: the guards below must fail for the right reason."""
+    """Positive control: the guards below must fail for the right reason.
+
+    Asserts the comparison COUNT, not merely that nothing raised. "Did not
+    raise" is exactly what the broken helper did.
+    """
     ref = _write_cfg(tmp_path / "ref.cfg", _REF_ROWS)
     data = _write_cfg(tmp_path / "data.cfg", _REF_ROWS)
-    check_results(data, ref)
+    assert check_results(data, ref) == _EXPECTED_COMPARISONS
+
+
+def test_tol_covers_every_numeric_reference_field():
+    """A field missing from _TOL must be a loud error, not a loose default.
+
+    v1 carried a `_DEFAULT_TOL = 1e-3` fallback, so a single typo — `"S1W"`
+    written `"S1w"` — would have silently demoted a bit-exact metadata field to
+    a bar nine orders looser, with the suite green. There is no fallback now;
+    this pins the keyset so the failure surfaces here rather than as a KeyError
+    mid-reduction-test.
+    """
+    fields = list(_parse_cfg(os.path.join(os.path.dirname(__file__), "data", "sf_197912_Si_auto.cfg"))[0])
+    string_fields = {"IncidentMedium"}
+    assert set(_TOL) == set(fields) - string_fields
+    assert set(_TOL).isdisjoint(string_fields)
+
+
+@pytest.mark.parametrize(
+    "left, right",
+    [
+        pytest.param(a, b, id=f"{a}--vs--{b}")
+        for i, a in enumerate(_REFERENCE_CFGS)
+        for b in _REFERENCE_CFGS[i + 1 :]
+    ],
+)
+def test_reference_files_are_pairwise_distinguishable(template_dir, left, right):
+    """No two committed references may be interchangeable.
+
+    `sf_197912_Si_dt_par_46_300.cfg` was a byte-identical copy of the _200 file
+    (md5 14d3e256... for both), so the 300-step test compared a 300-step
+    computation against a 200-step reference and could not fail no matter what
+    the code did with `DeadTimeTOFStep`. One `md5sum` would have caught it; this
+    is that check, expressed in the terms the suite actually cares about —
+    each pair must differ on at least one field `check_results` compares, which
+    is stronger than "the bytes differ" (a header-only difference would not
+    count).
+    """
+    with pytest.raises(AssertionError):
+        check_results(os.path.join(template_dir, left), os.path.join(template_dir, right))
+
+
+def test_check_results_detects_a_field_reorder(tmp_path):
+    """Field ORDER is part of the format, because the consumer reads it positionally.
+
+    `template.py:184-185` takes `keys[3]` and `keys[5]` to stay compatible with
+    older S2H spellings. A writer that reordered fields would preserve the field
+    SET, sail past a set-equality check, and then mismatch in the consumer —
+    which does not raise but falls through to `template.py:207` "proceeding
+    unscaled", producing a plausible and silently unscaled R(Q).
+    """
+    ref = _write_cfg(tmp_path / "ref.cfg", _REF_ROWS)
+    toks = _REF_ROWS[1].split()
+    swapped = " ".join([toks[0]] + [toks[2], toks[1]] + toks[3:])
+    data = _write_cfg(tmp_path / "data.cfg", [_REF_ROWS[0], swapped])
+    with pytest.raises(AssertionError):
+        check_results(data, ref)
+
+
+def test_check_results_rejects_a_duplicate_field(tmp_path):
+    """A repeated key must not silently last-wins into the dict."""
+    ref = _write_cfg(tmp_path / "ref.cfg", _REF_ROWS)
+    data = _write_cfg(tmp_path / "data.cfg", [_REF_ROWS[0], _REF_ROWS[1] + " a=999999.0"])
+    with pytest.raises(AssertionError):
+        check_results(data, ref)
 
 
 @pytest.mark.parametrize(
@@ -298,7 +418,15 @@ def test_compute_sf_with_deadtime_tof_200(nexus_dir, template_dir, tmp_path):
 
 def test_compute_sf_with_deadtime_tof_200_sort(nexus_dir, template_dir, tmp_path):
     """
-    Test the computation of scaling factors
+    Test the computation of scaling factors with order_by_runs=False.
+
+    Pre-existing limitation, recorded rather than fixed here: this compares
+    against the SAME reference as its `order_by_runs=True` sibling, and the two
+    outputs are byte-identical, so `order_by_runs=False` is not actually
+    exercised. For this run set the two orderings coincide; distinguishing them
+    needs a set whose run order and sort order differ, which is a data question,
+    not a helper one. Named explicitly because an unremarked duplicate
+    reference is exactly what this slug's v1 shipped.
     """
     with amend_config(data_dir=nexus_dir):
         ws = mtd_api.Load("REF_L_197912")
