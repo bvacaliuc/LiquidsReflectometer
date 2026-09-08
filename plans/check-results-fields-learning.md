@@ -190,3 +190,60 @@ four committed references carried that block; they had been hand-trimmed, and
 that is exactly how a duplicate hid in plain sight for as long as it did.
 Then state in the commit body which job the baseline does, so nobody later
 mistakes "the test is green" for "the physics is verified".
+
+## 7. Ask your own new test what would have to break for it to fail
+
+**Rule.** A test written to prove a guard works must be constructed so that
+**only that guard** can make it fail. Inject the minimum defect, not a
+convenient one.
+
+**Why.** v2 added a duplicate-key guard to the cfg parser and a test for it
+that appended `a=999999.0` as the duplicate. The duplicate guard caught it —
+and so did the value comparison, because 999999.0 is also wrong. Deleting the
+guard entirely left the test passing:
+
+```
+guard removed, v2 form:  1 passed     <- cannot fail for its stated reason
+guard removed, v3 form:  1 failed
+```
+
+The fix is to inject the **reference** value, so the value comparison has
+nothing to say and only the duplicate check can raise.
+
+The irony is the lesson. v2's own headline finding was a test that could not
+fail (a 300-step computation compared against a 200-step reference), and the
+confirming experiment it introduced — hard-code the parameter, watch the test
+go red — is exactly the technique that would have caught this. It was applied
+to the code under test and not to the new test. **A guard's test is code too,
+and it deserves the same question.**
+
+**How to apply.** For every test asserting that something raises: delete the
+mechanism you believe is raising, and re-run. If it still passes, the test is
+measuring something else. This takes seconds and is the cheapest verification
+in this entire slug's history — cheaper even than the `md5sum` of §5.
+
+## 8. Say which number you are quoting
+
+**Rule.** When a tolerance is justified by "N× headroom", state the quantity
+N is computed from, because several plausible ones differ by orders.
+
+**Why.** v2 described its bars as "~200× headroom", meaning
+`rtol / worst-relative-delta`. But what actually governs whether the suite goes
+red is the **tightest single comparison** in it: `min(bar / |delta|)` over every
+field of every row of every case. Those are different numbers, and a maintainer
+told "200×" would go looking for a margin they could not reproduce.
+
+Measured on the final v3 bars, the governing figure is **2336×** — at
+`error_a`, row 0, `_42_200`: `|delta|` 1.998e-13 against a bar of 4.668e-10.
+It also moved during v3 for a non-obvious reason: relaxing `b` from 1e-8 to
+1e-7 did not change `b`'s status as the loosest field, but it lifted `b` out of
+the binding position and handed it to `error_a`. The review predicted 1678×
+from the pre-change bars; the number is a property of the whole configuration,
+not of any one field.
+
+**How to apply.** Compute and quote the tightest actual comparison. And give a
+widened bar a documented **ceiling** where widening would start destroying a
+different guard — `b` here cannot exceed 6.7e-04, the physical 200→300 binning
+difference, without making the pairwise-distinguishability test vacuous. An
+escape hatch with no stop is how a tolerance ratchets open one measurement at a
+time.
