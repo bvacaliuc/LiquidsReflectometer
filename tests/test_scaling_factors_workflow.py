@@ -103,18 +103,33 @@ _TOL = {
     "a": _FITTED,
     "error_a": _FITTED,
     "error_b": _FITTED,
-    # b is looser than its siblings for a measured reason, not a hunch: a
-    # converged b is path-dependent at 5.21e-10 with identical input data (a
-    # change in Mantid's Levenberg-Marquardt tolerance moves it at that scale),
-    # so 1e-8 would sit only ~20x over the floor. 1e-7 is ~200x over it and
-    # still at least five orders inside b's own uncertainty (b/error_b runs
+    # b is looser than its siblings for a measured reason, not a hunch. A
+    # converged b is path-dependent: with identical input data, swapping only
+    # Mantid's minimizer from the default Levenberg-MarquardtMD to
+    # Levenberg-Marquardt — the same family, the same optimum, a different
+    # internal route — moves b by 8.657e-11 (a 1.366e-11, error_a 8.755e-12,
+    # error_b 7.964e-12). Measured, not quoted:
+    # plan/scripts/measure_fit_path_dependence.py reproduces it from this repo.
+    # A bar below a field's floor tests the minimizer rather than the data, so
+    # 1e-8 would sit only ~115x over b's floor; 1e-7 is ~1155x over it and still
+    # at least five orders inside b's own uncertainty (b/error_b runs
     # 0.425-8.586 across the references).
     #
-    # CEILING: b must not be widened past 6.7e-04. That is the physical
-    # 200->300 binning difference, so a bar at or above it makes
-    # test_reference_files_are_pairwise_distinguishable vacuous for the
-    # _46_200/_46_300 pair and reopens exactly the hole v2 closed. The
-    # "widen from a measurement" escape hatch stops here.
+    # That probe also runs Simplex as a control, where b moves ~59%. That is
+    # NOT part of the floor: Simplex is a different algorithm with a looser
+    # stopping criterion, not a different path to the same optimum, and folding
+    # it in would "justify" a bar six orders too loose. A real measurement
+    # answering the wrong question is exactly what produced this slug's v1.
+    #
+    # CEILING: two bars gate the _46_200/_46_300 pair, and neither alone makes
+    # test_reference_files_are_pairwise_distinguishable vacuous — the other still
+    # catches it. Crossing BOTH reopens the hole v2 closed.
+    #   b's rtol must stay below 6.743e-04  (the physical 200->300 binning
+    #                                        difference on the slope)
+    #   _FITTED must stay below 5.648e-05   (the same difference on `a`; _FITTED
+    #                                        also covers error_a 3.047e-05 and
+    #                                        error_b 2.268e-05)
+    # Verified: b alone at 1e-2 still leaves the pair distinguishable via `a`.
     #
     # The 1e-12 absolute term is ~6 orders below the smallest |b| in any
     # reference and ~6 orders below error_b, so it only ever governs a
@@ -211,6 +226,12 @@ def check_results(data_file, reference):
 # a reduction *input*, not a reference, and is correctly excluded.
 _REFERENCE_CFGS = tuple(
     sorted(p.name for p in (pathlib.Path(__file__).parent / "data").glob("sf_197912_Si*.cfg"))
+)
+# An empty glob would hand pytest an empty parameter set, which it reports as
+# "1 skipped" — the guard would vanish silently, which is strictly worse than
+# the hand-maintained tuple this replaced (that would have failed loudly).
+assert len(_REFERENCE_CFGS) >= 4, (
+    f"reference glob found {_REFERENCE_CFGS}; expected at least the four committed references"
 )
 
 _REF_ROWS = [
@@ -335,6 +356,11 @@ def test_check_results_rejects_a_duplicate_field(tmp_path):
         pytest.param("S1W", "999.0", id="S1W-slit-width"),
         # float() would raise on this one rather than compare it.
         pytest.param("IncidentMedium", "Air", id="IncidentMedium-non-numeric"),
+        # The mirror case, which the one above does NOT cover: a numeric
+        # reference against a non-numeric value takes the other branch, where
+        # float(value_str) raises and must become an AssertionError rather than
+        # a bare ValueError escaping the helper.
+        pytest.param("a", "n/a", id="a-non-numeric-under-a-numeric-reference"),
         # Subtle, and the reason the tolerances were measured rather than
         # inherited: a 1% error in `a` passes the old 0.02 bar even if `a` had
         # been compared at all.
