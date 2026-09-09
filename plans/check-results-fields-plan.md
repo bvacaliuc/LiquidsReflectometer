@@ -4,7 +4,7 @@
 addition 2026-09-06, human-approved (from
 `todo-check-results-compares-one-field.md`; staged second bug-fix slug) ·
 DAG-independent
-**Retry attempt:** 3 of N=3 — FINAL (see the v3 disposition note)
+**Retry attempt:** 4 of N=4 (human cap extension, 2026-09-08 — per-slug, this slug only; charter §1 knob N)
 
 Review domains: test-reviewer (**blocking** — this slug's entire purpose is
 restoring test assurance; a review that could not judge whether the fix
@@ -312,6 +312,45 @@ unambiguous.
   net-new cosmetic *preferences* remaining, **PASS** — do not reject a
   converged slug into escalation over a comment. Reserve rejection for a
   genuinely new correctness finding.
+
+## Revision history — v4 (human cap extension to N=4 — 2026-09-08; scope from todo @ `7565aa1`)
+
+The human extended the retry cap to **N=4 for this slug only** after v3
+(gate green, substance confirmed sound by both declared reviewers) was
+rejected on **B2 alone — a comment stating a false consequence**. This v4
+is **strictly limited to the four items below; nothing outside this list.**
+
+1. **B2 — replace the CEILING comment** (`tests/test_scaling_factors_workflow.py:113-117`)
+   with the Integrator's two-bar text: **neither bar alone** makes
+   `test_reference_files_are_pairwise_distinguishable` vacuous; crossing
+   **BOTH** does. `b`'s rtol must stay below **6.743e-04**; `_FITTED` must
+   stay below **5.648e-05** (which also covers `error_a` 3.047e-05 and
+   `error_b` 2.268e-05). **The Developer re-runs the falsification (`b`
+   alone at 1e-2 still distinguishable via `a`) before committing and
+   records the observed output in the commit body.** (Exact replacement
+   text is in the v3 todo @ `7565aa1` and the escalate doc.)
+2. **Should-fix — empty-glob hard-fail:** `assert len(_REFERENCE_CFGS) >= 4`
+   with a message, so an empty glob hard-fails instead of yielding
+   "1 skipped".
+3. **Should-fix — cover the numeric-ref/non-numeric-value branch**
+   (`:189-194`): add `pytest.param("a", "n/a",
+   id="a-non-numeric-under-a-numeric-reference")`.
+4. **Should-fix — name the 5.21e-10 path-dependence floor concretely** in
+   the comment (which minimizer tolerance, from what to what), OR commit
+   the probe under `plan/scripts/` (repo "capture documented methods" rule).
+
+**Mutate-once (charter §9 amendment 16 / `todo-mutate-once-gate.md`):** for
+items 2 and 3 the commit body records the mutation applied and the observed
+red (empty-glob → the guard skips-not-fails without the assert; delete the
+`:189-194` branch's `raise` → the new param stays green without it).
+
+### v4 final-gate instruction to the Integrator (human directive, 2026-09-08)
+
+**PASS when B2's text matches the measurement and items 2–4 are present.**
+A v4 containing **only** these changes is **not to be rejected on any
+further comment preference**; anything genuinely new goes in the **draft PR
+body as advisory**, not the review loop. The substance is settled; this is
+a documentation-correction cycle.
 
 ## Related, tracked separately (NOT this slug)
 

@@ -1,5 +1,12 @@
 # ESCALATION — `check-results-fields`: retry cap reached, CONVERGED (not failed)
 
+> **SUPERSEDED 2026-09-08 — the human extended the cap to N=4 for this slug**
+> (the option-1 recommendation below). A bounded v4 (comment fix + 3
+> should-fixes, scope in the plan's `### v4` entry) runs instead of a
+> terminal escalation; the escalate tag was never pushed (write-403 wave) and
+> the local tag is deleted. This file is kept as the record of the
+> cap-reached moment and the reasoning that produced the extension.
+
 **Terminal state:** attempt 3 of N=3 (charter §1) rejected → this is the
 sanctioned cap-reached escalation. **But this is a converged slug at the cap,
 not a failing one** — the gate has been green all three attempts, the
