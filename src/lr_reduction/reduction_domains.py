@@ -32,9 +32,39 @@ METHOD_CHOICES = ("meanTheta", "constantQ", "constantTOF")
 #: express ``sample_angle`` at all, and silently downgrades a loaded one.
 CALC_THETA_CHOICES = ("detector_angle", "sample_angle")
 
-#: Detector resolution function (``NRReductionConfig.DetResFn``), dispatched in
-#: ``nr_reduction_calc._calc_detector_convolution``.
+#: Detector resolution function (``NRReductionConfig.DetResFn``).
+#:
+#: Only these two are safe. The two consumers **disagree** about a third value,
+#: and this module records that rather than silently picking a side:
+#:
+#: * ``nr_tools.calc_beam_on_detector`` accepts ``'none'``/``None`` and simply
+#:   skips the convolution;
+#: * ``nr_reduction_calc._calc_detector_convolution`` binds ``pad`` only under
+#:   ``rectangular`` and ``gaussian``, so ``'none'`` reaches
+#:   ``max(verts[:,1]) + pad`` with ``pad`` unbound and raises
+#:   ``UnboundLocalError``.
+#:
+#: So ``'none'`` is not offered by the editor, and a settings file carrying it
+#: is reported with the reason above rather than a bare "not one of" — it is a
+#: real hazard in one code path, not merely an unlisted spelling. Whichever way
+#: the inconsistency is resolved belongs in one of the two consumers, not here.
 DET_RES_CHOICES = ("rectangular", "gaussian")
+
+#: Values a consumer tolerates that this domain deliberately does not offer,
+#: with the reason. Keyed by field-declared value.
+#: What nr_tools tolerates in addition to DET_RES_CHOICES. Kept separate so
+#: the editor's offer and the reducer's acceptance are not conflated.
+DET_RES_TOLERATED = ("none",)
+
+DET_RES_NOTES = (
+    (
+        "none",
+        "nr_tools skips the convolution for 'none', but "
+        "nr_reduction_calc._calc_detector_convolution raises UnboundLocalError "
+        "on it (pad is only bound for 'rectangular'/'gaussian') — the two "
+        "consumers disagree, so this value is unsafe",
+    ),
+)
 
 #: Specular peak shape (``NRReductionConfig.peak_type``), dispatched in
 #: ``nr_tools.fit_peak``.

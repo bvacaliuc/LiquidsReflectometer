@@ -32,13 +32,13 @@ The user-facing name lives in ``Field.label``.
 must exclude it.
 """
 
-import posixpath
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
 from lr_reduction.reduction_domains import (
     CALC_THETA_CHOICES,
     DET_RES_CHOICES,
+    DET_RES_NOTES,
     METHOD_CHOICES,
     PEAK_TYPE_CHOICES,
 )
@@ -111,6 +111,7 @@ class Field:
     default_if_empty: bool = False
     no_separators: bool = False
     falsy_means_off: bool = False
+    value_notes: Tuple[Tuple[str, str], ...] = ()
 
     # -- type vocabulary ------------------------------------------------
 
@@ -154,12 +155,8 @@ class Field:
         what a single-line editor for ``data_x_range`` or
         ``emission_coefficients`` actually receives.
         """
-        if isinstance(text, str) and self.is_list:
-            stripped = text.strip()
-            if stripped == "":
-                return None
-            parts = [part for part in stripped.replace(",", " ").split() if part]
-            return [_coerce_typed(part, self.element_type) for part in parts]
+        # One splitter. _coerce_typed already handles list types; duplicating
+        # the split here is how the earlier coerce/check pair drifted apart.
         return _coerce_typed(text, self.type)
 
     # -- value -> problem ------------------------------------------------
@@ -178,6 +175,14 @@ class Field:
                     f"{self.label} ({self.name}){where}: expected a list of "
                     f"{self.element_type}, got {type(value).__name__} {value!r}"
                 )
+            # Recurse. Checking only the container let a corrupted render round
+            # trip silently: "[50, 200]" re-parsed as ['[50', '200]'] is a list,
+            # so a container-only check called it clean while the reduction
+            # received strings where it expected pixels.
+            for index, entry in enumerate(value):
+                problem = self.check_element(entry, f"{where}[{index}]")
+                if problem:
+                    return problem
             return ""
         return self.check_element(value, where)
 
@@ -193,6 +198,9 @@ class Field:
             return ""
         if self.allowed:
             if str(value).lower() not in {str(a).lower() for a in self.allowed}:
+                for noted, reason in self.value_notes:
+                    if str(value).lower() == noted.lower():
+                        return f"{self.label} ({self.name}){where}: {value!r} — {reason}"
                 return (
                     f"{self.label} ({self.name}){where}: {value!r} is not one of "
                     f"{', '.join(str(a) for a in self.allowed)}"
@@ -206,11 +214,17 @@ class Field:
             problem = _path_problem(value)
             if problem:
                 return f"{self.label} ({self.name}){where}: {problem}"
-        if self.no_separators and isinstance(value, str) and ("/" in value or "\\" in value):
-            return (
-                f"{self.label} ({self.name}){where}: {value!r} contains a path separator; "
-                f"it names a file, not a location"
-            )
+        if self.no_separators and isinstance(value, str):
+            if "/" in value or "\\" in value:
+                return (
+                    f"{self.label} ({self.name}){where}: {value!r} contains a path separator; "
+                    f"it names a single component, not a location"
+                )
+            if value.strip() in ("..", "."):
+                return (
+                    f"{self.label} ({self.name}){where}: {value!r} is a directory traversal, "
+                    f"not a name"
+                )
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return ""
         if self.minimum is not None and value < self.minimum:
@@ -289,22 +303,33 @@ def _type_problem(value, type_name):
     if type_name.startswith("list["):
         if not isinstance(value, (list, tuple)):
             return f"expected a list, got {type(value).__name__} {value!r}"
+        inner = type_name[len("list[") : -1]
+        for index, entry in enumerate(value):
+            problem = _type_problem(entry, inner)
+            if problem:
+                return f"entry {index}: {problem}"
         return ""
     return ""
 
 
 def _path_problem(value):
-    """Reject a path that would escape the experiment directory.
+    """Reject a traversal in a field that genuinely holds a whole path.
 
-    ``experiment_id`` and the path overrides are joined verbatim into the output
-    location (``save_reduced_data.py``), so an absolute path replaces the base
-    entirely and ``..`` walks out of it. Pre-existing in the reduction, but this
-    is the first interface that makes these routinely authorable.
+    An earlier version also rejected absolute paths, which mis-modelled these
+    fields: the four ``_*_override`` values are not joined to a base — they
+    **are** the location (``nr_reduction_config``'s path properties). An
+    absolute path is their normal shape, and it is exactly what
+    ``QFileDialog.getExistingDirectory`` returns, so rejecting it flagged the
+    only legitimate value while a relative one silently resolved against the
+    process working directory instead.
+
+    What stays rejected is ``..``, which is a traversal whether the path is
+    absolute or relative. Fields that name a *component* rather than a path —
+    ``experiment_id``, ``Sname`` and the subname siblings — carry
+    ``no_separators`` instead, which is the stricter rule they need.
     """
-    if posixpath.isabs(value) or (len(value) > 1 and value[1] == ":"):
-        return f"{value!r} is an absolute path; give a location inside the experiment directory"
     if ".." in value.replace("\\", "/").split("/"):
-        return f"{value!r} contains '..', which points outside the experiment directory"
+        return f"{value!r} contains '..', which points outside the intended directory"
     return ""
 
 RUNS = "Runs and angles"
@@ -337,18 +362,20 @@ FIELD_SPEC = (
           per_angle=True, runtime_owned=True),
     Field("RB_Ymin", "Peak Y min (pixel)", RUNS, "list[int]", [],
           "Lower edge of the specular peak window, in detector pixels.",
-          per_angle=True),
+          minimum=0, per_angle=True),
     Field("RB_Ymax", "Peak Y max (pixel)", RUNS, "list[int]", [],
           "Upper edge of the specular peak window, in detector pixels.",
-          per_angle=True),
+          minimum=0, per_angle=True),
     Field("BkgROI", "Background ROI", BACKGROUND, "list[list[int]]", [],
           "Background region per angle, as pixel bounds.", per_angle=True),
     Field("useBS", "Subtract background", BACKGROUND, "list[bool]", [],
           "Whether to subtract background at each angle.", per_angle=True, default_if_empty=True),
     Field("tof_min", "TOF min", WAVELENGTH, "list[float]", [],
-          "Lower time-of-flight bound per angle.", per_angle=True, default_if_empty=True),
+          "Lower time-of-flight bound per angle.",
+          minimum=0.0, per_angle=True, default_if_empty=True),
     Field("tof_max", "TOF max", WAVELENGTH, "list[float]", [],
-          "Upper time-of-flight bound per angle.", per_angle=True, default_if_empty=True),
+          "Upper time-of-flight bound per angle.",
+          minimum=0.0, per_angle=True, default_if_empty=True),
     Field("LambdaMin", "Lambda min", WAVELENGTH, "list[float]", None,
           "Lower wavelength bound per angle. Leave unset to derive it from the "
           "chopper ranges; if set, every angle needs a value.",
@@ -372,13 +399,13 @@ FIELD_SPEC = (
           "IPTS identifier. Also the root of every default path.",
           no_separators=True),
     Field("subname", "Output subtitle", NAMING, "str", None,
-          "Optional subtitle appended to saved file names."),
+          "Optional subtitle appended to saved file names.", no_separators=True),
     Field("DTCsubname", "Dead-time-corrected suffix", NAMING, "str", "_DTC",
-          "Suffix for dead-time-corrected outputs."),
+          "Suffix for dead-time-corrected outputs.", no_separators=True),
     Field("BINsubname", "Binned suffix", NAMING, "str", "_DTC",
-          "Suffix for binned outputs."),
+          "Suffix for binned outputs.", no_separators=True),
     Field("errBINsubname", "Binned-error suffix", NAMING, "str", "_err_DTC",
-          "Suffix for binned uncertainty outputs."),
+          "Suffix for binned uncertainty outputs.", no_separators=True),
     Field("data_x_range", "Detector X range", RUNS, "list[int]", [50, 200],
           "Detector pixel range integrated over in X. Two values, not per angle."),
 
@@ -462,7 +489,8 @@ FIELD_SPEC = (
           minimum=0.0),
 
     Field("DetResFn", "Resolution function", RESOLUTION, "str", "rectangular",
-          "Shape of the detector resolution function.", allowed=DET_RES_CHOICES),
+          "Shape of the detector resolution function.", allowed=DET_RES_CHOICES,
+          value_notes=DET_RES_NOTES),
     Field("DetSigma", "Resolution sigma", RESOLUTION, "float", 0.8,
           "Width of the detector resolution function.", minimum=0.0),
 

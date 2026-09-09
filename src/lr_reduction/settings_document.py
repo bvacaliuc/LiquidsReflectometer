@@ -36,6 +36,11 @@ from lr_reduction.new_reduction_from_file import json_to_config, load_from_file
 from lr_reduction.nr_reduction_config import NRReductionConfig
 from lr_reduction.save_reduced_data import make_json_safe
 
+#: Cap on the problems validate() returns. A pathological file (a million
+#: angles) otherwise builds a multi-megabyte list on every keystroke, on the GUI
+#: thread. Truncation is announced, never silent.
+MAX_REPORTED_PROBLEMS = 200
+
 
 class SettingsDocument:
     """One editable reduction configuration."""
@@ -179,13 +184,16 @@ class SettingsDocument:
         # ordinary files: the reducer sanctions a length-1 method_per_run, and
         # normalize() itself drops the runtime-owned RBnum, so the editor's own
         # save/reload round trip produces one.
-        if current is None or len(current) < self.n_angles:
+        # isinstance, not len(): a per-angle field holding a bare string has a
+        # length, so a len() guard let list("abc") explode it into
+        # ['a','b','c'] instead of treating it as the wrong type it is.
+        if not isinstance(current, (list, tuple)) or len(current) < self.n_angles:
             padded = [None] * self.n_angles
-            if current is not None:
+            if isinstance(current, (list, tuple)):
                 padded[: len(current)] = list(current)
             current = padded
-        if not 0 <= index < max(len(current), 1):
-            raise IndexError(f"No angle at index {index} (have {len(current)})")
+        if not 0 <= index < self.n_angles:
+            raise IndexError(f"No angle at index {index} (have {self.n_angles})")
         updated = list(current)
         updated[index] = value
         field = fs.get(name)
@@ -252,7 +260,12 @@ class SettingsDocument:
             else:
                 messages.append(field.check(value))
 
-        return [m for m in messages if m]
+        found = [m for m in messages if m]
+        if len(found) > MAX_REPORTED_PROBLEMS:
+            extra = len(found) - MAX_REPORTED_PROBLEMS
+            found = found[:MAX_REPORTED_PROBLEMS]
+            found.append(f"... and {extra} more problems not listed")
+        return found
 
     @staticmethod
     def _length_is_allowed(field, length):

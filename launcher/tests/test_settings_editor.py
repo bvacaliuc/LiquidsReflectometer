@@ -295,12 +295,49 @@ def test_a_table_edit_stores_the_declared_type(name, typed, expected):
 
 
 def test_a_scalar_list_edit_stores_a_list():
+    """No clear(): the displayed text has to be what coerce can read back.
+
+    The earlier version called editor.clear() before typing, which erased the
+    rendered text before it could be parsed — so it passed while construction
+    and refresh rendered lists differently and only one round-tripped.
+    """
     tab = SettingsEditorTab()
     editor = tab.editors["data_x_range"]
-    editor.clear()
-    QTest.keyClicks(editor, "60, 210")
+    QTest.keyClicks(editor, "")
+    editor.setText("60, 210")
     QTest.keyClick(editor, QtCore.Qt.Key_Return)
     assert tab.document.get("data_x_range") == [60, 210]
+
+
+def test_a_scalar_list_survives_focus_out_with_no_typing():
+    """The corruption needed no edit at all.
+
+    `data_x_range` is the first editor in tab order and has no validator (its
+    type is list[int], so the int/float gate misses it), so `editingFinished`
+    fires on a bare focus-out. If the rendering does not round-trip, simply
+    tabbing through the form rewrites the document — and nothing is reported,
+    because a list of strings is still a list.
+    """
+    tab = SettingsEditorTab()
+    before = tab.document.get("data_x_range")
+    editor = tab.editors["data_x_range"]
+    assert editor.text() == "50, 200"
+    editor.editingFinished.emit()
+    assert tab.document.get("data_x_range") == before
+    assert tab.document.validate() == []
+
+
+def test_a_per_angle_nested_cell_survives_a_round_trip():
+    """BkgROI is list[list[int]]; str() of it is repr, which re-parses wrong."""
+    doc = SettingsDocument()
+    doc.add_angle(BkgROI=[120, 130, 140, 150])
+    tab = SettingsEditorTab(document=doc)
+    column = fs.PER_ANGLE_NAMES.index("BkgROI")
+    assert tab.angle_table.item(0, column).text() == "120, 130, 140, 150"
+    # Re-commit the displayed text, as any edit to the row does.
+    tab.angle_table.item(0, column).setText(tab.angle_table.item(0, column).text())
+    assert doc.get("BkgROI")[0] == [120, 130, 140, 150]
+    assert doc.validate() == []
 
 
 # --------------------------------------------------------------------------
@@ -317,11 +354,33 @@ def test_theta_source_is_a_choice_not_a_checkbox():
 
 
 def test_a_combo_displays_a_value_outside_its_choices():
-    """Otherwise a stray value looks like a valid one and is saved over."""
-    doc = SettingsDocument.from_dict({"peak_type": "sombrero"})
-    tab = SettingsEditorTab(document=doc)
+    """Driven through set_document — the Load path, which is the one a user takes.
+
+    Passing the document to the constructor exercised `_build_editor`, where
+    `_show_in_combo` already ran. The refresh path called a bare
+    `setCurrentText`, which is a silent no-op on a non-editable combo, so the
+    widget kept displaying the previous document's value.
+    """
+    tab = SettingsEditorTab()
+    tab.set_document(SettingsDocument.from_dict({"peak_type": "sombrero"}))
     assert tab.editors["peak_type"].currentText() == "sombrero"
-    assert any("peak_type" in m for m in doc.validate())
+    assert any("peak_type" in m for m in tab.document.validate())
+
+
+def test_a_combo_follows_the_document_when_a_field_is_omitted():
+    """The fully silent case: widget says sample angle, reduction uses detector.
+
+    Load a file setting `useCalcTheta`, then one that omits it. The combo used
+    to keep showing the old value, and re-selecting it emitted nothing because
+    the text never changed — so the saved file disagreed with the screen.
+    """
+    tab = SettingsEditorTab()
+    tab.set_document(SettingsDocument.from_dict({"useCalcTheta": "sample_angle"}))
+    assert tab.editors["useCalcTheta"].currentText() == "sample_angle"
+
+    tab.set_document(SettingsDocument.from_dict({"Sname": "week2"}))
+    assert tab.document.get("useCalcTheta") is False
+    assert tab.editors["useCalcTheta"].currentText() == ""
 
 
 def test_an_injected_document_renders_its_angles():

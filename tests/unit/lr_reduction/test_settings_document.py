@@ -8,6 +8,7 @@ is exercised here in milliseconds without a display. The view's tests
 
 import ast
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -358,6 +359,19 @@ def test_editing_a_short_per_angle_column_pads_instead_of_raising():
     assert doc.get("DBname") == ["only_one.dat", "second.dat"]
 
 
+def test_a_string_where_a_per_angle_list_belongs_is_not_exploded():
+    """`len()` on a string succeeds, so a len-based guard ran `list("abc")`.
+
+    The paired short-column test uses a real list, so it exercises the padding
+    branch but never the wrong-type one — it stayed green with the isinstance
+    guard reverted.
+    """
+    doc = SettingsDocument.from_dict({"DBname": "abc", "tof_min": [1.0, 2.0]})
+    assert doc.n_angles == 2
+    doc.set_angle_field(1, "DBname", "x.dat")
+    assert doc.get("DBname") == [None, "x.dat"]
+
+
 def test_the_editors_own_round_trip_is_editable():
     """Save, reload, edit — the crash cycle, using only the editor's artifacts."""
     doc = SettingsDocument()
@@ -428,9 +442,22 @@ def test_a_value_whose_type_contradicts_the_field_is_reported():
 
 
 def test_bounds_apply_to_per_angle_entries_too():
+    """An out-of-range value, which the earlier version of this test lacked.
+
+    It set ScaleFactor=1.0 — in range — and asserted validate() == [], so
+    neutering the whole per-angle check loop left it green. It was the named
+    guard for "the bounds finally apply to per-angle entries", and it never
+    tested a bound.
+    """
     doc = SettingsDocument()
-    doc.add_angle(ScaleFactor=1.0)
-    assert doc.validate() == []
+    doc.add_angle(tof_min=-5.0)
+    assert any("tof_min" in m and "below" in m for m in doc.validate())
+
+
+def test_a_scalar_below_its_minimum_is_reported():
+    doc = SettingsDocument()
+    doc.set("dead_time", -1.0)
+    assert any("dead_time" in m and "below" in m for m in doc.validate())
 
 
 # --------------------------------------------------------------------------
@@ -454,12 +481,18 @@ def test_save_leaves_the_previous_file_intact_when_the_write_fails(tmp_path, mon
 
 
 def test_save_leaves_no_temporary_file_behind(tmp_path, monkeypatch):
+    """Inject at os.replace, where a temp file exists to be cleaned up.
+
+    The earlier version patched json.dumps, which runs BEFORE mkstemp — so no
+    temp file was ever created and the assertion was true by construction.
+    Deleting the whole cleanup block left it green.
+    """
     target = tmp_path / "settings.json"
 
     def explode(*_args, **_kwargs):
         raise OSError(28, "No space left on device")
 
-    monkeypatch.setattr(json, "dumps", explode)
+    monkeypatch.setattr(os, "replace", explode)
     with pytest.raises(OSError):
         SettingsDocument().save(target)
     assert list(tmp_path.iterdir()) == []
@@ -532,7 +565,13 @@ def test_the_choice_lists_are_the_reducers_own():
 
 
 def test_the_reducer_validates_against_the_shared_domains():
-    """Pin the single-sourcing itself: the reducer must not re-declare them."""
+    """Kept as a cheap structural pin; the BEHAVIOURAL guards are below.
+
+    On its own this is a source grep — a hand-copy in double quotes alongside a
+    dead reference to the constant would satisfy it. It stays because it names
+    the intent at the point of the seam, but the tests that actually drive
+    `_validate_config`, `fit_peak` and the domains are what make drift fail.
+    """
     import inspect
 
     from lr_reduction import nr_reduction_calc
@@ -667,3 +706,152 @@ def test_the_model_pulls_no_qt_into_a_fresh_interpreter():
     )
     assert result.returncode == 0, result.stderr
     assert "clean" in result.stdout
+
+
+# --------------------------------------------------------------------------
+# C3 — the handoff to the reducer
+# --------------------------------------------------------------------------
+
+
+def test_config_is_the_object_the_reduction_receives():
+    """The seam T3 builds on, named by the v1 review and still unpinned in v2.
+
+    Renaming the property left the whole suite green, because nothing — tests
+    included — consumed it.
+    """
+    doc = SettingsDocument()
+    config = doc.config
+    assert isinstance(config, NRReductionConfig)
+    doc.set("Sname", "handed_off")
+    assert config.Sname == "handed_off"
+    doc.add_angle(DBname="db.dat")
+    assert config.DBname == ["db.dat"]
+    assert doc.config is config
+
+
+# --------------------------------------------------------------------------
+# The domains, driven through the code that enforces them
+# --------------------------------------------------------------------------
+
+
+def _bare_reduction(**config_values):
+    """An NR_Reduction with a config, skipping __init__'s heavy setup."""
+    from lr_reduction import nr_reduction_calc
+
+    instance = nr_reduction_calc.NR_Reduction.__new__(nr_reduction_calc.NR_Reduction)
+    instance.config = NRReductionConfig()
+    for key, value in config_values.items():
+        setattr(instance.config, key, value)
+    return instance
+
+
+@pytest.mark.parametrize("method", fs.METHOD_CHOICES)
+def test_every_declared_method_is_accepted_by_the_reducer(method):
+    """Behavioural, not a source grep.
+
+    The previous guard used inspect.getsource and asserted a substring, which a
+    hand-copy in double quotes would satisfy. This drives the actual validator.
+    """
+    reduction = _bare_reduction(
+        RBnum=[1], DBname=["db.dat"], method_per_run=[method],
+        RB_Ymin=[1], RB_Ymax=[2],
+    )
+    reduction._validate_config()
+    assert reduction.config.method_per_run == [method.lower()]
+
+
+def test_a_method_outside_the_domain_is_rejected_by_the_reducer():
+    reduction = _bare_reduction(
+        RBnum=[1], DBname=["db.dat"], method_per_run=["constantBanana"],
+        RB_Ymin=[1], RB_Ymax=[2],
+    )
+    with pytest.raises(ValueError, match="Invalid method"):
+        reduction._validate_config()
+
+
+@pytest.mark.parametrize("choice", fs.CALC_THETA_CHOICES)
+def test_every_declared_theta_source_is_accepted_by_the_reducer(choice):
+    reduction = _bare_reduction(
+        RBnum=[1], DBname=["db.dat"], RB_Ymin=[1], RB_Ymax=[2],
+        useCalcTheta=choice,
+    )
+    reduction._validate_config()
+    assert reduction.config.useCalcTheta == choice
+
+
+@pytest.mark.parametrize("peak_type", fs.PEAK_TYPE_CHOICES)
+def test_every_declared_peak_type_is_accepted_by_the_fitter(peak_type):
+    """fit_peak raises for an unknown peaktype; a declared one must get past it."""
+    import numpy as np
+
+    from lr_reduction import nr_tools
+
+    ypix = np.arange(40.0)
+    iY = 100.0 * np.exp(-0.5 * ((ypix - 20.0) / 3.0) ** 2) + 1.0
+    nr_tools.fit_peak(ypix, iY, peaktype=peak_type, bkgtype="none")
+
+
+def test_a_peak_type_outside_the_domain_is_rejected_by_the_fitter(monkeypatch):
+    """Rejection AND derivation, in one test.
+
+    Matching "peaktype must be" alone proves only that it raises — a hardcoded
+    message satisfies it, so it could not tell a derived error from a copied
+    one. Extending the domain and asserting the message follows is what
+    actually pins the derivation.
+    """
+    import numpy as np
+
+    from lr_reduction import nr_tools, reduction_domains
+
+    ypix = np.arange(40.0)
+    iY = 100.0 * np.exp(-0.5 * ((ypix - 20.0) / 3.0) ** 2) + 1.0
+
+    monkeypatch.setattr(
+        reduction_domains, "PEAK_TYPE_CHOICES", ("gauss", "supergauss", "hexagauss")
+    )
+    with pytest.raises(ValueError) as raised:
+        nr_tools.fit_peak(ypix, iY, peaktype="sombrero", bkgtype="none")
+    assert "hexagauss" in str(raised.value)
+
+
+def test_a_detector_resolution_outside_the_domain_is_rejected_by_nr_tools(monkeypatch):
+    """The same derivation guard for the other nr_tools domain."""
+    import numpy as np
+
+    from lr_reduction import nr_tools, reduction_domains
+
+    monkeypatch.setattr(reduction_domains, "DET_RES_CHOICES", ("rectangular", "hexbox"))
+    with pytest.raises(ValueError) as raised:
+        nr_tools.calc_beam_on_detector(
+            Ypix=np.arange(64.0), CenPix=32.0, Si=0.25, S1=0.39, dS1Si=1000.0,
+            dSiSam=100.0, dSamDet=1500.0, mmpix=0.7, DetRes=0.8,
+            DetResFn="sombrero",
+        )
+    assert "hexbox" in str(raised.value)
+
+
+def test_the_detector_resolution_disagreement_is_recorded_not_hidden():
+    """'none' is accepted by one consumer and crashes the other.
+
+    reduction_domains records that rather than picking a side, and the editor
+    reports the reason instead of a bare "not one of".
+    """
+    from lr_reduction import reduction_domains
+
+    assert "none" not in reduction_domains.DET_RES_CHOICES
+    assert "none" in reduction_domains.DET_RES_TOLERATED
+    message = fs.get("DetResFn").check_element("none")
+    assert "UnboundLocalError" in message
+
+
+def test_default_if_empty_names_are_exactly_the_reducers_optional_arrays():
+    """Pin the tuple, and give the export a consumer.
+
+    These are the five the reducer fills in under "Set defaults for optional
+    arrays". BkgROI is deliberately NOT among them — it is indexed per angle by
+    web_report and has no auto-default, so an empty one is a real problem.
+    """
+    assert set(fs.DEFAULT_IF_EMPTY_NAMES) == {
+        "ThetaShift", "useBS", "ScaleFactor", "tof_min", "tof_max",
+    }
+    assert "BkgROI" not in fs.DEFAULT_IF_EMPTY_NAMES

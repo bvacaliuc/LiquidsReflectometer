@@ -173,7 +173,6 @@ class SettingsEditorTab(QtWidgets.QWidget):
 
         if field.type == "bool":
             editor = QtWidgets.QCheckBox()
-            editor.setChecked(bool(value))
             # A text-less QCheckBox responds to clicks only within its ~14 px
             # indicator (SE_CheckBoxClickRect), but a form layout will happily
             # stretch the widget to the column width. That leaves most of a
@@ -185,6 +184,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
             editor.toggled.connect(
                 lambda checked, name=field.name: self._set_scalar(name, bool(checked))
             )
+            self._show(field, editor, value)
             return editor
 
         if field.allowed:
@@ -194,15 +194,15 @@ class SettingsEditorTab(QtWidgets.QWidget):
             if field.falsy_means_off:
                 editor.addItem("")
             editor.addItems([str(a) for a in field.allowed])
-            self._show_in_combo(editor, field, value)
             editor.currentTextChanged.connect(
                 lambda text, name=field.name: self._set_scalar(
                     name, fs.get(name).coerce(text) if text else False
                 )
             )
+            self._show(field, editor, value)
             return editor
 
-        editor = QtWidgets.QLineEdit(self._as_text(value))
+        editor = QtWidgets.QLineEdit()
         if field.type in ("int", "float"):
             validator = (
                 QtGui.QIntValidator() if field.type == "int" else QtGui.QDoubleValidator()
@@ -214,7 +214,34 @@ class SettingsEditorTab(QtWidgets.QWidget):
         editor.editingFinished.connect(
             lambda name=field.name, widget=editor: self._on_scalar_edited(name, widget)
         )
+        self._show(field, editor, value)
         return editor
+
+    @staticmethod
+    def _show(field, editor, value):
+        """Put `value` into `editor`. The ONLY place a value becomes widget state.
+
+        Construction and refresh each used to implement this, and they
+        disagreed: construction rendered a list through `_as_text`
+        ("50, 200"), the refresh through `str()` ("[50, 200]"), and only the
+        first survives being read back by `Field.coerce`. Since `__init__` now
+        routes through `set_document` -> `refresh_scalars`, the divergent one
+        ran on every tab open — so `data_x_range`, the first editor in tab
+        order, was corrupted by a bare focus-out with no typing at all.
+
+        Signals are blocked throughout: displaying a value is not an edit, and
+        letting it echo back would rewrite the document from its own rendering.
+        """
+        was = editor.blockSignals(True)
+        try:
+            if isinstance(editor, QtWidgets.QCheckBox):
+                editor.setChecked(bool(value))
+            elif isinstance(editor, QtWidgets.QComboBox):
+                SettingsEditorTab._show_in_combo(editor, field, value)
+            else:
+                editor.setText(SettingsEditorTab._as_text(value))
+        finally:
+            editor.blockSignals(was)
 
     @staticmethod
     def _show_in_combo(editor, field, value):
@@ -310,6 +337,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
 
     # -- refresh -----------------------------------------------------------
 
+    @guarded
     def set_document(self, document):
         """Adopt a document and render all of it.
 
@@ -340,26 +368,18 @@ class SettingsEditorTab(QtWidgets.QWidget):
                 values = self.document.angle_row(row)
                 for column, name in enumerate(fs.PER_ANGLE_NAMES):
                     value = values[name]
+                    # _as_text, not str(): repr of a nested list ("[120, 130]")
+                    # is re-parsed by coerce_element into ['[120', '130]'], so
+                    # BkgROI was corrupted by any edit to its row.
                     self.angle_table.setItem(
-                        row, column, QtWidgets.QTableWidgetItem("" if value is None else str(value))
+                        row, column, QtWidgets.QTableWidgetItem(self._as_text(value))
                     )
         finally:
             self._populating = False
 
     def refresh_scalars(self):
         for name, editor in self.editors.items():
-            value = self.document.get(name)
-            was = editor.blockSignals(True)
-            try:
-                if isinstance(editor, QtWidgets.QCheckBox):
-                    editor.setChecked(bool(value))
-                elif isinstance(editor, QtWidgets.QComboBox):
-                    if value is not None:
-                        editor.setCurrentText(str(value))
-                else:
-                    editor.setText("" if value is None else str(value))
-            finally:
-                editor.blockSignals(was)
+            self._show(fs.get(name), editor, self.document.get(name))
 
     def refresh_report(self):
         lines = []
@@ -411,13 +431,6 @@ class SettingsEditorTab(QtWidgets.QWidget):
 
     @guarded
     def save_settings(self):
-        dialog = QtWidgets.QFileDialog(self, "Save reduction settings")
-        dialog.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
-        dialog.setNameFilter("Settings (*.json);;All files (*)")
-        # Without this a name typed with no extension saves fine and then cannot
-        # be reloaded: load_from_file dispatches on the suffix and raises
-        # "Unsupported file type:" for a bare name.
-        dialog.setDefaultSuffix("json")
         path, _ = QtWidgets.QFileDialog.getSaveFileName(
             self,
             "Save reduction settings",
@@ -426,8 +439,12 @@ class SettingsEditorTab(QtWidgets.QWidget):
         )
         if not path:
             return
-        if not Path(path).suffix:
-            path = str(Path(path).with_suffix(".json"))
+        # load_from_file dispatches on the suffix, so a name saved without a
+        # recognised one cannot be reloaded. Checked against the accepted set
+        # rather than "has a suffix": "settings_0.5deg" has suffix ".5deg",
+        # which is not a suffix anyone meant.
+        if Path(path).suffix.lower() not in (".json", ".dat"):
+            path = path + ".json"
         try:
             self.document.save(path)
         except Exception as exc:  # noqa: BLE001
