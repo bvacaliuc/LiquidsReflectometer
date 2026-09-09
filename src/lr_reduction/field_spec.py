@@ -46,9 +46,28 @@ from lr_reduction.reduction_domains import (
 # Re-exported from the single source, not mirrored here. These used to be
 # hand-copies of bare local lists inside nr_reduction_calc — a copy waiting to
 # drift, where the editor would go on offering a value the reducer had stopped
-# accepting. reduction_domains is now the one definition and the reducer derives
-# its validation lists from it, so drift is structurally impossible rather than
-# merely tested for.
+# accepting.
+#
+# What is and is not guaranteed, stated exactly, because an earlier version of
+# this comment claimed "drift is structurally impossible" and that was an
+# overclaim:
+#
+#   * the enforcing VALIDATORS derive from reduction_domains — nr_reduction_calc
+#     builds valid_methods/valid_calc_theta from it, and nr_tools builds its
+#     error messages from it. Those cannot drift.
+#   * the DISPATCH does not. `if method == 'meantheta' ... elif 'constantq'` in
+#     nr_reduction_calc, and the same shape in nr_tools, are literal by
+#     necessity: each branch computes something different, so there is nothing
+#     to derive them from. Adding a value to a domain here does NOT make the
+#     reducer able to compute it.
+#   * what closes that gap is the contents-equality pins in
+#     tests/unit/lr_reduction/test_settings_document.py, which assert each
+#     domain equals the exact set the dispatch handles, plus positive drivers
+#     that call the consumers with every offered value.
+#
+# So: adding a value to a domain without teaching the dispatch is caught by a
+# test, not prevented by construction. That is a weaker guarantee than the
+# earlier text claimed, and it is the true one.
 __all__ = [
     "CALC_THETA_CHOICES", "DET_RES_CHOICES", "METHOD_CHOICES", "PEAK_TYPE_CHOICES",
     "Field", "FIELD_SPEC", "BY_NAME", "PER_ANGLE_NAMES", "OPTIONAL_LIST_NAMES",
@@ -111,6 +130,7 @@ class Field:
     default_if_empty: bool = False
     no_separators: bool = False
     falsy_means_off: bool = False
+    case_sensitive: bool = False
     value_notes: Tuple[Tuple[str, str], ...] = ()
 
     # -- type vocabulary ------------------------------------------------
@@ -144,9 +164,24 @@ class Field:
 
     # -- text -> value ---------------------------------------------------
 
+    def canonical(self, value):
+        """Return the declared spelling of ``value``, if one matches case-insensitively."""
+        if not self.allowed or not isinstance(value, str):
+            return value
+        for choice in self.allowed:
+            if isinstance(choice, str) and choice.lower() == value.lower():
+                return choice
+        return value
+
     def coerce_element(self, text):
-        """Coerce the text of ONE entry (a table cell) to this field's element type."""
-        return _coerce_typed(text, self.element_type)
+        """Coerce the text of ONE entry (a table cell) to this field's element type.
+
+        An enumerated value is normalised to its declared spelling, so a user
+        who types "Gaussian" stores "gaussian" — the spelling the reduction
+        compares against — rather than a value that validates and then matches
+        no branch.
+        """
+        return self.canonical(_coerce_typed(text, self.element_type))
 
     def coerce(self, text):
         """Coerce the text of a whole field value to its declared type.
@@ -155,9 +190,14 @@ class Field:
         what a single-line editor for ``data_x_range`` or
         ``emission_coefficients`` actually receives.
         """
-        # One splitter. _coerce_typed already handles list types; duplicating
-        # the split here is how the earlier coerce/check pair drifted apart.
-        return _coerce_typed(text, self.type)
+        # One splitter, and one normalisation point. For a non-list field this
+        # IS coerce_element, so it delegates rather than repeating the
+        # canonical() call — a second copy is how the earlier coerce/check pair
+        # drifted apart, and a mutation that removed one of them left the other
+        # covering for it.
+        if not self.is_list:
+            return self.coerce_element(text)
+        return self.canonical(_coerce_typed(text, self.type))
 
     # -- value -> problem ------------------------------------------------
 
@@ -197,6 +237,19 @@ class Field:
         if self.falsy_means_off and not value:
             return ""
         if self.allowed:
+            # Case matters where the CONSUMER compares exactly. nr_reduction_calc
+            # lower-cases method_per_run and useCalcTheta before checking, so
+            # those are genuinely case-insensitive; nr_tools compares DetResFn
+            # and peak_type with ==, so "Gaussian" passes validation here and
+            # then falls through every branch, and the reduction dies partway
+            # with the settings file looking correct.
+            if self.case_sensitive and value not in self.allowed:
+                canonical = self.canonical(value)
+                if canonical != value:
+                    return (
+                        f"{self.label} ({self.name}){where}: {value!r} differs in case from "
+                        f"{canonical!r}, and this field is matched exactly by the reduction"
+                    )
             if str(value).lower() not in {str(a).lower() for a in self.allowed}:
                 for noted, reason in self.value_notes:
                     if str(value).lower() == noted.lower():
@@ -490,7 +543,7 @@ FIELD_SPEC = (
 
     Field("DetResFn", "Resolution function", RESOLUTION, "str", "rectangular",
           "Shape of the detector resolution function.", allowed=DET_RES_CHOICES,
-          value_notes=DET_RES_NOTES),
+          value_notes=DET_RES_NOTES, case_sensitive=True),
     Field("DetSigma", "Resolution sigma", RESOLUTION, "float", 0.8,
           "Width of the detector resolution function.", minimum=0.0),
 
@@ -498,7 +551,7 @@ FIELD_SPEC = (
           "Extra pixels included outside the background range when fitting the "
           "peak.", minimum=0),
     Field("peak_type", "Peak shape", PEAK, "str", "supergauss",
-          "Function fitted to the specular peak.", allowed=PEAK_TYPE_CHOICES),
+          "Function fitted to the specular peak.", allowed=PEAK_TYPE_CHOICES, case_sensitive=True),
 
     Field("LambdaMinUse", "Lambda min used", RUNTIME, "list[float]", None,
           "Wavelength bound the run actually used. Recorded by the reduction.",

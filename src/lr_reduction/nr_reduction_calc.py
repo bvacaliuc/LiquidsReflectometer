@@ -662,7 +662,14 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
             dTheta_val = np.degrees(np.arctan((sigma_y/self.settings['sample_detector_distance'])))
             dTheta = np.full(len(Theta), dTheta_val)
         else:
-            raise ValueError("Theta calculation only defined for config.method 'constantQ' or 'meanTheta'")
+            # Message derived, dispatch above deliberately left literal: each
+            # branch computes something different, so there is nothing to
+            # derive it from. The contents-equality pin in the settings tests is
+            # what catches a domain that grows past what this handles.
+            raise ValueError(
+                "Theta calculation only defined for config.method %s"
+                % " or ".join(repr(c) for c in domains.THETA_DISPATCH_CHOICES)
+            )
 
         # Store theta bins for next calculation.
         ThetaBinSize = abs(np.diff(Theta))

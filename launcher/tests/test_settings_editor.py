@@ -408,3 +408,27 @@ def test_table_sorting_is_disabled():
     """One sortItems() decouples visual row order from document index."""
     tab = SettingsEditorTab()
     assert tab.angle_table.isSortingEnabled() is False
+
+
+def test_the_checkbox_leg_of_show_follows_the_document():
+    """`_show`'s three legs each need a pin; only the line-edit and combo had one.
+
+    A checkbox that does not follow the document displays the previous file's
+    value after a Load, which is the same silent disagreement the combo had.
+    """
+    tab = SettingsEditorTab()
+    assert tab.editors["Normalize"].isChecked() is False
+
+    tab.set_document(SettingsDocument.from_dict({"Normalize": True}))
+    assert tab.editors["Normalize"].isChecked() is True
+
+    tab.set_document(SettingsDocument.from_dict({"Sname": "no_normalize"}))
+    assert tab.editors["Normalize"].isChecked() is False
+
+
+def test_an_enumerated_editor_offers_the_declared_spellings():
+    """The combo cannot author a case variant, which is why entry normalises."""
+    tab = SettingsEditorTab()
+    combo = tab.editors["DetResFn"]
+    offered = [combo.itemText(i) for i in range(combo.count())]
+    assert offered == list(fs.DET_RES_CHOICES)

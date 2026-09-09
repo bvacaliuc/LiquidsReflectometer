@@ -855,3 +855,171 @@ def test_default_if_empty_names_are_exactly_the_reducers_optional_arrays():
         "ThetaShift", "useBS", "ScaleFactor", "tof_min", "tof_max",
     }
     assert "BkgROI" not in fs.DEFAULT_IF_EMPTY_NAMES
+
+
+# --------------------------------------------------------------------------
+# The domain contract: what derives, and what only a pin can catch
+# --------------------------------------------------------------------------
+#
+# The validators derive from reduction_domains, so they cannot drift. The
+# DISPATCH cannot derive — each branch computes something different — so adding
+# a value to a domain does NOT teach the reducer to compute it. These pins are
+# what catch that, and the positive drivers below assert the other direction:
+# every value the editor offers is one a consumer actually accepts.
+
+
+def test_method_choices_are_exactly_what_the_reducer_handles():
+    assert fs.METHOD_CHOICES == ("meanTheta", "constantQ", "constantTOF")
+
+
+def test_peak_type_choices_are_exactly_what_the_fitter_dispatches_on():
+    assert fs.PEAK_TYPE_CHOICES == ("gauss", "supergauss")
+
+
+def test_det_res_choices_are_exactly_what_the_consumers_dispatch_on():
+    assert fs.DET_RES_CHOICES == ("rectangular", "gaussian")
+
+
+def test_theta_dispatch_is_a_subset_of_the_declared_methods():
+    """`constantTOF` is validated but has no theta branch — it routes elsewhere.
+
+    Recorded as its own tuple so the dispatch's error message names what that
+    function can actually compute, instead of the full domain.
+    """
+    from lr_reduction import reduction_domains
+
+    assert set(reduction_domains.THETA_DISPATCH_CHOICES) < set(fs.METHOD_CHOICES)
+    assert reduction_domains.THETA_DISPATCH_CHOICES == ("constantQ", "meanTheta")
+
+
+def _beam_kwargs(**overrides):
+    import numpy as np
+
+    kwargs = dict(
+        Ypix=np.arange(64.0), CenPix=32.0, Si=0.25, S1=0.39, dS1Si=1000.0,
+        dSiSam=100.0, dSamDet=1500.0, mmpix=0.7, DetRes=0.8,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+@pytest.mark.parametrize("resolution_function", fs.DET_RES_CHOICES)
+def test_every_offered_detector_resolution_is_accepted(resolution_function):
+    """The direction a contents pin cannot cover: the consumer must accept it.
+
+    A pin says the domain equals a literal; only a call says the reducer can
+    actually do something with each value.
+    """
+    from lr_reduction import nr_tools
+
+    nr_tools.calc_beam_on_detector(**_beam_kwargs(DetResFn=resolution_function))
+
+
+def test_the_tolerated_detector_resolution_is_accepted_by_nr_tools():
+    """'none' is the recorded disagreement: nr_tools skips, the other consumer raises."""
+    from lr_reduction import nr_tools
+
+    nr_tools.calc_beam_on_detector(**_beam_kwargs(DetResFn="none"))
+    nr_tools.calc_beam_on_detector(**_beam_kwargs(DetResFn=None))
+
+
+def test_the_theta_dispatch_message_names_the_methods_it_handles(monkeypatch):
+    """Derivation pin for the one message v3 left literal."""
+    from lr_reduction import reduction_domains
+
+    monkeypatch.setattr(
+        reduction_domains, "THETA_DISPATCH_CHOICES", ("constantQ", "meanTheta", "hexTheta")
+    )
+    reduction = _bare_reduction()
+    with pytest.raises(ValueError) as raised:
+        reduction._calculate_theta_and_bins(ypix := None, 0.0, "sombrero")  # noqa: F841
+    assert "hexTheta" in str(raised.value)
+
+
+# --------------------------------------------------------------------------
+# Pins for v3 repairs that had none (each was "suite green after mutation")
+# --------------------------------------------------------------------------
+
+
+def test_check_recurses_into_list_elements():
+    """The container being a list said nothing about what was in it."""
+    problem = fs.get("data_x_range").check(["[50", "200]"])
+    assert "data_x_range" in problem
+    assert "[50" in problem
+
+
+def test_type_problem_recurses_into_nested_lists():
+    problem = fs.get("BkgROI").check([["120", 130]])
+    assert "BkgROI" in problem
+
+
+@pytest.mark.parametrize(
+    "name", ["subname", "DTCsubname", "BINsubname", "errBINsubname"]
+)
+def test_the_subname_siblings_reject_a_traversal(name):
+    """All four share Sname's f-string join; only Sname was guarded in v2.
+
+    Measured then: subname="/../../../../../../tmp/pwn" validated clean and the
+    sink resolved to /tmp/pwn.dat.
+    """
+    doc = SettingsDocument()
+    doc.set(name, "/../../tmp/pwn")
+    assert any(name in message for message in doc.validate())
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["_Spath_override", "_NEXUSpathRB_override", "_DBpath_override", "_BINpath_override"],
+)
+def test_an_absolute_override_path_is_accepted(name):
+    """These fields ARE the location, so absolute is their legitimate shape.
+
+    It is what QFileDialog.getExistingDirectory returns. An earlier guard
+    rejected exactly that while accepting a relative value, which resolves
+    against the process working directory instead.
+    """
+    doc = SettingsDocument()
+    doc.set(name, "/SNS/REF_L/IPTS-30101/shared/reduced")
+    assert doc.validate() == []
+
+
+def test_a_traversal_in_an_override_path_is_still_rejected():
+    doc = SettingsDocument()
+    doc.set("_Spath_override", "/SNS/REF_L/../../etc")
+    assert any("_Spath_override" in message for message in doc.validate())
+
+
+@pytest.mark.parametrize("name", ["DetResFn", "peak_type"])
+def test_a_case_variant_is_normalised_on_entry(name):
+    """nr_tools compares these exactly, so a stored 'Gaussian' never matches."""
+    field = fs.get(name)
+    variant = field.allowed[-1].upper()
+    assert field.coerce(variant) == field.allowed[-1]
+
+
+@pytest.mark.parametrize("name", ["DetResFn", "peak_type"])
+def test_a_loaded_case_variant_is_reported(name):
+    """from_dict does not coerce, so validation is the only thing that can catch it."""
+    field = fs.get(name)
+    doc = SettingsDocument.from_dict({name: field.allowed[-1].upper()})
+    assert any("differs in case" in message for message in doc.validate())
+
+
+def test_a_case_variant_of_a_case_insensitive_field_is_accepted():
+    """method_per_run IS lower-cased by the reducer, so it must stay tolerant."""
+    doc = SettingsDocument()
+    doc.add_angle(method_per_run="CONSTANTQ")
+    assert doc.validate() == []
+
+
+def test_a_per_angle_enumerated_cell_is_normalised_on_entry():
+    """The cell path, which the scalar test does not reach.
+
+    `coerce` delegates to `coerce_element` for non-list fields, so both are
+    pinned by one implementation — but a per-angle enumerated field only ever
+    goes through `coerce_element`, and that path needs its own driver.
+    """
+    doc = SettingsDocument()
+    doc.add_angle(method_per_run=fs.get("method_per_run").coerce_element("CONSTANTQ"))
+    assert doc.get("method_per_run") == ["constantQ"]
+    assert doc.validate() == []

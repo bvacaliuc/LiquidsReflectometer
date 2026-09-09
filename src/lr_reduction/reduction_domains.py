@@ -24,6 +24,16 @@ def lowered(choices):
 #: Lambda-to-Q conversion, per angle (``NRReductionConfig.method_per_run``).
 METHOD_CHOICES = ("meanTheta", "constantQ", "constantTOF")
 
+#: The subset of :data:`METHOD_CHOICES` that
+#: ``nr_reduction_calc._calculate_theta_and_bins`` dispatches on.
+#:
+#: ``constantTOF`` is validated by ``_validate_config`` but has no branch there —
+#: it takes a different route through the reduction. Recorded as its own tuple
+#: so the theta dispatch's error message can derive from what that function
+#: actually handles, rather than from the full domain, which would name a method
+#: it cannot compute.
+THETA_DISPATCH_CHOICES = ("constantQ", "meanTheta")
+
 #: Source of the theta value (``NRReductionConfig.useCalcTheta``).
 #:
 #: NOT a boolean, despite its name and its ``False`` default: the reducer
