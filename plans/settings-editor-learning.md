@@ -213,3 +213,68 @@ different clothes.
 reds, the test was fine. If it still passes, the test is measuring something
 else — and check whether the state you had to construct to reach the code
 reveals a defect of its own.
+
+## 9. Fix the mechanism, then find every path that reaches it
+
+**Rule.** After repairing a behaviour, enumerate the call sites that produce it.
+Repairing one and leaving its twin is worse than repairing neither, because the
+fixed path is the one you test.
+
+**Why.** v2 fixed how a value is rendered into a widget — in `_build_editor`.
+`refresh_scalars` and `refresh_angles` were a *second* implementation of the
+same idea, and they kept the old behaviour: construction rendered a list as
+`"50, 200"`, the refresh as `"[50, 200]"`, and only the first survives being
+read back. The v2 tests exercised construction, so they were green.
+
+Then v2's own C6 fix made it worse. Routing `__init__` through `set_document`
+so an injected document renders was correct — and it moved startup onto the
+**stale** path, so a bug that had been reachable only after a Load began firing
+on every tab open. `data_x_range` corrupted itself on a bare focus-out, with no
+typing at all, and nothing reported it because a list of strings is still a
+list.
+
+**How to apply.** `grep` for the *other* place that does what you just fixed.
+Where two functions answer the same question — "how do I display this?", "how
+do I coerce this?" — collapse them into one that both call, rather than fixing
+the one you happen to be looking at. And when a fix changes which path runs at
+startup, re-check the paths it now exposes.
+
+## 10. Recording a disagreement beats resolving it in the wrong place
+
+**Rule.** When two consumers of a value disagree about its domain, a shared
+constants module must document the disagreement, not quietly adopt one side.
+
+**Why.** `DetResFn='none'` is accepted by `nr_tools`, which skips the
+convolution — and crashes `nr_reduction_calc._calc_detector_convolution`, which
+binds `pad` only under `rectangular`/`gaussian` and then reaches
+`max(verts[:,1]) + pad`. Adding `'none'` to the offered choices would let the
+editor produce files that crash one code path; omitting it silently reports a
+file the other path runs perfectly.
+
+Neither is a decision a *domains module* is entitled to make. It records both,
+names the failure mode, and the editor reports the reason rather than a bare
+"not one of". Fixing the inconsistency belongs in one of the two consumers, as
+its own change, with someone who knows which behaviour is intended.
+
+**How to apply.** When single-sourcing a domain, check **every** consumer, not
+the one that motivated the work. Half-derived is worse than undecided, because
+the module then carries a claim — "drift is structurally impossible" — that is
+false for the parts nobody wired.
+
+## 11. A guard that matches a substring both answers share is not a guard
+
+**Rule.** Ask what *else* satisfies the assertion.
+
+**Why.** The test for "nr_tools derives its error from the shared domain"
+matched `"peaktype must be"` — which the hardcoded message also contains. It
+proved rejection, never derivation, and stayed green when the derivation was
+reverted. The fix is to make the domain and the message *move together*: extend
+the domain under `monkeypatch` and assert the new value appears in the error.
+
+The sibling case: the string-explosion guard was paired with a test that used a
+real list. That exercises the padding branch and never the wrong-type branch it
+was written for, so reverting the `isinstance` fix left it green.
+
+**How to apply.** For a derivation, perturb the source and assert the derived
+thing follows — comparing against a fixed string only proves the current value.
+For a type guard, feed it the wrong type, not merely the wrong length.
