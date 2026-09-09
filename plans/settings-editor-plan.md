@@ -329,3 +329,134 @@ assert it survives a round-trip unchanged → reds against the bool coercion.
 - C6 interface items present (`set_document`, `overrides`, `Field.coerce/
   check`, copy-on-default) — these are T3's handoff surface.
 - `pixi run test-launcher` + `test-reduction` green; no `pixi.lock` change.
+
+## Revision history — v3 (after v2 blocking review; todo @ `e904196`; FINAL retry, attempt 3 of N=3)
+
+Gate green (140 launcher + 179 reduction). **v2 was a large real
+improvement — do NOT rework what the gate confirmed fixed:** both v1
+abort paths closed (`@guarded` load-bearing on all eight slots, held
+against 17 malformed inputs incl. `RecursionError`), atomic save verified
+by fault injection (mkstemp+fsync+os.replace, symlink refused), flat-type
+fidelity correct through the widget, the three v1 tautologies properly
+dead, sorting pinned, `nr_reduction_calc` change a verified no-op. Four
+blocking clusters remain, and their common root is the campaign's
+signature meta-defect one level up: **two implementations of the same
+thing that drift.** v3 fixes each by single-sourcing, and — because v2
+introduced TWO NEW tautologies while fixing tautologies (Cluster 4) —
+**every new/changed guard in v3 records its named mutation per charter §9
+amendment 16, no exceptions.** Minimal path (the Integrator's 5 steps):
+
+### Cluster 1 (blocking) — the refresh path never got v2's construction-path fixes
+
+v2 repaired display on the **build** path (`_build_editor`, `_show_in_combo`,
+`_as_text`) but not the **refresh** path — and C6's `set_document` now routes
+every tab-open through `refresh_scalars`, so the stale path runs always.
+Three symptoms, one cause (two independent "show value in widget"
+implementations): (1a) scalar list fields render `str(value)` `"[50, 200]"`
+not `_as_text` `"50, 200"`, and the validator is gated on
+`type in ("int","float")` (False for `list[int]`) so `editingFinished`
+corrupts `data_x_range` on bare focus-out — no report; (1b) `BkgROI`
+(`list[list[int]]`) cells render Python repr, `coerce_element` splits it to
+`['[120','130]']`, reported clean, `np.sort` over strings downstream;
+(1c) after a Load a non-editable combo `setCurrentText` is a silent no-op,
+so `useCalcTheta` shows `sample_angle` while the doc holds `False`,
+unrecoverable from the UI.
+**Fix (~20 lines, single-source):** one `_show(field, editor, value)` used
+by BOTH `_build_editor` and `refresh_scalars`; render per-angle cells with
+the same `_as_text`; make `Field.check`/`_type_problem`
+(`field_spec.py:167-181,287-290`) **recurse into list elements** so the
+corruption is reportable.
+**Mutate-once (both currently-vacuous guards fixed):**
+`test_a_scalar_list_edit_stores_a_list` — **drop the `editor.clear()`**
+(it erases the mis-render before parsing); mutation: revert `_show` to
+`str(value)` → must red. `test_a_combo_displays_a_value_outside_its_choices`
+— **drive through `set_document`/Load**, not the constructor; mutation:
+`refresh_scalars` bare `setCurrentText` → must red.
+
+### Cluster 2 (blocking) — the domain seam is half-derived and already diverging
+
+Only `METHOD_CHOICES`/`CALC_THETA_CHOICES` are wired from the reducer;
+`DET_RES_CHOICES`/`PEAK_TYPE_CHOICES` are still hard-coded in
+`nr_tools.py:229,382,390,399`, so the "drift structurally impossible" claim
+is false for two domains — and DET_RES is live cry-wolf (`'none'` valid in
+the reducer, missing from the domain, unreachable from the combo). And
+`domains.lowered()` has **zero coverage on the production path**: breaking
+it → every `method_per_run` reduction raises `ValueError`, suite green (no
+test constructs `NR_Reduction`/`_validate_config`).
+**Fix:** add `'none'` to `DET_RES_CHOICES` **or** exempt-and-explain —
+record that the two consumers disagree (`_calc_detector_convolution:687-699`
+binds `pad` only under rectangular/gaussian, so `'none'` raises
+`UnboundLocalError` there); a canonical-domains module must document the
+disagreement, not silently pick a side. Wire `nr_tools` to dispatch from
+`domains` (all four single-sourced). Replace the `inspect.getsource` grep
+with **one behavioural test per domain** driving `_validate_config` /
+`fit_peak` / `calc_beam_on_detector` with each declared value asserting
+acceptance.
+**Mutate-once:** `return list(choices)` in `domains.lowered()` → the new
+`_validate_config` behavioural test must red (the mutation that was green).
+
+### Cluster 3 (blocking) — `SettingsDocument.config` still unpinned (named in the v1 rejection)
+
+Renaming the property leaves 91/91 green; zero consumers; it is the reducer
+handoff and T3's seam. `set_document`/`overrides`/`default_value` got pinned
+in v2; this one was missed twice.
+**Fix + mutate-once:** one test asserting `doc.config` is the
+`NRReductionConfig` the reduction receives AND that `set()` edits are
+visible on it; mutation: rename `config` → the test must red.
+
+### Cluster 4 (blocking) — two NEW tautologies (introduced while fixing tautologies)
+
+**4a** `test_save_leaves_no_temporary_file_behind`: monkeypatches
+`json.dumps` to raise at `:318`, **before** `mkstemp` at `:321`, so no temp
+is ever created — deleting the whole `except BaseException: os.unlink`
+cleanup (`:333-338`) stays green. **Fix:** inject the fault at `os.replace`
+or `os.fsync` (after the temp exists); mutation: delete the cleanup block →
+must red. **4b** `test_bounds_apply_to_per_angle_entries_too`: sets
+`ScaleFactor=1.0` (in range) — no violation — so neutering the per-angle
+`check_element` loop (`:247-251`) stays green. **Fix:** use an
+**out-of-range** value; mutation: neuter the per-angle bounds loop → must
+red. (This cluster is *why* amendment 16 must apply to EVERY new guard: the
+Developer diagnosed 4a's sibling and re-aimed it, then left this one at the
+unreachable point — the gate must be mechanical, not selective.)
+
+### v3 should-fix (safety-relevant ones are not optional)
+
+- **The shared-sink partial fix:** `Sname` got `no_separators=True`; its
+  four identical-f-string siblings `subname`/`DTCsubname`/`BINsubname`/
+  `errBINsubname` did not (`subname="/../../../tmp/pwn"` → `/tmp/pwn.dat`,
+  `nr_reduction_calc.py:196,216,272-274`). Apply the same guard to all five.
+- **The path guard mis-models the `_*_override` fields:** they ARE the whole
+  path (not base-joined), so the guard rejects their only legit shape (the
+  absolute path `QFileDialog` returns) while accepting CWD-relative values.
+  Validate existence/writability or `is_relative_to(base_path)` after
+  resolve; and catch bare `..` in `experiment_id` (typed `str`, so
+  `_path_problem` never runs).
+- **`validate()`/`refresh_report()` are uncapped** on the hot path
+  (`MAX_TABLE_ROWS` caps display only): a 4.9 MB file → 74.7 MB report
+  rebuilt per edit. Cap the report/validate too.
+- `save_settings` builds an unused `QFileDialog` then calls the static
+  `getSaveFileName` (so `setDefaultSuffix` is inert, one dialog leaks/click;
+  suffix fallback keys on `Path.suffix` so `settings_0.5deg`→`.5`); fix the
+  suffix logic. `set_document` gets `@guarded` (the one unguarded public
+  entry, T3's injection path). Collapse `Field.coerce`/`_coerce_typed` to
+  one list-splitter (C6's triplication→duplication wasn't finished).
+  Guard the char-explosion (`:182`) on `isinstance(current, list)`. Remove
+  the dead `DEFAULT_IF_EMPTY_NAMES`.
+
+### v3 acceptance (final-gate)
+
+- One `_show()` drives both render paths; per-angle cells use `_as_text`;
+  `check`/`_type_problem` recurse into list elements; 1a/1b/1c each report
+  or round-trip correctly (no silent corruption).
+- All four domains single-sourced from the reducer; one behavioural
+  acceptance test per domain; `domains.lowered()` covered on the
+  `_validate_config` path.
+- `doc.config` pinned; both Cluster-4 guards re-aimed to their reachable
+  fault and each reds under its named mutation.
+- **Every new/changed guard in the diff records its mutation + observed red
+  in the commit body** (amendment 16, enforced — the two v2 tautologies are
+  why). Path-sink siblings guarded; report/validate capped.
+- `pixi run test-launcher` + `test-reduction` green; no `pixi.lock` change.
+- **This is T2's final retry (N=3).** If v3 is rejected on a genuinely new
+  correctness finding it escalates; it must not be rejected on a net-new
+  comment/preference — anything cosmetic rides the draft-PR body as advisory.
