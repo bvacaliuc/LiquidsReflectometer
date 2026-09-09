@@ -2,7 +2,7 @@
 
 **Campaign:** `exp-settings-roi` · base `exp` @ `308a020` (S0–S3 + harness +
 protective slugs all merged) · charter §4 slug T2
-**Retry attempt:** 1
+**Retry attempt:** 4 of N=4 (human cap extension, 2026-09-09 — per-slug, this slug only; charter §1 knob N)
 
 > **Authoritative field source is IN THIS REPO, not out-of-tree.** FIELD_SPEC
 > mirrors the attributes of `src/lr_reduction/nr_reduction_config.py` — which
@@ -460,3 +460,74 @@ unreachable point — the gate must be mechanical, not selective.)
 - **This is T2's final retry (N=3).** If v3 is rejected on a genuinely new
   correctness finding it escalates; it must not be rejected on a net-new
   comment/preference — anything cosmetic rides the draft-PR body as advisory.
+
+## Revision history — v4 (human cap extension to N=4 — 2026-09-09)
+
+The human extended the retry cap to **N=4 for this slug only** after v3
+(gate green; **ui-aspects found NOTHING blocking** — all three v2 widget
+defects fixed with guards red-on-revert; one blocking `test-reviewer`
+finding) rejected on **B2 narrowed-not-closed**: the domain seam is
+half-derived — `domains.lowered()` is now behaviourally covered and all
+four domains derive their enforcement *messages*, but `nr_tools`/
+`nr_reduction_calc` still **dispatch** on literals, so the drift the
+cluster is named for (*the editor offers a value the reducer rejects*)
+is undetected for `METHOD` and `DET_RES` (`CALC_THETA` has a
+contents-pin; `PEAK_TYPE`'s dispatch is hardcoded-independent; these two
+have neither). This is a coverage gap on substance every declared
+reviewer confirmed sound — a converged slug at the cap. **Authoritative
+scope: `plans/settings-editor-advisor-review.md` @ `c97f88f`, §4** (todo
+@ `493c81c`). v4 is **strictly the five items below; nothing else** —
+follow-ups deliberately excluded are in §4's last paragraph and must NOT
+be folded in.
+
+### v4 scope (advisor-review §4, priority order)
+
+1. **Truthful contract.** Rewrite `field_spec.py:46-51` to say the
+   validators **derive from `reduction_domains`, the dispatch in
+   `nr_tools`/`nr_reduction_calc` stays literal, and the contents pins
+   (item 3) are what catch drift** — the current text overclaims
+   "structurally impossible". Derive the message at
+   `nr_reduction_calc.py:665` from `domains.METHOD_CHOICES` (one line;
+   the dispatch above it stays). **Do NOT restructure `nr_tools`'
+   dispatch.**
+2. **Positive driver for `DET_RES_CHOICES`.**
+   `@pytest.mark.parametrize("fn", fs.DET_RES_CHOICES)` calling
+   `nr_tools.calc_beam_on_detector(..., DetResFn=fn)`, asserting no raise
+   — pins the "reducer accepts every offered value" direction the pin
+   alone can't.
+3. **Contents-equality pins** for `METHOD_CHOICES`, `PEAK_TYPE_CHOICES`,
+   `DET_RES_CHOICES`, beside the existing `CALC_THETA` pin.
+4. **Case convention** (advisory-in-three-reviews, but a real correctness
+   defect in the editor's core promise): `Field.check` accepts
+   `"Gaussian"` for `DetResFn`/`peak_type` while `nr_tools` compares
+   exactly → the reduction dies partway. Normalize to the declared
+   spelling in `coerce_element` for those two domains, OR check
+   case-sensitively where the reducer does. One behaviour, one test.
+5. **Pins for v3's own untested repairs** (each observed "suite green
+   after mutation"): `check`/`_type_problem` list recursion; the checkbox
+   leg of `_show`; `no_separators` on the four `subname` siblings; an
+   absolute `_*_override` path accepted; the `DET_RES_TOLERATED` branch
+   in `nr_tools`.
+
+**Mutate-once (charter §9 amendment 16):** every new/changed guard
+records its mutation and observed red in the commit body. For items 1–3
+the named mutations are: grow/shrink `METHOD_CHOICES` → item-3 pin +
+item-2 driver red; grow/shrink `DET_RES_CHOICES` → same; alter the
+`:665` message text → item-1's derivation test red.
+
+### v4 final-gate instruction to the Integrator (human directive, 2026-09-09)
+
+**PASS when items 1–3 are present and their mutations red.** Items 4–5
+missing or imperfect are **advisory** — recorded in the draft-PR body,
+**never grounds for rejection**. Anything else new rides the PR body.
+The §4 "deliberately left for follow-up" list (the `@guarded
+set_document` silent-success path, combo-item accumulation across Loads,
+`save_settings` accepting `.dat`, the `''`/`None` `experiment_id`
+asymmetry, capping `refresh_report()`) is **out of v4 scope** — do not
+add it.
+
+### v4 — for T3 (advisor-review §5)
+
+Item 1's rewritten sentence is what T3's `SettingsResolver` reads first;
+it must be true before T3 stages. Items 2–3 are the guards T3 inherits.
+Nothing else in this slug blocks T3's plan.
