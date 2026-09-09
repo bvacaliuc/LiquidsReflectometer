@@ -278,3 +278,74 @@ was written for, so reverting the `isinstance` fix left it green.
 **How to apply.** For a derivation, perturb the source and assert the derived
 thing follows — comparing against a fixed string only proves the current value.
 For a type guard, feed it the wrong type, not merely the wrong length.
+
+## 12. State the guarantee you actually have, not the one you were aiming at
+
+**Rule.** A comment that describes a safety property is a claim. Write the one
+that survives someone testing it.
+
+**Why.** Single-sourcing the value domains, I wrote that drift was *"structurally
+impossible rather than merely tested for"*. It was true of the **validators** —
+`_validate_config` builds its lists from `reduction_domains`, so those cannot
+disagree. It was false of the **dispatch**: `if method == 'meantheta' ... elif
+'constantq'` is literal by necessity, because each branch computes something
+different and there is nothing to derive it from. Adding a value to a domain
+does not teach the reducer to compute it.
+
+So the claim was half true, and the half it was false for is exactly the drift
+the work was named after. Two reviews passed over it before one checked whether
+*all four* domains were wired; two were not.
+
+The honest version is weaker and more useful: validators derive and cannot
+drift; dispatch is literal; **contents-equality pins are what catch a domain
+growing past what the dispatch handles**, and positive drivers are what catch
+the other direction — a value the editor offers that no consumer accepts. Both
+directions need a test, because neither is prevented by construction.
+
+**How to apply.** When you write "cannot" or "impossible" about your own design,
+name the mechanism that makes it so, then check that mechanism covers every case
+the sentence quantifies over. If it covers most, say "most" and pin the rest.
+A weaker guarantee stated exactly beats a strong one that is false where nobody
+looked.
+
+## 13. Derive the message from what the function can do, not from the domain
+
+**Rule.** When deriving an error message from a shared constant, check the
+function actually handles every value in it.
+
+**Why.** The theta dispatch's message was the last literal one. Deriving it from
+`METHOD_CHOICES` would have been the obvious move and would have made it
+*wrong*: `constantTOF` is a valid method that `_validate_config` accepts, but
+`_calculate_theta_and_bins` has no branch for it — it routes through the
+reduction differently. The message would have told the reader that a method the
+function cannot compute is one of its options.
+
+`THETA_DISPATCH_CHOICES` records the narrower set, with the reason, and a pin
+asserts it is a strict subset of the full domain. The asymmetry is real
+behaviour, so it gets a name rather than being smoothed over.
+
+**How to apply.** "Derive it from the constant" is right only when the constant
+is the set that code path handles. Where a function handles a subset, that
+subset is its own fact and deserves its own constant.
+
+## 14. Two normalisation points, one covering for the other
+
+**Rule.** When a mutation stays green, suspect a second implementation before
+suspecting the test.
+
+**Why.** Removing `canonical()` from `coerce_element` left the case tests
+passing — because they call `coerce`, which had its **own** `canonical()` call.
+Neither was dead; each covered the other, so removing either changed nothing
+observable and the guard could not tell.
+
+That is the third appearance of one shape in this slug: `_coerce` and
+`_check_value` disagreeing was C2; `_build_editor` and `refresh_scalars`
+disagreeing was Cluster 1; this is the same thing where the copies *agree*, so
+it looks harmless — until one is edited. `coerce` now delegates to
+`coerce_element`, and the per-angle cell path gets its own driver because a
+scalar test never reaches it.
+
+**How to apply.** After collapsing duplicated logic, grep for the call you just
+removed. If another copy still exists, you have not collapsed it — you have
+hidden it, and the next mutation will read as a vacuous test rather than as the
+duplication it is.
