@@ -247,3 +247,67 @@ different guard — `b` here cannot exceed 6.7e-04, the physical 200→300 binni
 difference, without making the pairwise-distinguishability test vacuous. An
 escape hatch with no stop is how a tolerance ratchets open one measurement at a
 time.
+
+## 9. All four rejections were about prose, not code
+
+**Rule.** When a slug keeps failing review, look at *what kind* of thing keeps
+failing. If it is the same kind every time, the review effort is aimed at the
+wrong surface.
+
+**Why.** The Integrator's closing note on v3 is the most useful sentence in this
+slug's whole record: *all three rejections have now turned on claims in prose,
+not on code.* v4 made it four. The comparison rewrite, the regenerated
+reference, the guards and the tolerances were confirmed sound by two
+independent reviewers from v2 onward. What kept failing was **comments
+asserting consequences that did not survive being checked**:
+
+| version | the prose claim | what checking showed |
+|---|---|---|
+| v1 | "b's delta is a near-zero slope, so relative error is noisier" | invented; the cause was a duplicated reference |
+| v2 | "all nine metadata fields are 0.0"; "the fits reproduce to ~1e-11 on this platform" | five, not nine; and that is cross-build drift, not same-build noise |
+| v3 | "widening b past 6.7e-04 makes the pairwise guard vacuous" | false: b alone at 1e-2 is still caught by `a`; vacuity needs BOTH bars |
+
+Each was written in good faith while the surrounding code was correct. The
+common shape: a number I had measured, attached to a *consequence* I had not.
+
+**How to apply.** Treat a prescriptive comment — one telling a maintainer what
+will happen if they do X — as a claim requiring the same evidence as a test.
+Before writing "doing X causes Y", do X and observe Y. It took one command each
+time; the Integrator ran exactly those commands and got different answers.
+
+The durable fix is not a better comment. It is that v4 replaces the one
+unreproducible number with **a committed probe**
+(`plan/scripts/measure_fit_path_dependence.py`): a claim anyone can re-run
+cannot quietly rot into a false one, and the repo's "capture documented methods"
+rule exists for precisely this reason.
+
+## 10. Exclude the control from the measurement, and say why
+
+**Rule.** When measuring a floor, decide which perturbations belong to the
+quantity you are measuring — and label the ones that do not, rather than
+dropping them silently.
+
+**Why.** Measuring the fit's path-dependence meant swapping Mantid's minimizer.
+Three were tried:
+
+| perturbation | `a` | `b` |
+|---|---|---|
+| Levenberg-MarquardtMD → Levenberg-Marquardt | 1.366e-11 | 8.657e-11 |
+| → Simplex | 1.062e-02 | 5.868e-01 |
+
+Simplex moves `b` by 59%. Taking "worst over all minimizers" as the floor would
+have justified a tolerance six orders looser than the evidence supports — and it
+would have been a *real measurement*, honestly reported, answering the wrong
+question. That is exactly the failure that produced v1, arrived at from a
+different direction.
+
+Simplex is a different algorithm with a looser stopping criterion, not a
+different route to the same optimum, so it is not path dependence. It stays in
+the probe's output as a **labelled control**: deleting it would hide the
+judgment, and the next person to run the script would wonder why an obvious
+minimizer was untested.
+
+**How to apply.** Ask what a number would have to mean for it to belong in the
+aggregate. Keep the excluded measurement visible, name it a control, and give
+the one-line reason — the reader can then disagree with the judgment instead of
+having to rediscover it.
