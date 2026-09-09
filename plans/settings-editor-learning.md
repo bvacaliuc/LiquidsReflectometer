@@ -103,3 +103,113 @@ full length, and `validate()` names the angles still lacking one.
 complete (every disagreement is reported), resolution minimal (the scientist
 decides), and the exceptions documented with the line numbers that justify them
 — so the next person can check the reasoning rather than trusting it.
+
+## 5. A green gate says nothing about whether a slot can kill the process
+
+**Rule.** For any GUI handler, ask what happens when it raises — not whether it
+raises in the tests.
+
+**Why.** T2 v1 passed 128 launcher and 145 reduction tests, and two independent
+paths in it aborted the entire launcher. Under PyQt5 an unhandled exception in a
+slot reaches `qFatal()`, which calls `abort()`: `EXIT=134`, and every other tab
+loses its unsaved state. Neither path needed a hostile file:
+
+- `set_angle_field` padded a `None` per-angle column but not a **short** one, and
+  short columns are produced by the reducer's own sanctioned length-1
+  `method_per_run`, by `normalize()` dropping `RBnum`, and by the editor's own
+  save/reload round trip;
+- `validate()` iterated whatever a settings file contained, so `{"tof_min": 5}`
+  raised `TypeError` before anything could catch it.
+
+The gate could not see either, because a test suite calls methods and a user
+sends gestures.
+
+**How to apply.** A tool that reads files it did not write must treat malformed
+input as a *message*, never a crash. Give every slot a top-level guard that
+reports into the UI; put the recovery work **inside** the `try`, not after it;
+and catch broadly there — `except (ValueError, OSError)` expressed the right
+intent and still let `TypeError` through. Then pair each guard with a test that
+makes the slot raise on purpose.
+
+## 6. Type dispatch in three places is a bug with a delay fuse
+
+**Rule.** When the same "what type is this field" decision is made by widget
+construction, by text-to-value coercion, and by validation, they will disagree —
+and the disagreement is silent.
+
+**Why.** `_build_editor`, `_coerce`, `refresh_scalars` and `_check_value` each
+re-derived the type. `_coerce` handled only `"int"` and `"float"`; every
+per-angle field is a `list[...]`, so **no cell was ever coerced**. `useBS` stored
+the string `"False"` — truthy — and the reducer subtracted background for a
+scientist who had switched it off. `_check_value` returned `""` for anything not
+int or float, so `validate()` reported *No problems found* and the declared
+bounds never ran. The saved file looked correctly authored.
+
+The fix is not "coerce lists too". It is that `coerce()` and `check()` are pure
+`(Field, value)` functions and belong **on `Field`**, in the Qt-free module —
+one dispatch, which a resolution layer then reuses instead of writing a fourth.
+
+**How to apply.** Count the places that switch on a type tag. More than one is a
+refactor; the copies that disagree are the bug you have not found yet.
+
+## 7. Never bool(text), and never let a domain be a hand-copy
+
+Two specific traps, both from this cluster:
+
+`bool("False")` is `True`. Any parse of user text into a boolean needs an
+explicit accepted set (`{"true","1","yes",...}` / `{"false","0","no",...}`),
+because the plausible-looking one-liner produces exactly the wrong answer for
+the word a user is most likely to type.
+
+And `useCalcTheta` was declared `bool` while the reducer accepts
+`'detector_angle'`/`'sample_angle'` — so the editor rendered a checkbox that
+could not express one of the two values and silently downgraded a loaded one.
+The choice lists themselves were hand-copies of bare local lists inside the
+reducer. Copies drift, and the drift here is invisible: the editor goes on
+offering a value the reducer has stopped accepting.
+
+**How to apply.** Put a domain in one module both sides import
+(`reduction_domains.py`), and have the *enforcer* derive its checks from it —
+then drift is structurally impossible instead of merely tested for. Where a
+field is tri-state (falsy means "off"), model that explicitly rather than
+letting the default look like a violation; and migrate a legacy spelling the
+consumer still accepts instead of reporting it, or the panel cries wolf on a
+file that works.
+
+## 8. A mutation that stays green means the test is vacuous OR the mutation missed
+
+**Rule.** When mutate-once does not red, diagnose which of the two it is before
+touching anything.
+
+**Why.** Sixteen mutations, one per guard; four stayed green. The instinct is
+"four vacuous tests" — and acting on it would have meant rewriting sound tests.
+Three were **bad mutations**: they aimed at code the test does not depend on.
+The save mutation truncated after the payload was already built; the cry-wolf
+mutation emptied a derived tuple that `_length_is_allowed` never consults; the
+C5 mutation changed `allowed` without changing `type`. Re-aimed, all three red.
+
+Two were genuinely vacuous, and both were testing the wrong *layer* or the wrong
+*state*:
+
+- the C5 model test round-tripped `'sample_angle'` and passed with the field
+  declared `bool`, because the document stores what it is given and never reads
+  the declaration. The bug was always in the view. The model can only pin the
+  declaration — so it does, and the widget is pinned in the view suite.
+- the cry-wolf test built its angles with `add_angle()`, which grows all 13
+  columns, so the empty-array exemption it named was never reached. It now loads
+  a file where those arrays are genuinely absent.
+
+**And correcting the second surfaced a true positive I nearly silenced.** With
+the arrays really absent, `validate()` also reported `BkgROI has 0 entries for 3
+angles`. `BkgROI` is indexed per-angle by `web_report` and is *not* in the
+reducer's auto-default list, so that report is correct — a 3-angle file without
+it fails downstream. The test supplies `BkgROI` rather than adding an exemption
+to make itself pass. The tempting move — widen the exemption until the test goes
+green — is the tolerance-widening mistake from the sibling slug, wearing
+different clothes.
+
+**How to apply.** Treat a stubbornly-green mutation as a question, not a verdict:
+*does this test actually execute the code I just broke?* Re-aim once. If it
+reds, the test was fine. If it still passes, the test is measuring something
+else — and check whether the state you had to construct to reach the code
+reveals a defect of its own.
