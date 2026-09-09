@@ -1,4 +1,4 @@
-# `plan/scripts/`
+# `scripts/test`
 
 Session diagnostics cited from committed documents or from code comments.
 
@@ -15,7 +15,7 @@ measurements behind claims made elsewhere in the tree.
 From the repository root, in the project environment:
 
 ```sh
-pixi run python plan/scripts/measure_fit_path_dependence.py
+pixi run python scripts/test/measure_fit_path_dependence.py
 ```
 
 `measure_fit_path_dependence.py` needs the test data submodule at
