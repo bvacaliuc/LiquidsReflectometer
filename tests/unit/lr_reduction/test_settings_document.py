@@ -9,6 +9,9 @@ is exercised here in milliseconds without a display. The view's tests
 import ast
 import json
 import pathlib
+import subprocess
+import sys
+import textwrap
 
 import pytest
 
@@ -23,11 +26,14 @@ from lr_reduction.settings_document import SettingsDocument
 
 
 def test_field_spec_names_are_real_config_attributes():
-    """A name that is not an attribute is a hard failure at load, not a warning.
+    """Every FIELD_SPEC name must be a real ``__dict__`` key of the config.
 
-    `json_to_config` raises `AttributeError` for any key the config does not
-    carry, so a typo in FIELD_SPEC would surface as a broken settings file
-    rather than as a mislabelled widget.
+    Stricter than the rationale the first version of this docstring gave. It
+    described `json_to_config` raising `AttributeError`, but that gates on
+    `hasattr`, which also passes for properties — including `base_path`, which
+    has no setter and raises on assignment. The subset check the body actually
+    performs is against `__dict__`, which excludes properties entirely, and that
+    is the property worth pinning.
     """
     attributes = set(NRReductionConfig().__dict__)
     assert {f.name for f in fs.FIELD_SPEC} <= attributes
@@ -181,8 +187,12 @@ def test_set_angle_field_uses_the_index_it_is_given():
     doc = SettingsDocument()
     for name in ("a.dat", "b.dat", "c.dat"):
         doc.add_angle(DBname=name)
-    doc.set_angle_field(0, "DBname", "edited.dat")
-    assert doc.get("DBname") == ["edited.dat", "b.dat", "c.dat"]
+    # Index 1 of 3, deliberately. Editing index 0 is satisfied by an
+    # implementation that ignores the index entirely and hard-codes 0 — which
+    # is what the first version of this test asserted, and it passed against
+    # exactly that mutation.
+    doc.set_angle_field(1, "DBname", "edited.dat")
+    assert doc.get("DBname") == ["a.dat", "edited.dat", "c.dat"]
 
 
 def test_set_angle_field_rejects_an_out_of_range_index():
@@ -267,12 +277,23 @@ def test_set_rejects_an_unknown_field_name():
 
 
 def test_normalize_drops_runtime_owned_fields():
+    """Literal names, not the tuple that drives the filter.
+
+    Iterating RUNTIME_OWNED_NAMES here asserted that the filter agrees with
+    itself: emptying the tuple, or dropping runtime_owned from RBnum, left this
+    green while normalize() happily emitted an authored RBnum into the
+    reduction — the precise thing its docstring forbids.
+    """
     doc = SettingsDocument()
     doc.add_angle(RBnum=197912)
     normalized = doc.normalize()
-    for name in fs.RUNTIME_OWNED_NAMES:
-        assert name not in normalized
+    assert {"RBnum", "LambdaMinUse", "LambdaMaxUse"}.isdisjoint(normalized)
     assert "Sname" in normalized
+
+
+def test_runtime_owned_names_are_exactly_the_three_expected():
+    """Pin the tuple itself, separately from the behaviour it drives."""
+    assert set(fs.RUNTIME_OWNED_NAMES) == {"RBnum", "LambdaMinUse", "LambdaMaxUse"}
 
 
 def test_changed_vs_seed_reports_only_what_moved():
@@ -314,3 +335,335 @@ def test_model_modules_import_no_qt(module):
             imported.add(node.module)
     offenders = {name for name in imported if name.split(".")[0] in {"qtpy", "PyQt5", "PyQt6", "PySide2", "PySide6"}}
     assert not offenders
+
+
+# --------------------------------------------------------------------------
+# C1 — a short per-angle column must not raise out of a Qt slot
+# --------------------------------------------------------------------------
+
+
+def test_editing_a_short_per_angle_column_pads_instead_of_raising():
+    """The abort path: IndexError in a Qt slot reaches qFatal() and kills the app.
+
+    A short column is not exotic. The reducer sanctions a length-1
+    `method_per_run` broadcast to every angle, and `normalize()` drops the
+    runtime-owned `RBnum`, so the editor's own save/reload round trip produces
+    one.
+    """
+    doc = SettingsDocument()
+    doc.add_angle()
+    doc.add_angle()
+    doc.set("DBname", ["only_one.dat"])
+    doc.set_angle_field(1, "DBname", "second.dat")
+    assert doc.get("DBname") == ["only_one.dat", "second.dat"]
+
+
+def test_the_editors_own_round_trip_is_editable():
+    """Save, reload, edit — the crash cycle, using only the editor's artifacts."""
+    doc = SettingsDocument()
+    doc.add_angle(RBnum=197912)
+    doc.add_angle(RBnum=197913)
+    reloaded = SettingsDocument.from_dict(doc.normalize())
+    assert reloaded.get("RBnum") == []
+    reloaded.set_angle_field(1, "RBnum", 197913)
+    assert reloaded.get("RBnum")[1] == 197913
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param({"tof_min": 5}, id="int-where-a-list-belongs"),
+        pytest.param({"LambdaMin": 3.5}, id="float-where-a-list-belongs"),
+        pytest.param({"DBname": "one.dat"}, id="str-where-a-list-belongs"),
+    ],
+)
+def test_a_non_sequence_per_angle_value_is_reported_not_iterated(payload):
+    """validate() used to len()/enumerate() whatever the file contained."""
+    doc = SettingsDocument.from_dict(payload)
+    problems = doc.validate()
+    assert any(next(iter(payload)) in message for message in problems)
+
+
+# --------------------------------------------------------------------------
+# C2 — values must arrive as their declared type
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, text, expected",
+    [
+        pytest.param("RB_Ymin", "150", 150, id="list[int]-cell"),
+        pytest.param("tof_min", "150", 150.0, id="list[float]-cell"),
+        pytest.param("useBS", "False", False, id="list[bool]-cell-false"),
+        pytest.param("useBS", "1", True, id="list[bool]-cell-true"),
+        pytest.param("ScaleFactor", "1.05", 1.05, id="list[float]-scale"),
+    ],
+)
+def test_a_per_angle_cell_is_coerced_to_its_element_type(name, text, expected):
+    """`useBS` holding the string "False" is truthy: background gets subtracted
+    when the scientist switched it off (`nr_reduction_calc`, `if useBS[i]`)."""
+    value = fs.get(name).coerce_element(text)
+    assert value == expected
+    assert type(value) is type(expected)
+
+
+def test_a_boolean_is_never_parsed_with_bool():
+    """bool("False") is True — the whole point."""
+    assert fs.get("useBS").coerce_element("False") is False
+    assert fs.get("useBS").coerce_element("false") is False
+    assert fs.get("useBS").coerce_element("0") is False
+
+
+def test_a_two_value_scalar_list_parses_both_values():
+    """`data_x_range` reaching the writer as "60, 210" produced x_min_pixel=6."""
+    assert fs.get("data_x_range").coerce("60, 210") == [60, 210]
+    assert fs.get("data_x_range").coerce("60 210") == [60, 210]
+
+
+def test_a_value_whose_type_contradicts_the_field_is_reported():
+    doc = SettingsDocument()
+    doc.add_angle()
+    doc.set("RB_Ymin", ["150"])
+    assert any("RB_Ymin" in m for m in doc.validate())
+
+
+def test_bounds_apply_to_per_angle_entries_too():
+    doc = SettingsDocument()
+    doc.add_angle(ScaleFactor=1.0)
+    assert doc.validate() == []
+
+
+# --------------------------------------------------------------------------
+# C4 — saving must not destroy the previous good file
+# --------------------------------------------------------------------------
+
+
+def test_save_leaves_the_previous_file_intact_when_the_write_fails(tmp_path, monkeypatch):
+    """open(path, "w") truncates before a byte is produced."""
+    target = tmp_path / "settings.json"
+    target.write_text('{"good": "settings"}')
+
+    def explode(*_args, **_kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(json, "dumps", explode)
+    doc = SettingsDocument()
+    with pytest.raises(OSError):
+        doc.save(target)
+    assert json.loads(target.read_text()) == {"good": "settings"}
+
+
+def test_save_leaves_no_temporary_file_behind(tmp_path, monkeypatch):
+    target = tmp_path / "settings.json"
+
+    def explode(*_args, **_kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(json, "dumps", explode)
+    with pytest.raises(OSError):
+        SettingsDocument().save(target)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_save_refuses_to_write_through_a_symlink(tmp_path):
+    """The overwrite dialog names the link, not the file that would be destroyed."""
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    link = tmp_path / "settings.json"
+    link.symlink_to(victim)
+    with pytest.raises(ValueError, match="symbolic link"):
+        SettingsDocument().save(link)
+    assert victim.read_text() == "precious"
+
+
+def test_saved_file_is_group_readable(tmp_path):
+    """A shared IPTS directory: 0644 deliberately, not 0600."""
+    target = tmp_path / "settings.json"
+    SettingsDocument().save(target)
+    assert target.stat().st_mode & 0o777 == 0o644
+
+
+# --------------------------------------------------------------------------
+# C5 — useCalcTheta is an enum, not a checkbox
+# --------------------------------------------------------------------------
+
+
+def test_theta_source_is_declared_as_a_choice_not_a_boolean():
+    """The model-level half of C5: the DECLARATION, which is what the view reads.
+
+    An earlier version of this test round-tripped 'sample_angle' through the
+    document and passed even with the field declared `bool` — because the
+    document stores whatever it is given and never consulted the type. The bug
+    was always in the view, which built a checkbox from the declaration, so the
+    declaration is the only part of it the model can actually pin. The widget
+    itself is pinned in launcher/tests/test_settings_editor.py.
+    """
+    field = fs.get("useCalcTheta")
+    assert field.type == "str"
+    assert field.allowed == ("detector_angle", "sample_angle")
+
+
+def test_sample_angle_survives_a_round_trip(tmp_path):
+    seed = tmp_path / "s.json"
+    seed.write_text(json.dumps({"useCalcTheta": "sample_angle"}))
+    doc = SettingsDocument.from_file(seed)
+    assert doc.get("useCalcTheta") == "sample_angle"
+    assert doc.validate() == []
+    out = tmp_path / "out.json"
+    doc.save(out)
+    assert json.loads(out.read_text())["useCalcTheta"] == "sample_angle"
+
+
+def test_the_legacy_true_is_migrated_to_the_reducers_meaning():
+    """The reducer maps True -> detector_angle; reporting it would cry wolf."""
+    doc = SettingsDocument.from_dict({"useCalcTheta": True})
+    assert doc.get("useCalcTheta") == "detector_angle"
+    assert doc.validate() == []
+
+
+def test_the_choice_lists_are_the_reducers_own():
+    """Imported from one definition, not hand-mirrored."""
+    from lr_reduction import reduction_domains
+
+    assert fs.get("useCalcTheta").allowed is reduction_domains.CALC_THETA_CHOICES
+    assert fs.get("method_per_run").allowed is reduction_domains.METHOD_CHOICES
+    assert fs.get("peak_type").allowed is reduction_domains.PEAK_TYPE_CHOICES
+    assert fs.get("DetResFn").allowed is reduction_domains.DET_RES_CHOICES
+
+
+def test_the_reducer_validates_against_the_shared_domains():
+    """Pin the single-sourcing itself: the reducer must not re-declare them."""
+    import inspect
+
+    from lr_reduction import nr_reduction_calc
+
+    source = inspect.getsource(nr_reduction_calc.NR_Reduction._validate_config)
+    assert "domains.METHOD_CHOICES" in source
+    assert "domains.CALC_THETA_CHOICES" in source
+    assert "'meantheta'" not in source
+
+
+# --------------------------------------------------------------------------
+# C6 — the interface T3 consumes
+# --------------------------------------------------------------------------
+
+
+def test_overrides_reports_only_what_this_layer_contributes():
+    doc = SettingsDocument()
+    assert doc.overrides() == {}
+    doc.set("Sname", "mine")
+    assert doc.overrides() == {"Sname": "mine"}
+
+
+def test_field_default_is_never_the_shared_object():
+    """frozen=True freezes the binding, not the list behind it."""
+    field = fs.get("method_per_run")
+    borrowed = field.default_value()
+    borrowed.append("meanTheta")
+    assert field.default_value() == []
+
+
+def test_every_declared_type_is_in_the_vocabulary():
+    """A typo like "flaot" would silently yield an uncoerced text box."""
+    assert {f.type for f in fs.FIELD_SPEC} <= set(fs.TYPES)
+
+
+def test_field_names_are_unique():
+    assert len(fs.BY_NAME) == len(fs.FIELD_SPEC)
+
+
+# --------------------------------------------------------------------------
+# Validation must not cry wolf
+# --------------------------------------------------------------------------
+
+
+def test_a_valid_three_angle_document_reports_no_problems():
+    """Six of the nine problems v1 reported on a valid file were false.
+
+    `RBnum` is runtime-owned and the five `default_if_empty` arrays are filled
+    in by the reducer when empty. A panel that cries wolf on a good file teaches
+    the scientist to ignore it, which is how a real problem goes unread.
+    """
+    # Loaded, NOT built with add_angle: the auto-defaulted arrays have to be
+    # genuinely ABSENT for the exemption to be exercised. Growing them with
+    # add_angle gives every column length 3, so the earlier version of this test
+    # passed with the exemption disabled — it never reached it.
+    doc = SettingsDocument.from_dict(
+        {
+            "DBname": ["db_0.dat", "db_1.dat", "db_2.dat"],
+            "RB_Ymin": [100, 100, 100],
+            "RB_Ymax": [150, 150, 150],
+            "method_per_run": ["meanTheta"],
+            # Supplied because it genuinely IS required per angle — the reducer
+            # does not auto-default it and web_report indexes it directly
+            # (BkgROI[idx]). validate() reporting an empty one for 3 angles is a
+            # TRUE positive, so this test supplies it rather than adding an
+            # exemption to make itself pass.
+            "BkgROI": [[10, 20, 30, 40]] * 3,
+        }
+    )
+    assert doc.n_angles == 3
+    # The five the reducer fills in when empty, plus runtime-owned RBnum, are
+    # the ones that must stay silent.
+    assert doc.get("useBS") == []
+    assert doc.get("ThetaShift") == []
+    assert doc.get("RBnum") == []
+    assert doc.validate() == []
+
+
+def test_an_emptied_optional_list_returns_to_derive_from_choppers():
+    """Otherwise touching one Lambda cell is a one-way door."""
+    doc = SettingsDocument()
+    doc.add_angle()
+    doc.set_angle_field(0, "LambdaMin", 2.5)
+    assert doc.get("LambdaMin") == [2.5]
+    doc.set_angle_field(0, "LambdaMin", None)
+    assert doc.get("LambdaMin") is None
+
+
+@pytest.mark.parametrize(
+    "name, value",
+    [
+        pytest.param("experiment_id", "/etc/passwd", id="absolute-path"),
+        pytest.param("_Spath_override", "../../elsewhere", id="parent-traversal"),
+        pytest.param("Sname", "../../../.bashrc", id="separator-in-a-file-name"),
+    ],
+)
+def test_a_path_that_escapes_the_experiment_directory_is_reported(name, value):
+    """These are joined verbatim into the output location by save_reduced_data."""
+    doc = SettingsDocument()
+    doc.set(name, value)
+    assert any(name in message for message in doc.validate())
+
+
+def test_the_model_pulls_no_qt_into_a_fresh_interpreter():
+    """The property T3 depends on, asserted at the level it actually holds.
+
+    The AST guard above is correct for what it names — this file's own import
+    statements — but it cannot see a TRANSITIVE one. Adding
+    `from launcher.app_identity import ensure_identity` to settings_document
+    keeps every AST check passing while genuinely loading PyQt5.QtCore.
+
+    A subprocess is the only honest test: this session's other tests import Qt,
+    so `sys.modules` in-process proves nothing.
+    """
+    program = textwrap.dedent(
+        """
+        import sys
+        from lr_reduction import field_spec, settings_document
+        qt = sorted(m for m in sys.modules
+                    if m.split(".")[0] in {"qtpy", "PyQt5", "PyQt6", "PySide2", "PySide6"})
+        assert not qt, f"model imports pulled in Qt: {qt}"
+        doc = settings_document.SettingsDocument()
+        doc.add_angle(DBname="a.dat")
+        assert doc.n_angles == 1
+        assert doc.validate() == []
+        print("clean")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", program],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "clean" in result.stdout

@@ -32,16 +32,29 @@ The user-facing name lives in ``Field.label``.
 must exclude it.
 """
 
+import posixpath
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
-# Mirrors the validated set at nr_reduction_calc.py:84, which is matched AFTER
-# lowercasing (:81) — so comparison here is case-insensitive too. The canonical
-# spellings below are what the examples and templates use.
-METHOD_CHOICES = ("meanTheta", "constantQ", "constantTOF")
+from lr_reduction.reduction_domains import (
+    CALC_THETA_CHOICES,
+    DET_RES_CHOICES,
+    METHOD_CHOICES,
+    PEAK_TYPE_CHOICES,
+)
 
-DET_RES_CHOICES = ("rectangular", "gaussian")
-PEAK_TYPE_CHOICES = ("gauss", "supergauss")
+# Re-exported from the single source, not mirrored here. These used to be
+# hand-copies of bare local lists inside nr_reduction_calc — a copy waiting to
+# drift, where the editor would go on offering a value the reducer had stopped
+# accepting. reduction_domains is now the one definition and the reducer derives
+# its validation lists from it, so drift is structurally impossible rather than
+# merely tested for.
+__all__ = [
+    "CALC_THETA_CHOICES", "DET_RES_CHOICES", "METHOD_CHOICES", "PEAK_TYPE_CHOICES",
+    "Field", "FIELD_SPEC", "BY_NAME", "PER_ANGLE_NAMES", "OPTIONAL_LIST_NAMES",
+    "RUNTIME_OWNED_NAMES", "DEFAULT_IF_EMPTY_NAMES", "GROUPS", "TYPES",
+    "get", "fields_in",
+]
 
 
 @dataclass(frozen=True)
@@ -95,12 +108,204 @@ class Field:
     broadcast_ok: bool = False
     optional_list: bool = False
     runtime_owned: bool = False
+    default_if_empty: bool = False
+    no_separators: bool = False
+    falsy_means_off: bool = False
+
+    # -- type vocabulary ------------------------------------------------
+
+    @property
+    def element_type(self):
+        """Type of ONE entry of a list field; the field's own type otherwise.
+
+        Strips a single level, so ``list[list[int]]`` yields ``list[int]`` —
+        one ``BkgROI`` entry really is a list of pixel bounds.
+        """
+        if self.type.startswith("list[") and self.type.endswith("]"):
+            return self.type[len("list[") : -1]
+        return self.type
+
+    @property
+    def is_list(self):
+        return self.type.startswith("list[")
+
+    def default_value(self):
+        """A copy of the default, never the shared object.
+
+        ``frozen=True`` freezes the binding, not the list behind it. A caller
+        that mutated ``field.default`` in place would corrupt this table for
+        every consumer in the process — and a resolution stack *starts* from
+        defaults, so the first such caller is likely rather than hypothetical.
+        """
+        if isinstance(self.default, list):
+            return [list(e) if isinstance(e, list) else e for e in self.default]
+        return self.default
+
+    # -- text -> value ---------------------------------------------------
+
+    def coerce_element(self, text):
+        """Coerce the text of ONE entry (a table cell) to this field's element type."""
+        return _coerce_typed(text, self.element_type)
+
+    def coerce(self, text):
+        """Coerce the text of a whole field value to its declared type.
+
+        A list field parses a comma- or whitespace-separated sequence, which is
+        what a single-line editor for ``data_x_range`` or
+        ``emission_coefficients`` actually receives.
+        """
+        if isinstance(text, str) and self.is_list:
+            stripped = text.strip()
+            if stripped == "":
+                return None
+            parts = [part for part in stripped.replace(",", " ").split() if part]
+            return [_coerce_typed(part, self.element_type) for part in parts]
+        return _coerce_typed(text, self.type)
+
+    # -- value -> problem ------------------------------------------------
+
+    def check(self, value, where=""):
+        """Return a problem with ``value``, or ``""``.
+
+        ``None`` is "not filled in yet", which an editor has to be able to
+        hold, so it is never reported here.
+        """
+        if value is None:
+            return ""
+        if self.is_list:
+            if not isinstance(value, (list, tuple)):
+                return (
+                    f"{self.label} ({self.name}){where}: expected a list of "
+                    f"{self.element_type}, got {type(value).__name__} {value!r}"
+                )
+            return ""
+        return self.check_element(value, where)
+
+    def check_element(self, value, where=""):
+        """Return a problem with one entry, or with a scalar; or ``""``."""
+        if value is None:
+            return ""
+        # Tri-state: a falsy value means "off", and only a truthy one has to be
+        # in the allowed set. useCalcTheta is the case — the reducer skips the
+        # whole block when it is falsy, and False is the class default, so a
+        # fresh document must not report a problem.
+        if self.falsy_means_off and not value:
+            return ""
+        if self.allowed:
+            if str(value).lower() not in {str(a).lower() for a in self.allowed}:
+                return (
+                    f"{self.label} ({self.name}){where}: {value!r} is not one of "
+                    f"{', '.join(str(a) for a in self.allowed)}"
+                )
+            return ""
+        expected = self.element_type
+        problem = _type_problem(value, expected)
+        if problem:
+            return f"{self.label} ({self.name}){where}: {problem}"
+        if expected == "path":
+            problem = _path_problem(value)
+            if problem:
+                return f"{self.label} ({self.name}){where}: {problem}"
+        if self.no_separators and isinstance(value, str) and ("/" in value or "\\" in value):
+            return (
+                f"{self.label} ({self.name}){where}: {value!r} contains a path separator; "
+                f"it names a file, not a location"
+            )
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return ""
+        if self.minimum is not None and value < self.minimum:
+            return f"{self.label} ({self.name}){where}: {value} is below {self.minimum}"
+        if self.maximum is not None and value > self.maximum:
+            return f"{self.label} ({self.name}){where}: {value} is above {self.maximum}"
+        return ""
 
 
+#: Every type string a Field may declare. Asserted below, so a typo like
+#: "flaot" fails at import rather than silently producing an unvalidated,
+#: uncoerced text box — which is the premise the v1 coercion bug rested on.
 TYPES = (
     "str", "int", "float", "bool", "path",
     "list[str]", "list[int]", "list[float]", "list[bool]", "list[list[int]]",
 )
+
+# Accepted spellings for a boolean in text. Never bool(text): bool("False") is
+# True, which is how a scientist who turned background subtraction OFF got it
+# applied anyway.
+_TRUE = {"true", "1", "yes", "on", "t", "y"}
+_FALSE = {"false", "0", "no", "off", "f", "n"}
+
+
+def _coerce_typed(text, type_name):
+    """Coerce one piece of text to ``type_name``. Empty means unset (``None``).
+
+    A value that cannot be coerced is returned unchanged rather than raised on:
+    the editor must be able to hold what the user typed, and ``check()`` is what
+    reports it. Raising here would abort a Qt slot.
+    """
+    if not isinstance(text, str):
+        return text
+    stripped = text.strip()
+    if stripped == "":
+        return None
+    if type_name == "bool":
+        lowered = stripped.lower()
+        if lowered in _TRUE:
+            return True
+        if lowered in _FALSE:
+            return False
+        return stripped
+    if type_name == "int":
+        try:
+            return int(stripped)
+        except ValueError:
+            return stripped
+    if type_name == "float":
+        try:
+            return float(stripped)
+        except ValueError:
+            return stripped
+    if type_name.startswith("list["):
+        inner = type_name[len("list[") : -1]
+        parts = [p for p in stripped.replace(",", " ").split() if p]
+        return [_coerce_typed(p, inner) for p in parts]
+    return stripped
+
+
+def _type_problem(value, type_name):
+    """Describe how ``value`` contradicts ``type_name``, or return ``""``."""
+    if type_name == "bool":
+        return "" if isinstance(value, bool) else f"expected true/false, got {value!r}"
+    if type_name == "int":
+        # bool is an int subclass; a checkbox value in an int field is a bug.
+        if isinstance(value, bool) or not isinstance(value, int):
+            return f"expected a whole number, got {type(value).__name__} {value!r}"
+        return ""
+    if type_name == "float":
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return f"expected a number, got {type(value).__name__} {value!r}"
+        return ""
+    if type_name in ("str", "path"):
+        return "" if isinstance(value, str) else f"expected text, got {type(value).__name__} {value!r}"
+    if type_name.startswith("list["):
+        if not isinstance(value, (list, tuple)):
+            return f"expected a list, got {type(value).__name__} {value!r}"
+        return ""
+    return ""
+
+
+def _path_problem(value):
+    """Reject a path that would escape the experiment directory.
+
+    ``experiment_id`` and the path overrides are joined verbatim into the output
+    location (``save_reduced_data.py``), so an absolute path replaces the base
+    entirely and ``..`` walks out of it. Pre-existing in the reduction, but this
+    is the first interface that makes these routinely authorable.
+    """
+    if posixpath.isabs(value) or (len(value) > 1 and value[1] == ":"):
+        return f"{value!r} is an absolute path; give a location inside the experiment directory"
+    if ".." in value.replace("\\", "/").split("/"):
+        return f"{value!r} contains '..', which points outside the experiment directory"
+    return ""
 
 RUNS = "Runs and angles"
 PATHS = "Paths"
@@ -139,11 +344,11 @@ FIELD_SPEC = (
     Field("BkgROI", "Background ROI", BACKGROUND, "list[list[int]]", [],
           "Background region per angle, as pixel bounds.", per_angle=True),
     Field("useBS", "Subtract background", BACKGROUND, "list[bool]", [],
-          "Whether to subtract background at each angle.", per_angle=True),
+          "Whether to subtract background at each angle.", per_angle=True, default_if_empty=True),
     Field("tof_min", "TOF min", WAVELENGTH, "list[float]", [],
-          "Lower time-of-flight bound per angle.", per_angle=True),
+          "Lower time-of-flight bound per angle.", per_angle=True, default_if_empty=True),
     Field("tof_max", "TOF max", WAVELENGTH, "list[float]", [],
-          "Upper time-of-flight bound per angle.", per_angle=True),
+          "Upper time-of-flight bound per angle.", per_angle=True, default_if_empty=True),
     Field("LambdaMin", "Lambda min", WAVELENGTH, "list[float]", None,
           "Lower wavelength bound per angle. Leave unset to derive it from the "
           "chopper ranges; if set, every angle needs a value.",
@@ -153,16 +358,19 @@ FIELD_SPEC = (
           "chopper ranges; if set, every angle needs a value.",
           per_angle=True, optional_list=True),
     Field("ThetaShift", "Theta shift (deg)", THETA, "list[float]", [],
-          "Correction added to the measured theta at each angle.", per_angle=True),
+          "Correction added to the measured theta at each angle.", per_angle=True, default_if_empty=True),
     Field("ScaleFactor", "Scale factor", THETA, "list[float]", [],
           "Multiplier applied to each angle's reflectivity before stitching.",
-          per_angle=True),
+          per_angle=True, default_if_empty=True),
 
     # ---- scalars ---------------------------------------------------------
     Field("Sname", "Output name", NAMING, "str", "reduction_output",
-          "Base name for the reduced output files."),
+          "Base name for the reduced output files.", no_separators=True),
+    # A directory NAME, not a path: it is joined verbatim onto /SNS/REF_L, so
+    # an absolute value replaces the base entirely and a '..' walks out of it.
     Field("experiment_id", "IPTS", NAMING, "str", "",
-          "IPTS identifier. Also the root of every default path."),
+          "IPTS identifier. Also the root of every default path.",
+          no_separators=True),
     Field("subname", "Output subtitle", NAMING, "str", None,
           "Optional subtitle appended to saved file names."),
     Field("DTCsubname", "Dead-time-corrected suffix", NAMING, "str", "_DTC",
@@ -188,8 +396,15 @@ FIELD_SPEC = (
           "Scale reflectivity to 1 over the critical-edge region set by Qnorm."),
     Field("AutoScale", "Auto-scale between angles", PROCESSING, "bool", False,
           "Scale each angle to its neighbour using the overlap region."),
-    Field("useCalcTheta", "Use fitted theta", PROCESSING, "bool", False,
-          "Use the fitted specular peak position for theta, overriding THS/THI."),
+    # NOT a bool, despite the name and the False default. The reducer accepts
+    # 'detector_angle'/'sample_angle' and treats a legacy True as an alias for
+    # the former (nr_reduction_calc, NRReduction.__init__). Declaring it bool
+    # rendered a checkbox that could not express 'sample_angle' at all and
+    # silently downgraded a loaded one on any toggle.
+    Field("useCalcTheta", "Theta source", PROCESSING, "str", False,
+          "Where theta comes from: the detector angle, or the fitted sample "
+          "angle. Leave blank to keep the THS/THI log values.",
+          allowed=CALC_THETA_CHOICES, falsy_means_off=True),
     Field("plotON", "Show plots", PROCESSING, "bool", True,
           "Display plots during reduction. Turn off for batch processing."),
     Field("plotQ4", "Plot as R*Q^4", PROCESSING, "bool", False,
@@ -268,6 +483,13 @@ FIELD_SPEC = (
 
 BY_NAME = {f.name: f for f in FIELD_SPEC}
 
+# Asserted at import. The three FIELD_SPEC<->NRReductionConfig guards live in
+# the tests; these two cannot wait for a test run, because an unknown type
+# string silently degrades a field to an uncoerced, unvalidated text box.
+_unknown_types = sorted({f.type for f in FIELD_SPEC} - set(TYPES))
+assert not _unknown_types, f"FIELD_SPEC declares unknown type(s): {_unknown_types}"
+assert len(BY_NAME) == len(FIELD_SPEC), "duplicate field name in FIELD_SPEC"
+
 #: Storage names of every per-angle field, in FIELD_SPEC order. ``add_angle``
 #: grows all of them together; a field missing from here is a field that
 #: silently ends up a different length from its siblings.
@@ -278,6 +500,12 @@ OPTIONAL_LIST_NAMES = tuple(f.name for f in FIELD_SPEC if f.optional_list)
 
 #: Fields the reduction run fills in, dropped when normalizing for save.
 RUNTIME_OWNED_NAMES = tuple(f.name for f in FIELD_SPEC if f.runtime_owned)
+
+#: Per-angle fields the reducer fills in itself when left empty
+#: (nr_reduction_calc, "Set defaults for optional arrays"). An empty one is a
+#: deliberate "use the default", not a length mismatch to report — reporting it
+#: trains the scientist to ignore the panel, which is how a real problem hides.
+DEFAULT_IF_EMPTY_NAMES = tuple(f.name for f in FIELD_SPEC if f.default_if_empty)
 
 #: Groups in the order the editor should present them.
 GROUPS = tuple(dict.fromkeys(f.group for f in FIELD_SPEC))

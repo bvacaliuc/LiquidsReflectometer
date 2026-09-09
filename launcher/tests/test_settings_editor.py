@@ -22,6 +22,7 @@ from qtpy.QtTest import QTest
 from launcher.app_identity import APP_NAME, ORG_NAME
 from launcher.apps.settings_editor import SettingsEditorTab
 from lr_reduction import field_spec as fs
+from lr_reduction.settings_document import SettingsDocument
 
 pytestmark = pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
 
@@ -180,11 +181,25 @@ def test_a_field_prompt_is_available_for_every_editor():
         assert fs.get(name).help in editor.toolTip()
 
 
-def test_validation_report_names_the_offending_field():
+def test_validation_report_shows_the_validation_message():
+    """Assert the validation LINE, and get there by a gesture.
+
+    The first version asserted only that the field NAME appeared in the report.
+    It does — in the changed-vs-seed section, which prints every edited field —
+    so the test passed with validate() stubbed to return nothing, and even with
+    refresh_report() replaced by a hard-coded string. Asserting the message text
+    and reaching it through a real edit closes both.
+    """
     tab = SettingsEditorTab()
-    tab.document.set("Qline_threshold", 4.0)
-    tab.refresh_report()
-    assert "Qline_threshold" in tab.report.toPlainText()
+    editor = tab.editors["Qline_threshold"]
+    editor.clear()
+    QTest.keyClicks(editor, "4.0")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+
+    text = tab.report.toPlainText()
+    assert "is above 1.0" in text
+    for message in tab.document.validate():
+        assert message in text
 
 
 def test_changed_vs_seed_report_lists_edits():
@@ -211,3 +226,126 @@ def test_the_launcher_carries_the_tab():
     titles = [window.tabText(i) for i in range(window.count())]
     assert "Settings editor" in titles
     assert isinstance(window.settings_editor_tab, SettingsEditorTab)
+
+
+# --------------------------------------------------------------------------
+# C1 — no gesture may abort the process
+# --------------------------------------------------------------------------
+
+
+def test_editing_a_short_per_angle_column_does_not_raise():
+    """An IndexError here reaches qFatal() and takes every tab down with it."""
+    tab = SettingsEditorTab()
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    tab.document.set("DBname", ["only_one.dat"])
+    tab.refresh_angles()
+
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    tab.angle_table.item(1, column).setText("second.dat")
+
+    assert tab.document.get("DBname") == ["only_one.dat", "second.dat"]
+
+
+def test_a_malformed_settings_file_is_reported_not_fatal(tmp_path, monkeypatch):
+    """`{"tof_min": 5}` used to raise TypeError out of the slot."""
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"tof_min": 5}))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *_a, **_k: (str(bad), "")),
+    )
+    tab = SettingsEditorTab()
+    tab.load_settings()
+    assert "tof_min" in tab.report.toPlainText()
+
+
+def test_a_slot_that_raises_reports_into_the_panel(monkeypatch):
+    tab = SettingsEditorTab()
+
+    def explode(*_a, **_k):
+        raise RuntimeError("synthetic slot failure")
+
+    monkeypatch.setattr(tab.document, "add_angle", explode)
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    assert "synthetic slot failure" in tab.report.toPlainText()
+
+
+# --------------------------------------------------------------------------
+# C2 — a cell edit must reach the document as the declared type
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name, typed, expected",
+    [
+        pytest.param("RB_Ymin", "150", 150, id="int-cell"),
+        pytest.param("useBS", "False", False, id="bool-cell"),
+        pytest.param("tof_min", "1.5", 1.5, id="float-cell"),
+    ],
+)
+def test_a_table_edit_stores_the_declared_type(name, typed, expected):
+    tab = SettingsEditorTab()
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    column = fs.PER_ANGLE_NAMES.index(name)
+    tab.angle_table.item(0, column).setText(typed)
+    stored = tab.document.get(name)[0]
+    assert stored == expected
+    assert type(stored) is type(expected)
+
+
+def test_a_scalar_list_edit_stores_a_list():
+    tab = SettingsEditorTab()
+    editor = tab.editors["data_x_range"]
+    editor.clear()
+    QTest.keyClicks(editor, "60, 210")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+    assert tab.document.get("data_x_range") == [60, 210]
+
+
+# --------------------------------------------------------------------------
+# C5 / C6 / should-fixes
+# --------------------------------------------------------------------------
+
+
+def test_theta_source_is_a_choice_not_a_checkbox():
+    tab = SettingsEditorTab()
+    editor = tab.editors["useCalcTheta"]
+    assert isinstance(editor, QtWidgets.QComboBox)
+    editor.setCurrentText("sample_angle")
+    assert tab.document.get("useCalcTheta") == "sample_angle"
+
+
+def test_a_combo_displays_a_value_outside_its_choices():
+    """Otherwise a stray value looks like a valid one and is saved over."""
+    doc = SettingsDocument.from_dict({"peak_type": "sombrero"})
+    tab = SettingsEditorTab(document=doc)
+    assert tab.editors["peak_type"].currentText() == "sombrero"
+    assert any("peak_type" in m for m in doc.validate())
+
+
+def test_an_injected_document_renders_its_angles():
+    """T3's exact path: __init__ used to render zero rows for a passed document."""
+    doc = SettingsDocument()
+    doc.add_angle(DBname="a.dat")
+    doc.add_angle(DBname="b.dat")
+    tab = SettingsEditorTab(document=doc)
+    assert tab.angle_table.rowCount() == 2
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    assert tab.angle_table.item(1, column).text() == "b.dat"
+
+
+def test_set_document_replaces_everything_shown():
+    tab = SettingsEditorTab()
+    replacement = SettingsDocument()
+    replacement.add_angle(DBname="new.dat")
+    replacement.set("Sname", "replaced")
+    tab.set_document(replacement)
+    assert tab.angle_table.rowCount() == 1
+    assert tab.editors["Sname"].text() == "replaced"
+
+
+def test_table_sorting_is_disabled():
+    """One sortItems() decouples visual row order from document index."""
+    tab = SettingsEditorTab()
+    assert tab.angle_table.isSortingEnabled() is False

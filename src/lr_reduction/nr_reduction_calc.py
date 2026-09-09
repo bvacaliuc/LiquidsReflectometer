@@ -14,6 +14,7 @@ from scipy.ndimage import gaussian_filter1d, uniform_filter1d
 
 import lr_reduction.binary_processing as BP
 import lr_reduction.nr_tools as tools
+import lr_reduction.reduction_domains as domains
 import lr_reduction.save_reduced_data as save_fn
 from lr_reduction.user_defined_function import UserDefinedFunction
 
@@ -81,13 +82,13 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
         self.config.method_per_run = [method.lower() for method in self.config.method_per_run]  # Ensure methods are lowercase
 
         # Check method of valid format (meanTheta, constantQ, constantTOF)
-        valid_methods = ['meantheta', 'constantq', 'constanttof']
+        valid_methods = domains.lowered(domains.METHOD_CHOICES)
         for method in self.config.method_per_run:
             if method not in valid_methods:
                 raise ValueError(f"Invalid method: {method}. Use one of {valid_methods}")
 
         # Check method for useCalcTheta and deal with legacy use of "True"
-        valid_calc_theta = ['detector_angle', 'sample_angle']
+        valid_calc_theta = domains.lowered(domains.CALC_THETA_CHOICES)
         if self.config.useCalcTheta:
             if self.config.useCalcTheta is True:
                 self.config.useCalcTheta = 'detector_angle'

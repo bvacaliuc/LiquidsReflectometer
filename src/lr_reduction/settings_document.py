@@ -27,6 +27,8 @@ exempted here rather than "fixed".
 
 import copy
 import json
+import os
+import tempfile
 from pathlib import Path
 
 from lr_reduction import field_spec as fs
@@ -59,7 +61,26 @@ class SettingsDocument:
             config = json_to_config(values)
         except AttributeError as exc:
             raise ValueError(f"Not a valid reduction setting: {exc}") from exc
+        cls._migrate_legacy(config)
         return cls(config)
+
+    @staticmethod
+    def _migrate_legacy(config):
+        """Rewrite values the reducer accepts only as legacy aliases.
+
+        ``useCalcTheta = True`` is the case: the reducer maps it to
+        ``detector_angle`` and then works normally
+        (``nr_reduction_calc``, ``NRReduction.__init__``). Reporting it as a
+        problem would cry wolf on a file that reduces perfectly well; leaving it
+        alone would keep re-saving the deprecated spelling. Migrating it on load
+        does what the reducer would have done, so the panel stays quiet and the
+        file the scientist saves is explicit.
+        """
+        for field in fs.FIELD_SPEC:
+            if not (field.falsy_means_off and field.allowed):
+                continue
+            if getattr(config, field.name, None) is True:
+                setattr(config, field.name, field.allowed[0])
 
     @classmethod
     def from_file(cls, path):
@@ -151,12 +172,28 @@ class SettingsDocument:
         if not field.per_angle:
             raise KeyError(f"{name} is not a per-angle field")
         current = self.get(name)
-        if current is None:
-            current = [None] * self.n_angles
-        if not 0 <= index < len(current):
+        # Pad a None field AND a SHORT one. Only the None case was handled
+        # before, so any per-angle column shorter than n_angles raised
+        # IndexError here — and an unhandled exception in a Qt slot calls
+        # qFatal(), killing the whole launcher. Short columns arise from
+        # ordinary files: the reducer sanctions a length-1 method_per_run, and
+        # normalize() itself drops the runtime-owned RBnum, so the editor's own
+        # save/reload round trip produces one.
+        if current is None or len(current) < self.n_angles:
+            padded = [None] * self.n_angles
+            if current is not None:
+                padded[: len(current)] = list(current)
+            current = padded
+        if not 0 <= index < max(len(current), 1):
             raise IndexError(f"No angle at index {index} (have {len(current)})")
         updated = list(current)
         updated[index] = value
+        field = fs.get(name)
+        # An optional list that is emptied of every value goes back to None —
+        # "derive it from the chopper ranges". Without this, touching one Lambda
+        # cell is a one-way door out of that state for the life of the document.
+        if field.optional_list and all(entry is None for entry in updated):
+            updated = None
         self.set(name, updated)
 
     def angle_row(self, index):
@@ -188,6 +225,13 @@ class SettingsDocument:
             if field.per_angle:
                 if value is None:
                     continue
+                # A wrong TYPE is a problem to report, not a thing to iterate.
+                # validate() used to walk straight into len()/enumerate() on
+                # whatever a settings file happened to contain, so {"tof_min": 5}
+                # raised TypeError out of a Qt slot and aborted the process.
+                if not isinstance(value, (list, tuple)):
+                    messages.append(field.check(value))
+                    continue
                 if field.optional_list and any(entry is None for entry in value):
                     missing = [i for i, entry in enumerate(value) if entry is None]
                     messages.append(
@@ -195,40 +239,40 @@ class SettingsDocument:
                         f"angles {missing}: either give every angle a value or clear "
                         f"the field to derive it from the chopper ranges"
                     )
-                if len(value) != n and not (field.broadcast_ok and len(value) in (0, 1)):
+                if len(value) != n and not self._length_is_allowed(field, len(value)):
                     messages.append(
                         f"{field.label} ({field.name}) has {len(value)} entries "
                         f"for {n} angles"
                     )
                 messages.extend(
-                    self._check_value(field, entry, f" at angle {i}")
+                    field.check_element(entry, f" at angle {i}")
                     for i, entry in enumerate(value)
                     if entry is not None
                 )
-            elif value is not None:
-                messages.append(self._check_value(field, value, ""))
+            else:
+                messages.append(field.check(value))
 
         return [m for m in messages if m]
 
     @staticmethod
-    def _check_value(field, value, where):
-        """Check one value against its allowed set and range. Returns a message or ''."""
-        if field.allowed:
-            # nr_reduction_calc.py:81 lowercases before checking :84, so the
-            # stored spelling need not match the canonical one exactly.
-            if str(value).lower() not in {str(a).lower() for a in field.allowed}:
-                return (
-                    f"{field.label} ({field.name}){where}: {value!r} is not one of "
-                    f"{', '.join(str(a) for a in field.allowed)}"
-                )
-            return ""
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            return ""
-        if field.minimum is not None and value < field.minimum:
-            return f"{field.label} ({field.name}){where}: {value} is below {field.minimum}"
-        if field.maximum is not None and value > field.maximum:
-            return f"{field.label} ({field.name}){where}: {value} is above {field.maximum}"
-        return ""
+    def _length_is_allowed(field, length):
+        """Is a per-angle length that differs from n_angles still legitimate?
+
+        Three ways it can be, all from the reducer rather than from taste:
+        a length-1 ``method_per_run`` is broadcast to every angle; the five
+        ``default_if_empty`` arrays are filled in when left empty; and the
+        runtime-owned ``RBnum`` comes from the runs being reduced, not from the
+        author. Reporting these as problems is not harmless — a panel that
+        cries wolf on a valid file teaches the scientist to ignore it, which is
+        how a real problem goes unread.
+        """
+        if field.runtime_owned:
+            return True
+        if field.default_if_empty and length == 0:
+            return True
+        if field.broadcast_ok and length in (0, 1):
+            return True
+        return False
 
     # -- output ------------------------------------------------------------
 
@@ -246,16 +290,68 @@ class SettingsDocument:
         }
 
     def save(self, path):
-        """Write the full document as a JSON settings file.
+        """Write the full document as a JSON settings file, atomically.
 
         The whole document, not ``normalize()``: this is the scientist's file
         and round-tripping it must not quietly drop fields. Use ``normalize()``
         when handing settings to a reduction.
+
+        Written to a temporary file in the same directory, fsynced, then
+        ``os.replace``d over the target. A plain ``open(path, "w")`` truncates
+        before a single byte is produced, so anything that interrupts the dump —
+        a full IPTS quota, a stalled ``/SNS`` mount, the process dying — leaves
+        the previous good settings destroyed and a partial file in their place.
+        The temp file shares the target's directory so the rename is atomic on
+        that filesystem, and the fsync is not redundant: on NFS and FUSE mounts
+        ``close()`` does not imply durability.
+
+        Refuses to write through a symbolic link. The save dialog's overwrite
+        confirmation names the link, not its target, so following one would
+        overwrite a file the user never saw named.
         """
         path = Path(path)
-        with open(path, "w") as fd:
-            json.dump(make_json_safe(self.to_dict()), fd, indent=2)
+        if path.is_symlink():
+            raise ValueError(
+                f"{path} is a symbolic link to {os.path.realpath(path)}; "
+                f"refusing to write through it — save to the target directly if that is the intent"
+            )
+        payload = json.dumps(make_json_safe(self.to_dict()), indent=2)
+        # mkstemp opens O_CREAT|O_EXCL on a fresh name, so there is no link to
+        # follow and no pre-existing file to clobber.
+        handle_fd, temporary = tempfile.mkstemp(
+            dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(handle_fd, "w") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Explicit, not umask: a settings file is meant to be readable by
+            # collaborators on a shared IPTS directory. Deliberately not 0600.
+            os.chmod(temporary, 0o644)
+            os.replace(temporary, path)
+        except BaseException:
+            try:
+                os.unlink(temporary)
+            except OSError:
+                pass
+            raise
         return path
+
+    def overrides(self):
+        """The fields that differ from a fresh config — what this layer contributes.
+
+        A resolution stack needs each layer's contribution, which is neither
+        ``to_dict()`` (everything, so every layer would override every other)
+        nor ``normalize()`` (everything minus the runtime-owned fields).
+        """
+        defaults = NRReductionConfig().__dict__
+        current = self.to_dict()
+        return {
+            key: value
+            for key, value in current.items()
+            if key not in defaults or value != defaults[key]
+        }
 
     def changed_vs_seed(self):
         """``{name: (seed_value, current_value)}`` for every field that moved."""
