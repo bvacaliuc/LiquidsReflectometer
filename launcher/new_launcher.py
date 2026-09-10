@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 import sys
 
-from qtpy.QtWidgets import QApplication, QGridLayout, QTabWidget, QWidget
+from qtpy.QtWidgets import QApplication, QGridLayout, QMainWindow, QTabWidget, QWidget
 
 from launcher.app_identity import ensure_identity, migrate_legacy_settings
 from launcher.apps.direct_beam import DirectBeamTab
 from launcher.apps.file_batch import FileBatchTab
+from launcher.apps.global_settings import GlobalSettingsDialog
 from launcher.apps.overplot import Overplot
 from launcher.apps.settings_editor import SettingsEditorTab
 from launcher.apps.sld_calculator import SLD
@@ -65,6 +66,31 @@ class ReductionInterface(QTabWidget):
         #self.addTab(self.template_batch_tab, "Batch template")
         #self.setTabText(tab_id, "Batch template")
 
+class LauncherWindow(QMainWindow):
+    """Menu bar around the tab widget.
+
+    ReductionInterface stays a QTabWidget: it is what the tests construct, and
+    turning it into a QMainWindow to hang one menu off would change the shape
+    every existing caller depends on. The shell is additive instead.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("New Reflectometry Launcher")
+        self.tabs = ReductionInterface()
+        self.setCentralWidget(self.tabs)
+
+        settings_menu = self.menuBar().addMenu("&Settings")
+        self.global_settings_action = settings_menu.addAction("&Global reduction settings...")
+        self.global_settings_action.setStatusTip(
+            "Your personal defaults, applied to every experiment unless something more specific overrides them"
+        )
+        self.global_settings_action.triggered.connect(self.open_global_settings)
+
+    def open_global_settings(self):
+        GlobalSettingsDialog(self).exec_()
+
+
 # referenced by pyproject.toml, part of the GUI system
 def main():
     # One QSettings identity for every layer of the launcher, established
@@ -73,7 +99,7 @@ def main():
     ensure_identity()
     migrate_legacy_settings()
     app = QApplication([])
-    window = ReductionInterface()
+    window = LauncherWindow()
     window.show()
     sys.exit(app.exec_())
 

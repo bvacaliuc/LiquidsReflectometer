@@ -69,6 +69,8 @@ class SettingsEditorTab(QtWidgets.QWidget):
         self.document = document if document is not None else SettingsDocument()
         self.settings = QtCore.QSettings()
         self.editors = {}
+        self.badges = {}
+        self.provenance = {}
         # Guards the table's cellChanged signal while the view writes into it,
         # so repopulating from the document does not echo back as user edits.
         self._populating = False
@@ -160,7 +162,16 @@ class SettingsEditorTab(QtWidgets.QWidget):
                 editor = self._build_editor(field)
                 editor.setToolTip(f"{field.name} — {field.help}")
                 self.editors[field.name] = editor
-                grid.addRow(field.label, editor)
+                badge = QtWidgets.QLabel("")
+                badge.setEnabled(False)
+                self.badges[field.name] = badge
+                row = QtWidgets.QWidget()
+                row_layout = QtWidgets.QHBoxLayout()
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row.setLayout(row_layout)
+                row_layout.addWidget(editor, 1)
+                row_layout.addWidget(badge)
+                grid.addRow(field.label, row)
             column.addWidget(box)
 
         column.addStretch(1)
@@ -338,6 +349,50 @@ class SettingsEditorTab(QtWidgets.QWidget):
     # -- refresh -----------------------------------------------------------
 
     @guarded
+    def set_resolution(self, document, provenance):
+        """Adopt a resolved document together with the origins it came from.
+
+        One call, because the badge must describe the value beside it. Setting
+        them separately is how a display and the thing it describes drift — the
+        defect that cost this slug three rejections in its own render paths, and
+        the reason the resolver returns both from a single walk.
+        """
+        self.provenance = dict(provenance)
+        self.set_document(document)
+
+    def refresh_badges(self):
+        """Show where each value came from, reading the resolver's own record.
+
+        Never a re-derivation: the badge reports the `Resolved` the document was
+        built from, so it cannot claim a different origin than the one that won.
+        """
+        # Per-angle fields resolve as a whole array from one layer, so their
+        # provenance belongs on the column header, not on each cell. Inventing a
+        # per-cell origin would be a re-derivation of something the resolver
+        # never produced.
+        for column, name in enumerate(fs.PER_ANGLE_NAMES):
+            header = self.angle_table.horizontalHeaderItem(column)
+            if header is None:
+                continue
+            field = fs.get(name)
+            resolved = self.provenance.get(name)
+            if resolved is None:
+                header.setText(field.label)
+                header.setToolTip(field.help)
+            else:
+                header.setText(f"{field.label} [{resolved.source_layer}]")
+                header.setToolTip(f"{field.help}\n\nValue came from: {resolved.label}")
+
+        for name, badge in self.badges.items():
+            resolved = self.provenance.get(name)
+            if resolved is None:
+                badge.setText("")
+                badge.setToolTip("")
+                continue
+            badge.setText(f"[{resolved.source_layer}]")
+            badge.setToolTip(f"Value came from: {resolved.label}")
+
+    @guarded
     def set_document(self, document):
         """Adopt a document and render all of it.
 
@@ -347,6 +402,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         self.document = document
         self.refresh_angles()
         self.refresh_scalars()
+        self.refresh_badges()
         self.refresh_report()
 
     def report_problem(self, exc):
