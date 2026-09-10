@@ -16,7 +16,7 @@ delivered whitelist is derived by field *group* and includes the whole
 instrument-geometry group.
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph LAYERS["resolve(name): first hit wins"]
         direction TB
         A["(a) QSettings preference"]
@@ -100,7 +100,7 @@ JSON at the top level, at whatever path it is given. Every reader of that
 format validates keys against the config class and raises on an unknown one.
 
 ```mermaid
-flowchart TD
+flowchart LR
     subgraph WRITE["save_resolution(path, document, provenance)"]
         direction TB
         W1["normalize() settings"]
