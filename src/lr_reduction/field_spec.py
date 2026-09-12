@@ -363,6 +363,31 @@ def _coerce_typed(text, type_name):
     return stripped
 
 
+def refusals(values):
+    """Reasons a mapping of field values must not be written to disk.
+
+    **One gate, every door.** The preference dialog checked its values and the
+    editor's Save did not, so `dqbin=0` — which the bounds exist to stop, because
+    it overflows downstream — could be written straight into the
+    `shared/autoreduce` file autoreduction reads. Two doors into one rule with
+    one of them guarded is the granularity defect that has now recurred three
+    times in this slug; this is the shared door.
+
+    Unknown names are ignored rather than reported: a settings file may
+    legitimately carry keys this version does not know, and refusing to save
+    because of one would be worse than the problem.
+    """
+    problems = []
+    for name, value in values.items():
+        field = BY_NAME.get(name)
+        if field is None:
+            continue
+        problem = field.check(value)
+        if problem:
+            problems.append(problem)
+    return problems
+
+
 def render_value(value):
     """Render a stored value as editor text — the exact inverse of `_coerce_typed`.
 
@@ -546,9 +571,9 @@ FIELD_SPEC = (
           "Apply the moderator emission-time correction."),
 
     Field("qmin", "Q min", QSPACE, "float", 0.001,
-          "Lower edge of the output Q range.", minimum=0.0),
+          "Lower edge of the output Q range.", exclusive_minimum=0.0),
     Field("qmax", "Q max", QSPACE, "float", 0.5,
-          "Upper edge of the output Q range.", minimum=0.0),
+          "Upper edge of the output Q range.", exclusive_minimum=0.0),
     Field("dqbin", "Q bin width", QSPACE, "float", 0.005,
           "Width of the output Q bins.", exclusive_minimum=0.0),
     Field("Qline_threshold", "Q-line threshold", QSPACE, "float", 1.0,
@@ -561,22 +586,28 @@ FIELD_SPEC = (
           "Width of the time-of-flight bins.", exclusive_minimum=0.0),
 
     Field("mmpix", "Pixel size (mm)", GEOMETRY, "float", None,
-          "Detector pixel size. Unset reads it from the instrument settings."),
+          "Detector pixel size. Unset reads it from the instrument settings.",
+          exclusive_minimum=0.0),
     Field("dSampDet", "Sample-detector distance", GEOMETRY, "float", None,
-          "Unset reads it from the instrument settings."),
+          "Unset reads it from the instrument settings.",
+          exclusive_minimum=0.0),
     Field("ny", "Vertical pixels", GEOMETRY, "int", None,
-          "Number of pixels in Y. Unset reads it from the instrument settings."),
+          "Number of pixels in Y. Unset reads it from the instrument settings.",
+          exclusive_minimum=0.0),
     # The source comments both ny and nx as "number of vertical pixels"; nx is
     # the horizontal count. Described correctly here rather than copying the
     # slip into the scientist-facing prompt.
     Field("nx", "Horizontal pixels", GEOMETRY, "int", None,
-          "Number of pixels in X. Unset reads it from the instrument settings."),
+          "Number of pixels in X. Unset reads it from the instrument settings.",
+          exclusive_minimum=0.0),
     Field("dMod", "Moderator-detector distance", GEOMETRY, "float", None,
-          "Unset reads it from the instrument settings."),
+          "Unset reads it from the instrument settings.",
+          exclusive_minimum=0.0),
     Field("xi_ref", "xi reference distance", GEOMETRY, "float", None,
           "Distance defining xi = 0. Unset reads it from the instrument settings."),
     Field("dS1Samp", "S1-sample distance", GEOMETRY, "float", None,
-          "Unset reads it from the instrument settings."),
+          "Unset reads it from the instrument settings.",
+          exclusive_minimum=0.0),
     Field("IncidentTheta", "Incident theta (deg)", GEOMETRY, "float", None,
           "Beamline angle relative to earth, positive downwards. Unset reads "
           "the PV, falling back to 4.0 for older runs."),

@@ -813,6 +813,10 @@ def _synthetic(**overrides):
         pytest.param(_synthetic(per_angle=True), "per_angle", id="per-angle-clause"),
         pytest.param(_synthetic(type="str"), "free-text str", id="free-text-clause"),
         pytest.param(_synthetic(group=fs.GEOMETRY), "excluded group", id="excluded-group-clause"),
+        # Only the in-GLOBAL_GROUPS clause rejects this one: it is numeric (so
+        # not the free-text clause), scalar, not runtime-owned and not a path.
+        # Without it the other five leave a naming field admitted.
+        pytest.param(_synthetic(group=fs.NAMING), "not in GLOBAL_GROUPS", id="not-in-groups-clause"),
     ],
 )
 def test_each_whitelist_clause_rejects_in_isolation(field, clause):
@@ -901,3 +905,150 @@ def test_a_non_finite_or_zero_bin_width_is_rejected(value, why):
     the q-vector silently.
     """
     assert fs.get("dqbin").check_element(value), why
+
+
+# --------------------------------------------------------------------------
+# v4 — C1: the exception set is wider than OSError, at every site
+# --------------------------------------------------------------------------
+
+
+def test_a_symlink_loop_in_the_facility_root_degrades(tmp_path):
+    """`Path.resolve()` raises RuntimeError on ELOOP, not OSError.
+
+    An sshfs `/SNS` tree produces one without anyone doing anything unusual, and
+    catching only OSError meant the launcher survived solely because the worker
+    catches BaseException — every non-GUI caller got the raise.
+    """
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    ctx = discover_ipts_settings("IPTS-1", root=str(loop))
+    assert ctx.json_settings == {}
+    assert ctx.discovery_status
+    # And resolution still completes from the remaining layers.
+    document, provenance = SettingsResolver(ctx).resolve_all()
+    assert provenance["qmax"].source_layer == "f"
+    assert document.get("qmax") == fs.get("qmax").default
+
+
+def test_a_symlink_loop_in_the_experiment_path_degrades(tmp_path):
+    """The second resolve() site, which survived unwrapping."""
+    ipts_dir = tmp_path / "IPTS-2"
+    ipts_dir.mkdir()
+    loop = ipts_dir / "shared"
+    loop.symlink_to(loop)
+    ctx = discover_ipts_settings("IPTS-2", root=str(tmp_path))
+    assert ctx.json_settings == {}
+    assert ctx.discovery_status
+
+
+def test_a_nul_byte_in_the_ipts_degrades(tmp_path):
+    """ValueError, not OSError."""
+    ctx = discover_ipts_settings("IPTS-\x00-1", root=str(tmp_path))
+    assert ctx.json_settings == {}
+    assert ctx.discovery_status
+
+
+# --------------------------------------------------------------------------
+# C2: a failed read must not be reported as an absent file
+# --------------------------------------------------------------------------
+
+
+def test_a_denied_share_says_why_and_does_not_claim_the_file_is_absent(experiment_tree):
+    """`_guarded_step` returned None for both "raised" and "found nothing".
+
+    So after a chmod 000 the status ended with a flat "no reduce_settings*.json"
+    — a confident falsehood the scientist acts on, reducing from defaults while
+    believing the experiment simply had no settings file.
+    """
+    autoreduce = experiment_tree / "IPTS-30101" / "shared" / "autoreduce"
+    original = autoreduce.stat().st_mode
+    os.chmod(autoreduce, 0o000)
+    try:
+        if os.access(autoreduce, os.R_OK):
+            pytest.skip("running with rights that ignore the mode bits")
+        ctx = discover_ipts_settings("IPTS-30101", root=str(experiment_tree))
+        assert "no reduce_settings*.json" not in ctx.discovery_status
+        assert "no template*.xml" not in ctx.discovery_status
+        # The errno text, not merely truthiness.
+        assert "Permission denied" in ctx.discovery_status
+    finally:
+        os.chmod(autoreduce, original)
+
+
+# --------------------------------------------------------------------------
+# C7: pin the excluded-group clause by making it the only thing standing
+# --------------------------------------------------------------------------
+
+
+def test_the_geometry_exclusion_holds_even_if_the_group_is_included(monkeypatch):
+    """The clause carrying the human's decision was unreachable as written.
+
+    `GLOBAL_EXCLUDED_GROUPS = (GEOMETRY,)` while `GEOMETRY` is not in
+    `GLOBAL_GROUPS`, so the exclusion actually rode the *other* clause and
+    deleting the explicit one was green. Adding GEOMETRY to the included groups
+    makes the exclusion the only thing between a measurement and the preference
+    layer — which is the property the human decided.
+    """
+    import lr_reduction.settings_resolver as module
+
+    monkeypatch.setattr(
+        module, "GLOBAL_GROUPS", tuple(module.GLOBAL_GROUPS) + (fs.GEOMETRY,)
+    )
+    assert not module._may_be_a_preference(fs.get("IncidentTheta"))
+    assert not module._may_be_a_preference(fs.get("dSampDet"))
+    # And a non-geometry field in an included group is still admitted.
+    assert module._may_be_a_preference(fs.get("qmax"))
+
+
+# --------------------------------------------------------------------------
+# C8: add_angle is guarded and transactional
+# --------------------------------------------------------------------------
+
+
+def test_add_angle_refuses_a_scalar_per_angle_value_and_changes_nothing():
+    """Two clicks from a real file shape, and it left a ragged document.
+
+    The raise escaped mid-loop, so some columns had grown and some had not, the
+    new angle was invisible, and the panel's "unchanged" claim was false over a
+    document that had changed — and could then be saved.
+    """
+    from lr_reduction.settings_document import SettingsDocument
+
+    document = SettingsDocument.from_dict({"DBname": ["a.dat"], "tof_min": 5.0})
+    before = dict(document.to_dict())
+    with pytest.raises(TypeError, match="tof_min"):
+        document.add_angle()
+    assert document.to_dict() == before
+    assert document.n_angles == 1
+
+
+# --------------------------------------------------------------------------
+# The divisors that reach layer (a)
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "name", ["qmin", "qmax", "mmpix", "dSampDet", "dMod", "dS1Samp", "nx", "ny"]
+)
+@pytest.mark.parametrize("value", [0, -1.0])
+def test_a_divisor_rejects_zero_and_negative(name, value):
+    """Every one of these divides, and v3 fixed only the non-finite half.
+
+    `qmin` is the denominator in `log_qvector`; `dSampDet=0` is a
+    ZeroDivisionError in the reduction; a negative geometry silently mirrors it.
+    """
+    assert fs.get(name).check_element(value)
+
+
+# --------------------------------------------------------------------------
+# C5: one gate, both doors
+# --------------------------------------------------------------------------
+
+
+def test_the_shared_refusal_gate_reports_an_invalid_divisor():
+    assert any("dqbin" in problem for problem in fs.refusals({"dqbin": 0.0}))
+
+
+def test_the_shared_refusal_gate_ignores_unknown_keys():
+    """A settings file may carry keys this version does not know."""
+    assert fs.refusals({"a_field_from_the_future": 1}) == []

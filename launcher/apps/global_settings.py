@@ -206,11 +206,11 @@ class GlobalSettingsDialog(QtWidgets.QDialog):
         """
         try:
             values = self.values()
-            problems = [
-                problem
-                for problem in (fs.get(name).check(value) for name, value in values.items())
-                if problem
-            ]
+            # fs.refusals, the SAME gate the editor's Save uses. Two doors into
+            # one rule with only one of them guarded is the granularity defect
+            # this slug has now paid for three times; a second per-site copy
+            # here would be the fourth.
+            problems = fs.refusals(values)
             if problems:
                 QtWidgets.QMessageBox.warning(
                     self, "Cannot save", "\n".join(problems)

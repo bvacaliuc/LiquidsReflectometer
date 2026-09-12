@@ -81,6 +81,20 @@ LAYER_ORDER = ("b", "c", "d", "a", "e", "f")
 #: Layers a *person* set deliberately, as opposed to inherited or derived.
 HUMAN_LAYERS = ("a", "b")
 
+#: A value that was recorded as someone's run-level choice but is **not
+#: authoritative now** — read from a sidecar written for a previous run, or
+#: implied by a structural change rather than typed.
+#:
+#: It exists because three separate fixes composed into a science regression:
+#: the sidecar read populated `provenance`, `_pre_resolve_overrides` turned a
+#: recorded origin into authority, and `resolve()` gates only layer (a) on the
+#: whitelist. So a geometry value — from the group excluded from (a) precisely
+#: so *a preference can never override a measurement* — arrived at layer (b)
+#: and outranked both the experiment file and the measurement, with nobody
+#: typing anything. Marking it keeps the badge truthful without granting it
+#: authority: it is displayed, and it never enters `ui_overrides`.
+PREVIOUS_RUN_LAYER = "b*"
+
 #: Layers `discover_ipts_settings` can populate today. (d) is declared in the
 #: taxonomy and honoured by `resolve()` when a caller supplies `xml_settings`,
 #: but nothing populates it automatically yet — mapping a template's vocabulary
@@ -94,6 +108,7 @@ DISCOVERY_LAYERS = ("c",)
 LAYER_LABELS = {
     "a": "user preference",
     "b": "set for this run",
+    "b*": "set for a previous run (not applied)",
     "c": "experiment settings file",
     "d": "experiment template",
     "e": "measured from the data",
@@ -150,7 +165,9 @@ def _may_be_a_preference(field):
         return False
     if field.group not in GLOBAL_GROUPS:
         return False
-    if field.per_angle or field.runtime_owned:
+    if field.per_angle:
+        return False
+    if field.runtime_owned:
         return False
     if field.type == "path":
         return False
@@ -402,24 +419,38 @@ def _read_json(path):
     return payload
 
 
+#: Returned by :func:`_guarded_step` when the step *failed*, as opposed to
+#: succeeding and finding nothing. The two were both ``None``, so after a
+#: permission-denied share the caller appended "no reduce_settings*.json" as the
+#: last word — a persistent falsehood the scientist then acts on, reducing from
+#: defaults while believing the experiment simply had no settings file.
+_FAILED = object()
+
+
 def _guarded_step(notes, description, action):
-    """Run one filesystem step; record an I/O failure instead of raising.
+    """Run one filesystem step; record the failure instead of raising.
 
     **One guard, every step.** Discovery previously wrapped two of its three
     filesystem touches and left the third bare, so the module's headline promise
     — never take the launcher down when the mount is unavailable, and record why
-    — was not delivered for the one that mattered: `is_dir()` succeeds on a
-    `chmod 000` share, so the *tested* guard never fired while the untested
-    `exists()` beneath `select_by_geometry` raised straight through the slot.
+    — was not delivered for the one that mattered.
 
-    Wrapping each site separately would have been three copies of one rule, and
-    the third is always the one that gets forgotten.
+    **The exception set is wider than OSError, because the filesystem is.**
+    ``Path.resolve()`` raises ``RuntimeError`` on a symlink loop (ELOOP), which
+    an sshfs ``/SNS`` tree produces without anyone doing anything unusual;
+    ``ValueError`` on a NUL byte in a name; ``TypeError`` on a non-path. Catching
+    only ``OSError`` meant the launcher survived solely because
+    ``_DiscoveryWorker.run`` catches ``BaseException`` — every non-GUI caller,
+    including a script, got the raise.
+
+    Returns ``_FAILED`` on error so the caller can tell "I could not look" from
+    "I looked and there was nothing".
     """
     try:
         return action()
-    except OSError as exc:
-        notes.append(f"{description}: {exc}")
-        return None
+    except (OSError, RuntimeError, ValueError, TypeError) as exc:
+        notes.append(f"{description}: {type(exc).__name__}: {exc}")
+        return _FAILED
 
 
 def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
@@ -445,7 +476,7 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
     notes = []
 
     resolved_root = _guarded_step(notes, "could not resolve the facility root", lambda: Path(root).resolve())
-    if resolved_root is None:
+    if resolved_root is _FAILED:
         ctx.discovery_status = "; ".join(notes)
         return ctx
 
@@ -454,7 +485,7 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
         "could not resolve the experiment directory",
         lambda: (resolved_root / str(ipts) / "shared" / "autoreduce").resolve(),
     )
-    if directory is None:
+    if directory is _FAILED:
         ctx.discovery_status = "; ".join(notes)
         return ctx
 
@@ -464,7 +495,7 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
         return ctx
 
     reachable = _guarded_step(notes, f"could not reach {directory}", directory.is_dir)
-    if reachable is None:
+    if reachable is _FAILED:
         ctx.discovery_status = "; ".join(notes)
         return ctx
     if not reachable:
@@ -479,7 +510,12 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
         "settings scan failed",
         lambda: select_by_geometry(directory, "reduce_settings", ".json", tthd),
     )
-    if settings_path is None:
+    if settings_path is _FAILED:
+        # The scan itself failed; the note already says why. Adding "no
+        # reduce_settings*.json" here would overwrite a real error with a
+        # confident, false statement of absence.
+        pass
+    elif settings_path is None:
         notes.append("no reduce_settings*.json")
     else:
         try:
@@ -498,7 +534,9 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
         "template scan failed",
         lambda: select_by_geometry(directory, "template", ".xml", tthd),
     )
-    if template_path is None:
+    if template_path is _FAILED:
+        pass
+    elif template_path is None:
         notes.append("no template*.xml")
     else:
         ctx.template_path = template_path

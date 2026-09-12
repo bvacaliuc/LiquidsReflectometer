@@ -193,14 +193,34 @@ class SettingsDocument:
         length and ``validate()`` reports the angles still lacking a value.
         """
         n = self.n_angles
+        # Computed in full, then committed. Writing field-by-field meant a bad
+        # value part-way through left a HALF-GROWN document: some columns longer
+        # than others, the new angle invisible, and — because the raise escaped
+        # before the panel refreshed — a "settings unchanged" message over a
+        # document that had in fact changed, which could then be saved.
+        grown = {}
         for name in fs.PER_ANGLE_NAMES:
             current = self.get(name)
             if current is None:
                 if name not in values:
                     continue
-                self.set(name, [None] * n + [values[name]])
-            else:
-                self.set(name, list(current) + [values.get(name)])
+                grown[name] = [None] * n + [values[name]]
+                continue
+            if not isinstance(current, (list, tuple)):
+                # The same guard set_angle_field carries, for the same reason:
+                # a scalar where a per-angle list belongs has a length (or does
+                # not) and list() of it is either an explosion into characters
+                # or a TypeError. Loading such a file and clicking Add angle is
+                # two clicks from a real file shape.
+                raise TypeError(
+                    f"{fs.get(name).label} ({name}) holds "
+                    f"{type(current).__name__} {current!r}, not a list of values "
+                    f"per angle — fix it before adding an angle"
+                )
+            grown[name] = list(current) + [values.get(name)]
+
+        for name, value in grown.items():
+            self.set(name, value)
 
     def remove_angle(self, index):
         """Remove one angle from every per-angle field."""

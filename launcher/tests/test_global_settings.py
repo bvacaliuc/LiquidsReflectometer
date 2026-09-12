@@ -375,7 +375,11 @@ def test_removing_an_angle_redraws_the_column_attributions():
     # experiment file supplied, so a header still naming reduce_settings.json
     # attributes this run's edit to a file that never said it. Asserting only
     # the before-state let the re-record be deleted with the test green.
-    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b]")
+    # [b*], not [b]: the column is no longer what the experiment file supplied,
+    # so the old attribution would be false — but nobody typed a value, and an
+    # "Add angle" click used to mint layer-(b) authority for all 13 per-angle
+    # fields. Truthful on screen, powerless in the walk.
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b*]")
 
 
 def test_adding_an_angle_reattributes_the_columns():
@@ -392,7 +396,7 @@ def test_adding_an_angle_reattributes_the_columns():
 
     QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
     assert tab.document.n_angles == 2
-    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b]")
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b*]")
 
 
 # --------------------------------------------------------------------------
@@ -466,7 +470,7 @@ def test_the_gui_thread_stays_responsive_while_discovery_blocks(monkeypatch):
 
     from lr_reduction.settings_resolver import ResolutionContext
 
-    def slow(ipts, tthd=1.0, **_kw):
+    def slow(ipts, _tthd=1.0, **_kw):
         time.sleep(0.75)
         return ResolutionContext(ipts=ipts, discovery_status="slow stub")
 
@@ -662,3 +666,230 @@ def test_the_ui_label_does_not_claim_the_data_outranks_a_preference():
     text = labels[0]
     assert "or the data itself" not in text
     assert "outrank" in text
+
+
+# --------------------------------------------------------------------------
+# v4 — C4: no disk-seeded and no click-minted authority
+# --------------------------------------------------------------------------
+
+
+def test_a_sidecar_cannot_promote_geometry_above_the_measurement(tmp_path, monkeypatch):
+    """The science regression: three fixes composed to defeat the exclusion.
+
+    The sidecar read filled `provenance`, `_pre_resolve_overrides` turned a
+    recorded origin into authority, and `resolve()` gates only layer (a) on the
+    whitelist — so a `"b"` written for a previous run, in a group-writable
+    `shared/autoreduce`, reached layer (b) and outranked the experiment file AND
+    the measured geometry. Nobody typed anything.
+    """
+    from lr_reduction.settings_resolver import (
+        ResolutionContext,
+        Resolved,
+        provenance_path,
+        save_resolution,
+    )
+
+    target = tmp_path / "seeded.json"
+    document = SettingsDocument()
+    document.set("dSampDet", 99999.0)
+    save_resolution(
+        target, document, {"dSampDet": Resolved(99999.0, "b", "a previous run")}
+    )
+    assert provenance_path(target).exists()
+
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *_a, **_k: (str(target), "")),
+    )
+    tab = SettingsEditorTab()
+    tab.load_settings()
+
+    # Displayed truthfully...
+    assert tab.badges["dSampDet"].text() == "[b*]"
+    # ...and powerless: it must not become this run's authority.
+    assert "dSampDet" not in tab._pre_resolve_overrides()
+
+    measured = ResolutionContext(dataset_probe=lambda name: 1500.0 if name == "dSampDet" else None)
+    tab._discover = lambda _ipts, _tthd=1.0, **_kw: measured
+    tab.ipts_edit.setText("IPTS-1")
+    _resolve_and_wait(tab)
+
+    assert tab.document.get("dSampDet") == 1500.0
+    assert tab.provenance["dSampDet"].source_layer == "e"
+
+
+def test_adding_an_angle_does_not_mint_authority(tmp_path):
+    """Door 2: a click used to mint Resolved(...,"b") for all 13 per-angle fields."""
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    tab = SettingsEditorTab()
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    assert tab.provenance["DBname"].source_layer == "b*"
+    assert tab._pre_resolve_overrides() == {}
+
+    tab._discover = lambda _ipts, _tthd=1.0, **_kw: ResolutionContext(
+        json_settings={"DBname": ["from_file.dat"]}, json_detail="reduce_settings.json"
+    )
+    tab.ipts_edit.setText("IPTS-1")
+    _resolve_and_wait(tab)
+
+    # The experiment file wins, because no one typed a DBname.
+    assert tab.document.get("DBname") == ["from_file.dat"]
+    assert tab.provenance["DBname"].source_layer == "c"
+
+
+def test_a_typed_value_still_wins_over_the_experiment_file():
+    """The positive control: layer (b) authority must still exist."""
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    editor = tab.editors["qmax"]
+    editor.setText("0.44")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+
+    tab._discover = lambda _ipts, _tthd=1.0, **_kw: ResolutionContext(
+        json_settings={"qmax": 0.9}, json_detail="reduce_settings.json"
+    )
+    _resolve_and_wait(tab)
+    assert tab.document.get("qmax") == 0.44
+    assert tab.provenance["qmax"].source_layer == "b"
+
+
+def test_per_angle_edits_do_not_follow_a_change_of_experiment():
+    """Per-angle arrays index one experiment's runs."""
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    tab.document.add_angle()
+    tab.refresh_angles()
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    tab.angle_table.item(0, column).setText("typed.dat")
+    assert "DBname" in tab._session_edits
+
+    tab.ipts_edit.setText("IPTS-2")
+    assert "DBname" not in tab._session_edits
+
+
+# --------------------------------------------------------------------------
+# C5: one gate, both doors
+# --------------------------------------------------------------------------
+
+
+def test_the_editor_refuses_to_save_an_invalid_divisor(tmp_path, monkeypatch):
+    """This file can land in shared/autoreduce, where autoreduction reads it."""
+    target = tmp_path / "bad.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *_a, **_k: (str(target), "")),
+    )
+    tab = SettingsEditorTab()
+    tab.document.set("dqbin", 0.0)
+    tab.save_settings()
+    assert not target.exists()
+
+
+def test_the_dialog_refuses_an_invalid_divisor():
+    dialog = GlobalSettingsDialog()
+    editor = dialog.editors["dqbin"]
+    editor.clear()
+    QTest.keyClicks(editor, "0")
+    dialog.accept()
+    assert "dqbin" not in load_global_settings()
+
+
+# --------------------------------------------------------------------------
+# C6: every re-record site
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["Normalize", "peak_type", "qmax"])
+def test_every_scalar_edit_path_reattributes_its_field(name):
+    """`_set_scalar` (checkbox and combo) survived deletion; only the line edit was pinned."""
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    document, provenance = SettingsResolver(
+        ResolutionContext(
+            json_settings={"Normalize": True, "peak_type": "gauss", "qmax": 0.3},
+            json_detail="reduce_settings.json",
+        )
+    ).resolve_all()
+    tab = SettingsEditorTab()
+    tab.set_document(document, provenance)
+    assert tab.badges[name].text() == "[c]"
+
+    editor = tab.editors[name]
+    if isinstance(editor, QtWidgets.QCheckBox):
+        QTest.keyClick(editor, QtCore.Qt.Key_Space)
+    elif isinstance(editor, QtWidgets.QComboBox):
+        editor.setCurrentText("supergauss")
+    else:
+        editor.setText("0.44")
+        QTest.keyClick(editor, QtCore.Qt.Key_Return)
+
+    assert tab.badges[name].text() == "[b]"
+
+
+def test_a_per_angle_cell_edit_reattributes_its_column():
+    """`_on_cell_changed` survived deletion — one of the two most-used paths."""
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    document, provenance = SettingsResolver(
+        ResolutionContext(
+            json_settings={"DBname": ["a.dat"]}, json_detail="reduce_settings.json"
+        )
+    ).resolve_all()
+    tab = SettingsEditorTab()
+    tab.set_document(document, provenance)
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[c]")
+
+    tab.angle_table.item(0, column).setText("typed.dat")
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b]")
+
+
+# --------------------------------------------------------------------------
+# C3: teardown must leak, not abort
+# --------------------------------------------------------------------------
+
+
+def test_closing_the_tab_with_a_resolve_in_flight_does_not_abort():
+    """A QThread destroyed while running aborts the process (exit 134).
+
+    v3 traded v2's freeze for a crash on EVERY teardown path with a resolve in
+    flight — the exact stalled-mount case the worker was added for. `wait()` is
+    not the fix: waiting on a D-state read blocks as long as the freeze did.
+    Leaking one thread is the correct trade; a leak ends with the process, an
+    abort takes the other tabs' unsaved state with it.
+    """
+    import time
+
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    def slow(ipts, _tthd=1.0, **_kw):
+        time.sleep(1.5)
+        return ResolutionContext(ipts=ipts)
+
+    tab = SettingsEditorTab()
+    tab._discover = slow
+    tab.ipts_edit.setText("IPTS-1")
+    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+    worker = tab._discovery_worker
+    assert worker.isRunning()
+
+    tab.close()
+    assert tab._discovery_worker is None, "the tab must let go of a running worker"
+    QtWidgets.QApplication.instance().processEvents()
+    assert worker.wait(10000)
+
+
+def test_the_wait_cursor_is_released_once():
+    """An override cursor never restored is application-wide, for the process life."""
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    tab = SettingsEditorTab()
+    tab._discover = lambda _ipts, _tthd=1.0, **_kw: ResolutionContext(ipts=ipts)
+    tab.ipts_edit.setText("IPTS-1")
+    _resolve_and_wait(tab)
+    assert QtWidgets.QApplication.overrideCursor() is None
+    tab._release_busy()
+    assert QtWidgets.QApplication.overrideCursor() is None
