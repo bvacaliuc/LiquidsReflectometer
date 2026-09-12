@@ -22,6 +22,7 @@ was rejected for, arriving through a different door.
 from qtpy import QtCore, QtGui, QtWidgets
 
 from launcher.app_identity import ensure_identity
+from launcher.apps.combo_display import show_in_combo
 from lr_reduction import field_spec as fs
 from lr_reduction.settings_resolver import GLOBAL_WHITELIST, NotWhitelistedError
 
@@ -47,7 +48,19 @@ def load_global_settings():
             stored = settings.value(name)
             if stored is None or stored == "":
                 continue
-            values[name] = fs.get(name).coerce(stored) if isinstance(stored, str) else stored
+            # Coerce UNCONDITIONALLY. QSettings hands a single value back as a
+            # str after a restart and a multi-entry one back as a LIST of str —
+            # and the earlier `if isinstance(stored, str)` guard covered only the
+            # first, so a list-valued preference entered layer (a) as strings and
+            # was written into the settings file, where the reduction did
+            # arithmetic on them. No whitelisted field is list-typed today, but
+            # the whitelist is derived: `_may_be_a_preference` admits any new
+            # field in an included group and does not exclude lists.
+            field = fs.get(name)
+            if isinstance(stored, (list, tuple)):
+                values[name] = [field.coerce_element(entry) for entry in stored]
+            else:
+                values[name] = field.coerce(stored)
         return values
     finally:
         settings.endGroup()
@@ -93,9 +106,13 @@ class GlobalSettingsDialog(QtWidgets.QDialog):
         self.setLayout(layout)
 
         explanation = QtWidgets.QLabel(
-            "Your personal defaults. These apply to every experiment unless a "
-            "run, an experiment settings file, or the data itself provides a "
-            "value — leave a field blank to let those decide."
+            "Your personal defaults. A value here is used unless this run or "
+            "the experiment's own settings file provides one — it does outrank "
+            "anything measured from the data and the built-in default. Leave a "
+            "field blank to let those decide.\n\n"
+            "Instrument geometry is deliberately not listed: those values come "
+            "from the instrument, and a preference must never override a "
+            "measurement."
         )
         explanation.setWordWrap(True)
         layout.addWidget(explanation)
@@ -145,8 +162,14 @@ class GlobalSettingsDialog(QtWidgets.QDialog):
             editor.addItem("")
             choices = ("true", "false") if field.type == "bool" else field.allowed
             editor.addItems([str(c) for c in choices])
-            if value is not None:
-                editor.setCurrentText(str(value).lower() if field.type == "bool" else str(value))
+            # show_in_combo, not setCurrentText: the latter is a silent no-op on
+            # a non-editable combo, so a stored value from an older version
+            # ("DetResFn: bogus") displayed blank — and a Save the user never
+            # touched then coerced "" to None and DELETED the preference. The
+            # shared helper adds the stray value so what is shown is what is
+            # held, and validation reports it.
+            shown = str(value).lower() if field.type == "bool" and value is not None else value
+            show_in_combo(editor, field, shown, blank_first=True)
             return editor
         # The shared renderer, not str(): str([50, 200]) is "[50, 200]", which
         # coerce reads back as the strings '[50' and '200]'. T2 fixed this in

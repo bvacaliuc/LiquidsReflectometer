@@ -10,6 +10,7 @@ one is in force, which is the exact confusion this slug exists to end.
 """
 
 import json
+import os
 import subprocess
 import sys
 import textwrap
@@ -645,3 +646,258 @@ def test_an_explicit_null_wins_for_an_optional_list():
     resolved = SettingsResolver(ctx).resolve("LambdaMin")
     assert resolved.source_layer == "c"
     assert resolved.value is None
+
+
+# --------------------------------------------------------------------------
+# v3 — one realistic tree, and guards that cover every site
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def experiment_tree(tmp_path):
+    """ONE tree holding everything, rather than one tree per assertion.
+
+    Both settings files, both templates, and an unreadable file. The v2 trees
+    were each shaped to the single assertion they served — none held both
+    templates — which is how a `sorted(glob(...))[0]` and a hardcoded `tthd=1.0`
+    both survived their guards.
+    """
+    autoreduce = tmp_path / "IPTS-30101" / "shared" / "autoreduce"
+    autoreduce.mkdir(parents=True)
+    (autoreduce / "reduce_settings_up.json").write_text(json.dumps({"qmin": 0.002}))
+    (autoreduce / "reduce_settings_down.json").write_text(json.dumps({"qmin": 0.004}))
+    (autoreduce / "template_up.xml").write_text("<Reduction/>")
+    (autoreduce / "template_down.xml").write_text("<Reduction/>")
+    return tmp_path
+
+
+@pytest.mark.parametrize(
+    "tthd, settings_name, template_name",
+    [
+        pytest.param(1.0, "reduce_settings_up.json", "template_up.xml", id="tthd-positive"),
+        pytest.param(-1.0, "reduce_settings_down.json", "template_down.xml", id="tthd-negative"),
+        pytest.param(0.0, "reduce_settings_down.json", "template_down.xml", id="tthd-zero-is-down"),
+    ],
+)
+def test_both_stems_follow_the_geometry(experiment_tree, tthd, settings_name, template_name):
+    """The template half had no both-templates fixture, so a sorted glob survived.
+
+    `tthd == 0` is pinned too: `>` versus `>=` is a one-character change that
+    silently sends a zero-geometry run to the up file.
+    """
+    ctx = discover_ipts_settings("IPTS-30101", tthd=tthd, root=str(experiment_tree))
+    assert ctx.json_detail == settings_name
+    assert ctx.template_path.endswith(template_name)
+
+
+@pytest.mark.parametrize("failing_stem", ["reduce_settings", "template"])
+def test_a_permission_denied_share_degrades_rather_than_raising(experiment_tree, failing_stem):
+    """Injected for real, not monkeypatched.
+
+    `is_dir()` succeeds on a `chmod 000` share, so the guard the tests exercised
+    never fired while the unguarded `exists()` under `select_by_geometry` raised
+    straight out of the slot. A `Path.is_dir` shim could not have found that —
+    it only ever tested the site that was already wrapped.
+    """
+    autoreduce = experiment_tree / "IPTS-30101" / "shared" / "autoreduce"
+    victim = autoreduce / f"{failing_stem}_up.json"
+    if failing_stem == "template":
+        victim = autoreduce / "template_up.xml"
+
+    original = autoreduce.stat().st_mode
+    os.chmod(autoreduce, 0o000)
+    try:
+        if os.access(autoreduce, os.R_OK):
+            pytest.skip("running with rights that ignore the mode bits")
+        ctx = discover_ipts_settings("IPTS-30101", root=str(experiment_tree))
+        # Degraded, not raised — and it said why.
+        assert ctx.discovery_status
+        assert ctx.json_settings == {}
+        # And resolution still produces a full document from the other layers.
+        document, provenance = SettingsResolver(ctx).resolve_all()
+        assert provenance["qmax"].source_layer == "f"
+        assert document.get("qmax") == fs.get("qmax").default
+    finally:
+        os.chmod(autoreduce, original)
+    assert victim.name
+
+
+def test_a_settings_file_that_is_not_an_object_is_reported(experiment_tree):
+    """A top-level list makes `name not in mapping` a substring test."""
+    autoreduce = experiment_tree / "IPTS-30101" / "shared" / "autoreduce"
+    (autoreduce / "reduce_settings_up.json").write_text("[1, 2, 3]")
+    ctx = discover_ipts_settings("IPTS-30101", tthd=1.0, root=str(experiment_tree))
+    assert ctx.json_settings == {}
+    assert "not an object" in ctx.discovery_status
+
+
+def test_a_symlinked_settings_file_is_not_read_through(experiment_tree, tmp_path):
+    """The confinement validates the directory; this validated nothing.
+
+    A link inside the root pointing out of it would have been read while the
+    badge reported the in-root filename — in the module whose product is
+    truthful provenance.
+    """
+    outside = tmp_path / "outside.json"
+    outside.write_text(json.dumps({"qmin": 9.99}))
+    autoreduce = experiment_tree / "IPTS-30101" / "shared" / "autoreduce"
+    target = autoreduce / "reduce_settings_up.json"
+    target.unlink()
+    target.symlink_to(outside)
+
+    ctx = discover_ipts_settings("IPTS-30101", tthd=1.0, root=str(experiment_tree))
+    assert ctx.json_settings == {}
+    assert "unreadable" in ctx.discovery_status
+
+
+# --------------------------------------------------------------------------
+# C9 — pin the whitelist by membership, and each clause by counter-example
+# --------------------------------------------------------------------------
+
+
+def test_the_whitelist_membership_is_pinned_exactly():
+    """Per-group exemplars let a hand-list of six survive against a real 20.
+
+    Dropping 14 of 20 preference fields was green. Membership is the property;
+    exemplars only sample it.
+    """
+    assert set(GLOBAL_WHITELIST) == {
+        "Normalize", "AutoScale", "useCalcTheta", "plotON", "plotQ4", "save8col",
+        "useGravity", "use_emission_time",
+        "qmin", "qmax", "dqbin", "Qline_threshold", "Qnorm",
+        "tof_bin",
+        "dead_time", "dead_time_tof_step",
+        "DetResFn", "DetSigma",
+        "peak_pad", "peak_type",
+    }
+    assert len(GLOBAL_WHITELIST) == 20
+
+
+@pytest.mark.parametrize(
+    "name, clause",
+    [
+        pytest.param("IncidentTheta", "excluded group (geometry)", id="excluded-group"),
+        pytest.param("Sname", "not in an included group, and free text", id="not-in-group"),
+        pytest.param("RB_Ymin", "per_angle", id="per-angle"),
+        pytest.param("LambdaMinUse", "runtime_owned", id="runtime-owned"),
+        pytest.param("_Spath_override", "a path is never a preference", id="path"),
+    ],
+)
+def test_each_whitelist_clause_has_a_counter_example(name, clause):
+    """Real fields that must not be preferences, one per intended clause.
+
+    Note what this does NOT prove, because two of the five clauses are
+    unreachable through real fields: every `path` and every `runtime_owned`
+    field also sits outside `GLOBAL_GROUPS`, so the group clause already
+    excludes them and deleting either specific clause leaves this green. The
+    isolating tests are below, on synthetic fields.
+    """
+    assert name not in GLOBAL_WHITELIST, clause
+
+
+def _synthetic(**overrides):
+    """A Field that does not exist in FIELD_SPEC, for isolating one clause."""
+    base = dict(
+        name="synthetic", label="Synthetic", group=fs.QSPACE, type="float",
+        default=None, help="",
+    )
+    base.update(overrides)
+    return fs.Field(**base)
+
+
+@pytest.mark.parametrize(
+    "field, clause",
+    [
+        pytest.param(_synthetic(type="path"), "type == 'path'", id="path-clause"),
+        pytest.param(_synthetic(runtime_owned=True), "runtime_owned", id="runtime-owned-clause"),
+        pytest.param(_synthetic(per_angle=True), "per_angle", id="per-angle-clause"),
+        pytest.param(_synthetic(type="str"), "free-text str", id="free-text-clause"),
+        pytest.param(_synthetic(group=fs.GEOMETRY), "excluded group", id="excluded-group-clause"),
+    ],
+)
+def test_each_whitelist_clause_rejects_in_isolation(field, clause):
+    """Isolates every clause, including the two no real field can reach.
+
+    Those two are not dead weight: `_may_be_a_preference` admits any NEW field
+    added to an included group, so the clauses are what keep a future path or
+    runtime-owned field out of the layer that outranks a dataset guess. A clause
+    guarding a future is still a clause worth pinning.
+    """
+    from lr_reduction.settings_resolver import _may_be_a_preference
+
+    assert not _may_be_a_preference(field), clause
+
+
+def test_a_plain_included_field_is_admitted():
+    """The positive control: the clauses above must not reject everything."""
+    from lr_reduction.settings_resolver import _may_be_a_preference
+
+    assert _may_be_a_preference(_synthetic())
+
+
+# --------------------------------------------------------------------------
+# C11 — the renderer must invert coerce for EVERY declared type
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "type_name, value",
+    [
+        pytest.param("str", "reduction_output", id="str"),
+        pytest.param("int", 50, id="int"),
+        pytest.param("float", 0.005, id="float"),
+        pytest.param("bool", False, id="bool"),
+        pytest.param("list[str]", ["a.dat", "b.dat"], id="list-str"),
+        pytest.param("list[int]", [50, 200], id="list-int"),
+        pytest.param("list[float]", [1.5, 2.5], id="list-float"),
+        pytest.param("list[bool]", [True, False], id="list-bool"),
+        pytest.param("list[list[int]]", [[10, 20], [30, 40]], id="list-list-int"),
+    ],
+)
+def test_render_value_inverts_coerce_for_every_type(type_name, value):
+    """The flat guard passed while the nested case round-tripped False.
+
+    `render_value([[10,20],[30,40]])` produced `'[10, 20], [30, 40]'`, which
+    `BkgROI.coerce` read back as `[['[10'], ['20]'], ...]`. Extracting the
+    renderer so the next file inherits it is only worth doing if what it
+    inherits is right.
+    """
+    field = next(f for f in fs.FIELD_SPEC if f.type == type_name)
+    assert field.coerce(fs.render_value(value)) == value
+
+
+def test_every_declared_type_has_a_round_trip_case():
+    """So a new type cannot be added without a case above."""
+    covered = {
+        "str", "int", "float", "bool",
+        "list[str]", "list[int]", "list[float]", "list[bool]", "list[list[int]]",
+    }
+    declared = {f.type for f in fs.FIELD_SPEC} - {"path"}
+    assert declared <= covered
+
+
+def test_field_render_is_gone():
+    """An untested second door onto render_value, with zero callers."""
+    assert not hasattr(fs.Field, "render")
+
+
+# --------------------------------------------------------------------------
+# The numeric guards on the layer that outranks a measurement
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value, why",
+    [
+        pytest.param(float("nan"), "NaN compares False against every bound", id="nan"),
+        pytest.param(float("inf"), "inf passes any minimum", id="inf"),
+        pytest.param(0.0, "a divisor of zero overflows downstream", id="zero"),
+    ],
+)
+def test_a_non_finite_or_zero_bin_width_is_rejected(value, why):
+    """These reach layer (a), which is used for every future experiment.
+
+    Downstream: `dqbin=0` overflows in `log_qvector`, `dqbin=nan` puts NaN in
+    the q-vector silently.
+    """
+    assert fs.get("dqbin").check_element(value), why

@@ -7,13 +7,20 @@ six layers in preference order — and a single resolver that walks them:
 ===== ================================================================
 layer  source
 ===== ================================================================
-``a``  user-global preferences (the shared QSettings store)
 ``b``  pre-run override typed into the UI for this reduction
 ``c``  the IPTS ``reduce_settings*.json``
 ``d``  the IPTS ``template*.xml``
+``a``  user-global preferences (the shared QSettings store)
 ``e``  guessed from the dataset itself
 ``f``  the built-in default in ``FIELD_SPEC``
 ===== ================================================================
+
+The letters are the taxonomy's; the rows are in **resolution order**, which is
+not alphabetical. A this-run override beats everything set earlier, the
+experiment's own files beat a user-general preference (human decision,
+2026-09-12), and a preference still beats a guess and the default. The
+instrument-geometry fields have **no** layer (a) at all — see
+``GLOBAL_EXCLUDED_GROUPS``.
 
 **Every resolved value carries its origin.** ``resolve()`` returns a
 :class:`Resolved`, never a bare value, because a value with no recorded origin
@@ -35,6 +42,7 @@ that are available.
 
 import copy
 import json
+import os
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -46,6 +54,13 @@ from lr_reduction.save_reduced_data import make_json_safe
 from lr_reduction.settings_document import SettingsDocument, atomic_write_json
 
 #: Layers in preference order — **the single source of that order**.
+#:
+#: Note the scope: `_layer_sources` builds the mapping-backed layers from this
+#: tuple, and (e)/(f) are the two that are not mappings — a probe and a
+#: constant — so they are handled after the walk. They appear here because the
+#: tuple is the taxonomy, and their position in it is asserted, but moving them
+#: within it would not by itself move them: that is stated rather than left for
+#: someone to discover, which is the standard the tuple's own comment sets.
 #:
 #: `resolve()`, `user_chosen()` and the fall-throughs all read this tuple. An
 #: earlier version declared an order here and then hard-coded a separate walk
@@ -357,64 +372,113 @@ MAX_SETTINGS_BYTES = 4 * 1024 * 1024
 
 
 def _read_json(path):
+    """Read a settings file, refusing the shapes that are not one.
+
+    ``O_NOFOLLOW`` because the directory confinement above validates the
+    *directory* and then this used to ``open()`` whatever the name pointed at —
+    a symlink out of the facility root would have been read while the badge
+    reported the in-root filename. `atomic_write_json` already refuses to write
+    through a link; reading through one is the same hole facing the other way,
+    in the module whose product is truthful provenance.
+    """
     path = Path(path)
-    size = path.stat().st_size
-    if size > MAX_SETTINGS_BYTES:
-        raise ValueError(
-            f"{path.name} is {size} bytes; refusing to parse more than {MAX_SETTINGS_BYTES}"
-        )
-    with open(path, "r") as handle:
-        return json.load(handle)
+    handle_fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        size = os.fstat(handle_fd).st_size
+        if size > MAX_SETTINGS_BYTES:
+            raise ValueError(
+                f"{path.name} is {size} bytes; refusing to parse more than {MAX_SETTINGS_BYTES}"
+            )
+        with os.fdopen(handle_fd, "r") as handle:
+            handle_fd = None
+            payload = json.load(handle)
+    finally:
+        if handle_fd is not None:
+            os.close(handle_fd)
+    # A top-level list or string would make `name not in mapping` a substring
+    # test, or a TypeError, several layers away from the file that caused it.
+    if not isinstance(payload, dict):
+        raise ValueError(f"{path.name} holds a {type(payload).__name__}, not an object")
+    return payload
+
+
+def _guarded_step(notes, description, action):
+    """Run one filesystem step; record an I/O failure instead of raising.
+
+    **One guard, every step.** Discovery previously wrapped two of its three
+    filesystem touches and left the third bare, so the module's headline promise
+    — never take the launcher down when the mount is unavailable, and record why
+    — was not delivered for the one that mattered: `is_dir()` succeeds on a
+    `chmod 000` share, so the *tested* guard never fired while the untested
+    `exists()` beneath `select_by_geometry` raised straight through the slot.
+
+    Wrapping each site separately would have been three copies of one rule, and
+    the third is always the one that gets forgotten.
+    """
+    try:
+        return action()
+    except OSError as exc:
+        notes.append(f"{description}: {exc}")
+        return None
 
 
 def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
     """Arm the experiment layers from an IPTS autoreduce directory.
 
-    Read-only and failure-tolerant by design: the mount may be down, the IPTS
-    may not exist, the files may be unreadable, malformed, enormous or deeply
-    nested, and Mantid may not be installed at all. Every one of those is an
+    Read-only and failure-tolerant by design: the mount may be down or
+    permission-denied, the IPTS may not exist, and the files may be unreadable,
+    malformed, enormous, deeply nested or not objects at all. Every one is an
     ordinary day at a facility and none is a reason to take the launcher down —
-    they leave the layers empty and the reason recorded.
+    they leave the layers empty, record the reason in ``discovery_status``, and
+    let resolution continue from the layers that are available.
 
-    Only layer (c) is populated. Layer (d) is honoured by `resolve()` when a
-    caller supplies `xml_settings`, but discovery does not fill it: mapping a
-    template's vocabulary onto config fields belongs to
-    `new_reduction_from_template.config_from_template`, and reproducing that
-    here would be a second copy of a mapping — the failure this campaign has
-    paid for repeatedly. The template is reported when present so the status
-    line is honest about what was seen and what was used.
+    **Never raises. It can still block**, if the mount is stalled rather than
+    absent — a D-state read does not raise, and no `except` reaches it. Callers
+    on a GUI thread must not call this synchronously; `SettingsEditorTab` runs
+    it on a worker.
+
+    Only layer (c) is populated; see ``DISCOVERY_LAYERS`` for why (d) is
+    declared but not filled.
     """
     ctx = context if context is not None else ResolutionContext()
     ctx.ipts = ipts
+    notes = []
 
-    root_path = Path(root).resolve()
-    try:
-        directory = (root_path / str(ipts) / "shared" / "autoreduce").resolve()
-    except OSError as exc:
-        ctx.discovery_status = f"could not resolve a path under {root_path}: {exc}"
+    resolved_root = _guarded_step(notes, "could not resolve the facility root", lambda: Path(root).resolve())
+    if resolved_root is None:
+        ctx.discovery_status = "; ".join(notes)
+        return ctx
+
+    directory = _guarded_step(
+        notes,
+        "could not resolve the experiment directory",
+        lambda: (resolved_root / str(ipts) / "shared" / "autoreduce").resolve(),
+    )
+    if directory is None:
+        ctx.discovery_status = "; ".join(notes)
         return ctx
 
     # An IPTS carrying "/" or ".." would otherwise walk out of the facility root.
-    if not directory.is_relative_to(root_path):
-        ctx.discovery_status = f"{ipts!r} does not name a directory under {root_path}"
+    if not directory.is_relative_to(resolved_root):
+        ctx.discovery_status = f"{ipts!r} does not name a directory under {resolved_root}"
         return ctx
 
-    try:
-        if not directory.is_dir():
-            ctx.discovery_status = f"no autoreduce directory at {directory}"
-            return ctx
-    except OSError as exc:  # a stalled or absent mount answers with an error
-        ctx.discovery_status = f"could not reach {directory}: {exc}"
+    reachable = _guarded_step(notes, f"could not reach {directory}", directory.is_dir)
+    if reachable is None:
+        ctx.discovery_status = "; ".join(notes)
         return ctx
-
-    notes = []
+    if not reachable:
+        ctx.discovery_status = f"no autoreduce directory at {directory}"
+        return ctx
 
     # Layer (c). The up/down rule comes from lr_reduction.autoreduce_paths, the
     # one place it lives — the same function template.py and the autoreduction
-    # use. Discovery previously borrowed it by importing the autoreduction
-    # module, which pulls Mantid (~2.6 s and a network version check) to make a
-    # filename decision, and a Mantid-free launcher could not import it at all.
-    settings_path = select_by_geometry(directory, "reduce_settings", ".json", tthd)
+    # use.
+    settings_path = _guarded_step(
+        notes,
+        "settings scan failed",
+        lambda: select_by_geometry(directory, "reduce_settings", ".json", tthd),
+    )
     if settings_path is None:
         notes.append("no reduce_settings*.json")
     else:
@@ -423,23 +487,22 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
             ctx.json_detail = Path(settings_path).name
             notes.append(f"settings from {ctx.json_detail}")
         except (OSError, ValueError, RecursionError) as exc:
-            # ValueError covers json.JSONDecodeError (a subclass) and the size
-            # cap; RecursionError is what deeply nested JSON raises and is NOT
-            # an Exception subclass path anyone expects until it happens.
+            # ValueError covers json.JSONDecodeError (a subclass), the size cap
+            # and the not-an-object check; RecursionError is what deeply nested
+            # JSON raises and is not a path anyone expects until it happens.
             notes.append(f"settings file unreadable: {exc}")
 
-    # Layer (d): reported, not consumed. Same up/down rule, because the earlier
-    # sorted(glob(...))[0] here was a third copy and a wrong one — it returned
-    # template_down.xml for an up-geometry run, every time.
-    try:
-        template_path = select_by_geometry(directory, "template", ".xml", tthd)
-        if template_path is None:
-            notes.append("no template*.xml")
-        else:
-            ctx.template_path = template_path
-            notes.append(f"template {Path(template_path).name} present (layer (d) not consumed)")
-    except OSError as exc:
-        notes.append(f"template scan failed: {exc}")
+    # Layer (d): reported, not consumed.
+    template_path = _guarded_step(
+        notes,
+        "template scan failed",
+        lambda: select_by_geometry(directory, "template", ".xml", tthd),
+    )
+    if template_path is None:
+        notes.append("no template*.xml")
+    else:
+        ctx.template_path = template_path
+        notes.append(f"template {Path(template_path).name} present (layer (d) not consumed)")
 
     ctx.discovery_status = "; ".join(notes)
     return ctx
@@ -472,11 +535,15 @@ def save_resolution(path, document, provenance):
     through the same atomic helper the editor uses.
     """
     path = Path(path)
-    atomic_write_json(path, make_json_safe(document.normalize()))
+    # Sidecar FIRST. The pair is not atomic, so if the second write fails the
+    # first has already landed — and a saved settings file beside a stale
+    # sidecar is worse than a settings file with none, because the badge then
+    # attributes values to a resolution that never produced them.
     atomic_write_json(
         provenance_path(path),
         {name: resolved.as_record() for name, resolved in provenance.items()},
     )
+    atomic_write_json(path, make_json_safe(document.to_dict()))
     return path
 
 

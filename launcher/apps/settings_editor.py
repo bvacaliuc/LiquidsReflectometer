@@ -26,6 +26,7 @@ from pathlib import Path
 from qtpy import QtCore, QtGui, QtWidgets
 
 from launcher.app_identity import ensure_identity
+from launcher.apps.combo_display import show_in_combo
 from launcher.apps.global_settings import load_global_settings
 from lr_reduction import field_spec as fs
 from lr_reduction.settings_document import SettingsDocument
@@ -33,6 +34,8 @@ from lr_reduction.settings_resolver import (
     Resolved,
     SettingsResolver,
     discover_ipts_settings,
+    load_resolution,
+    provenance_path,
     save_resolution,
 )
 
@@ -62,6 +65,33 @@ def guarded(method):
     return wrapper
 
 
+class _DiscoveryWorker(QtCore.QThread):
+    """Runs `discover_ipts_settings` off the GUI thread.
+
+    Not defensive tidiness. `/SNS` is an sshfs/FUSE mount, and a stalled one
+    blocks in D-state — it does **not** raise, so `except OSError` and the slot
+    guard are both irrelevant to it. Measured on the synchronous version with a
+    2 s stub: the GUI thread blocked for the full 2.00 s and delivered zero
+    timer ticks. This is the first place a button press reaches the facility
+    filesystem, so the blocking axis is time, not breadth.
+    """
+
+    finished_with = QtCore.Signal(object)
+
+    def __init__(self, ipts, tthd, discover, parent=None):
+        super().__init__(parent)
+        self._ipts = ipts
+        self._tthd = tthd
+        self._discover = discover
+
+    def run(self):
+        try:
+            result = self._discover(self._ipts, tthd=self._tthd)
+        except BaseException as exc:  # noqa: BLE001 -- carried to the GUI thread
+            result = exc
+        self.finished_with.emit(result)
+
+
 class SettingsEditorTab(QtWidgets.QWidget):
     """Editor for one :class:`SettingsDocument`."""
 
@@ -81,6 +111,11 @@ class SettingsEditorTab(QtWidgets.QWidget):
         # Guards the table's cellChanged signal while the view writes into it,
         # so repopulating from the document does not echo back as user edits.
         self._populating = False
+        # Injectable so a test can redirect the facility root without patching a
+        # module global out from under a running worker.
+        self._discover = discover_ipts_settings
+        self._discovery_worker = None
+        self._pending_overrides = {}
         self._rows_hidden = 0
         self._last_error = None
 
@@ -292,21 +327,8 @@ class SettingsEditorTab(QtWidgets.QWidget):
 
     @staticmethod
     def _show_in_combo(editor, field, value):
-        """Display `value`, even when it is not one of the offered choices.
-
-        A combo asked to show an unknown value silently displays its first item
-        instead, so a file holding an out-of-set value would look like a valid
-        one — and saving would then write the substituted value back. Adding the
-        stray value as an entry keeps what is shown equal to what is held;
-        validate() is what reports it as a problem.
-        """
-        if value is None or value is False or value == "":
-            editor.setCurrentIndex(0 if field.falsy_means_off else -1)
-            return
-        text = str(value)
-        if editor.findText(text) < 0:
-            editor.addItem(text)
-        editor.setCurrentText(text)
+        """Thin alias; the logic is shared (launcher.apps.combo_display)."""
+        show_in_combo(editor, field, value)
 
     @staticmethod
     def _as_text(value):
@@ -317,6 +339,11 @@ class SettingsEditorTab(QtWidgets.QWidget):
         panel = QtWidgets.QGroupBox("Validation and changes")
         box = QtWidgets.QVBoxLayout()
         panel.setLayout(box)
+        self.status_label = QtWidgets.QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        box.addWidget(self.status_label)
+
         self.report = QtWidgets.QPlainTextEdit()
         self.report.setReadOnly(True)
         box.addWidget(self.report)
@@ -365,9 +392,11 @@ class SettingsEditorTab(QtWidgets.QWidget):
     def add_angle(self):
         self.document.add_angle()
         self.refresh_angles()
-        # A row change shifts every per-angle column, so the headers that
-        # attribute them have to be redrawn too.
-        self.refresh_badges()
+        # A row change makes every per-angle column this run's doing: the array
+        # the experiment file supplied is not the array we now hold. Re-drawing
+        # the old attribution would have the header still naming
+        # reduce_settings_up.json for a column the scientist just changed.
+        self._record_angle_edit()
         self.refresh_report()
 
     @guarded
@@ -382,7 +411,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
             return
         self.document.remove_angle(row)
         self.refresh_angles()
-        self.refresh_badges()
+        self._record_angle_edit()
         self.refresh_report()
 
     # -- refresh -----------------------------------------------------------
@@ -396,6 +425,12 @@ class SettingsEditorTab(QtWidgets.QWidget):
         file at that. An origin that stops tracking the value is worse than none.
         """
         self.provenance[name] = Resolved(self.document.get(name), "b", "")
+        self.refresh_badges()
+
+    def _record_angle_edit(self):
+        """Attribute every per-angle column to this run, and re-badge."""
+        for name in fs.PER_ANGLE_NAMES:
+            self.provenance[name] = Resolved(self.document.get(name), "b", "")
         self.refresh_badges()
 
     def refresh_badges(self):
@@ -503,33 +538,89 @@ class SettingsEditorTab(QtWidgets.QWidget):
 
     # -- files -------------------------------------------------------------
 
+    def _pre_resolve_overrides(self):
+        """Layer (b): what the scientist typed before pressing Resolve.
+
+        Without this, `resolve_for_experiment` replaced the document wholesale
+        and those edits were **discarded** — not outranked, discarded — even
+        though (b) is the top of the taxonomy. A field a person set for this run
+        has to survive resolving the experiment around it.
+        """
+        overrides = {
+            name: self.document.get(name)
+            for name, resolved in self.provenance.items()
+            if resolved.source_layer == "b"
+        }
+        # A tab that has never resolved has no provenance yet, so fall back to
+        # what differs from the seed.
+        for name in self.document.changed_vs_seed():
+            overrides.setdefault(name, self.document.get(name))
+        return overrides
+
     @guarded
     def resolve_for_experiment(self):
-        """Discover the experiment's files, resolve every layer, and display it.
+        """Start resolving for the IPTS in the toolbar.
 
-        This is the path the whole module exists for: discovery arms the
-        experiment layers, the user's global preferences supply layer (a), the
-        resolver walks them, and the document arrives with the provenance that
-        describes it. Failure is reported into the panel — a missing mount or an
-        unreadable file leaves the layers empty and resolution continues.
+        Returns immediately; discovery runs on a worker and
+        `_discovery_finished` completes the resolution.
         """
         ipts = self.ipts_edit.text().strip()
         if not ipts:
-            self.report.setPlainText("Enter an IPTS to resolve settings for it.")
+            self.set_status("Enter an IPTS to resolve settings for it.")
             return
-        try:
-            tthd = float(self.tthd_edit.text())
-        except ValueError:
-            tthd = 1.0
 
-        context = discover_ipts_settings(ipts, tthd=tthd)
-        context.global_settings = load_global_settings()
-        document, provenance = SettingsResolver(context).resolve_all()
+        text = self.tthd_edit.text().strip()
+        try:
+            tthd = float(text)
+        except ValueError:
+            # Not silently 1.0: the sign of tthd chooses the up or down settings
+            # file, so guessing it would resolve a scientist's run from the
+            # wrong geometry without saying so.
+            self.set_status(f"tthd {text!r} is not a number — enter the detector two-theta.")
+            return
+
+        self._pending_overrides = self._pre_resolve_overrides()
+        self.resolve_button.setEnabled(False)
+        self.set_status(f"Resolving {ipts}...")
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+
+        self._discovery_worker = _DiscoveryWorker(ipts, tthd, self._discover, self)
+        self._discovery_worker.finished_with.connect(self._discovery_finished)
+        self._discovery_worker.start()
+
+    @guarded
+    def _discovery_finished(self, result):
+        """Finish resolving on the GUI thread, or report why we could not."""
+        QtWidgets.QApplication.restoreOverrideCursor()
+        self.resolve_button.setEnabled(True)
+
+        if isinstance(result, BaseException):
+            self.report_problem(result)
+            return
+
+        result.global_settings = load_global_settings()
+        result.ui_overrides = self._pending_overrides
+        document, provenance = SettingsResolver(result).resolve_all()
         self.set_document(document, provenance)
-        self.report.setPlainText(
-            f"Resolved {ipts}.\n\nDiscovery: {context.discovery_status}\n\n"
-            + self.report.toPlainText()
+
+        found = bool(result.json_settings) or bool(result.ui_overrides) or bool(
+            result.global_settings
         )
+        headline = (
+            f"Resolved {result.ipts}."
+            if found
+            else f"Nothing found for {result.ipts} — every value is a built-in default."
+        )
+        self.set_status(f"{headline}\n\nDiscovery: {result.discovery_status}")
+
+    def set_status(self, text):
+        """Show discovery status in its own persistent field.
+
+        Kept out of the validation report: that is rebuilt on every edit, so the
+        status of the resolution — which file the values came from — used to
+        vanish the moment anyone typed.
+        """
+        self.status_label.setText(text)
 
     @guarded
     def load_settings(self):
@@ -546,7 +637,15 @@ class SettingsEditorTab(QtWidgets.QWidget):
         # a sequence ({"tof_min": 5}) raised TypeError out of the slot and
         # aborted the launcher.
         try:
-            self.set_document(SettingsDocument.from_file(path))
+            document = SettingsDocument.from_file(path)
+            # Read the sidecar if one is beside the file. Without this a
+            # Resolve -> Save -> reopen cycle showed blank badges for settings
+            # whose origins had just been written next to them: a persisted
+            # round-trip wired on the write side only.
+            provenance = None
+            if provenance_path(path).exists():
+                _, provenance = load_resolution(path)
+            self.set_document(document, provenance)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.warning(self, "Could not load settings", str(exc))
             self.report_problem(exc)
@@ -570,9 +669,11 @@ class SettingsEditorTab(QtWidgets.QWidget):
         if Path(path).suffix.lower() not in (".json", ".dat"):
             path = path + ".json"
         try:
-            # save_resolution, not document.save: it writes the settings file
-            # unchanged AND a provenance sidecar beside it, so the record of
-            # where each value came from survives the save.
+            # save_resolution writes the WHOLE document (to_dict, not
+            # normalize) plus a provenance sidecar beside it. One policy, stated
+            # once: a settings file the scientist saves keeps every field they
+            # can see — normalize() dropped RBnum, which has an editable column
+            # whose values were silently discarded on save.
             save_resolution(path, self.document, self.provenance)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.warning(self, "Could not save settings", str(exc))

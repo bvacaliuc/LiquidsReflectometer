@@ -32,6 +32,7 @@ The user-facing name lives in ``Field.label``.
 must exclude it.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
@@ -122,6 +123,8 @@ class Field:
     help: str
     allowed: Tuple[Any, ...] = ()
     minimum: Optional[float] = None
+    #: Strictly-greater-than bound, for quantities that divide or scale.
+    exclusive_minimum: Optional[float] = None
     maximum: Optional[float] = None
     per_angle: bool = False
     broadcast_ok: bool = False
@@ -198,21 +201,6 @@ class Field:
         if not self.is_list:
             return self.coerce_element(text)
         return self.canonical(_coerce_typed(text, self.type))
-
-    def render(self, value):
-        """Render a stored value as editor text — the inverse of :meth:`coerce`.
-
-        Delegates to :func:`render_value`; kept as a method so a field that ever
-        needs its own rendering has the hook.
-
-        Lives beside `coerce` so the pair cannot drift. It was previously a
-        private helper on the settings tab, which meant the next widget that
-        needed it grew its own `str(value)` — and `str([50, 200])` is
-        `"[50, 200]"`, which `coerce` reads back as the strings `'[50'` and
-        `'200]'`. That exact defect has now appeared in two separate files; a
-        fix that cannot be reused is a fix that re-breaks in the next one.
-        """
-        return render_value(value)
 
     # -- value -> problem ------------------------------------------------
 
@@ -295,6 +283,19 @@ class Field:
                 )
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return ""
+        # NaN compares False against everything, so `value < minimum` waved it
+        # through; `inf` passes any minimum; and a `minimum=0.0` field admits 0.
+        # All three reach layer (a), which outranks a dataset guess for every
+        # future experiment — and downstream `dqbin=0` overflows,
+        # `dqbin=1e-12` asks for a 49.7 TB arange, and `nan` propagates silently
+        # into the q-vector.
+        if not math.isfinite(value):
+            return f"{self.label} ({self.name}){where}: {value} is not a finite number"
+        if self.exclusive_minimum is not None and value <= self.exclusive_minimum:
+            return (
+                f"{self.label} ({self.name}){where}: {value} must be greater than "
+                f"{self.exclusive_minimum}"
+            )
         if self.minimum is not None and value < self.minimum:
             return f"{self.label} ({self.name}){where}: {value} is below {self.minimum}"
         if self.maximum is not None and value > self.maximum:
@@ -313,6 +314,10 @@ TYPES = (
 # Accepted spellings for a boolean in text. Never bool(text): bool("False") is
 # True, which is how a scientist who turned background subtraction OFF got it
 # applied anyway.
+#: Separates the entries of a nested list, so the inner comma join stays
+#: invertible. See `render_value`.
+NESTED_SEPARATOR = "; "
+
 _TRUE = {"true", "1", "yes", "on", "t", "y"}
 _FALSE = {"false", "0", "no", "off", "f", "n"}
 
@@ -348,23 +353,36 @@ def _coerce_typed(text, type_name):
             return stripped
     if type_name.startswith("list["):
         inner = type_name[len("list[") : -1]
+        if inner.startswith("list["):
+            # Split on the outer separator first, so each piece is one inner
+            # list. Splitting on commas would lose the grouping entirely.
+            groups = [g for g in stripped.split(NESTED_SEPARATOR.strip()) if g.strip()]
+            return [_coerce_typed(g, inner) for g in groups]
         parts = [p for p in stripped.replace(",", " ").split() if p]
         return [_coerce_typed(p, inner) for p in parts]
     return stripped
 
 
 def render_value(value):
-    """Render a stored value as editor text.
+    """Render a stored value as editor text — the exact inverse of `_coerce_typed`.
 
-    The inverse of `_coerce_typed`, and deliberately a module function: this was
-    a private helper on the settings tab, so the next widget that needed it grew
-    its own `str(value)` — and `str([50, 200])` is `"[50, 200]"`, which reads
-    back as the strings `'[50'` and `'200]'`. The same defect has now appeared
-    in two files; one that cannot be imported is one that recurs.
+    A module function, deliberately: this was a private helper on the settings
+    tab, so the next widget that needed it grew its own `str(value)` — and
+    `str([50, 200])` is `"[50, 200]"`, which reads back as the strings `'[50'`
+    and `'200]'`. A fix that cannot be imported is one that recurs.
+
+    **Nested lists need a second separator.** `BkgROI` is `list[list[int]]`, and
+    a flat comma join cannot be inverted: `"10, 20, 30, 40"` has lost where one
+    ROI ends and the next begins. Inner entries join with `", "` and outer ones
+    with `"; "`, which `_coerce_typed` splits in the same order. Without this
+    the renderer claimed to invert `coerce` and did so for every type but one —
+    and the whole point of extracting it was that the next file inherits it.
     """
     if value is None:
         return ""
     if isinstance(value, (list, tuple)):
+        if any(isinstance(entry, (list, tuple)) for entry in value):
+            return NESTED_SEPARATOR.join(render_value(entry) for entry in value)
         return ", ".join("" if entry is None else str(entry) for entry in value)
     return str(value)
 
@@ -532,7 +550,7 @@ FIELD_SPEC = (
     Field("qmax", "Q max", QSPACE, "float", 0.5,
           "Upper edge of the output Q range.", minimum=0.0),
     Field("dqbin", "Q bin width", QSPACE, "float", 0.005,
-          "Width of the output Q bins.", minimum=0.0),
+          "Width of the output Q bins.", exclusive_minimum=0.0),
     Field("Qline_threshold", "Q-line threshold", QSPACE, "float", 1.0,
           "Fraction of a Q-line that must fall inside a bin for it to count, "
           "outside constantTOF mode.", minimum=0.0, maximum=1.0),
@@ -540,7 +558,7 @@ FIELD_SPEC = (
           "Q below which data is treated as the critical-edge plateau when "
           "normalizing.", minimum=0.0),
     Field("tof_bin", "TOF bin width", WAVELENGTH, "float", 50,
-          "Width of the time-of-flight bins.", minimum=0.0),
+          "Width of the time-of-flight bins.", exclusive_minimum=0.0),
 
     Field("mmpix", "Pixel size (mm)", GEOMETRY, "float", None,
           "Detector pixel size. Unset reads it from the instrument settings."),
@@ -576,7 +594,7 @@ FIELD_SPEC = (
           "Shape of the detector resolution function.", allowed=DET_RES_CHOICES,
           value_notes=DET_RES_NOTES, case_sensitive=True),
     Field("DetSigma", "Resolution sigma", RESOLUTION, "float", 0.8,
-          "Width of the detector resolution function.", minimum=0.0),
+          "Width of the detector resolution function.", exclusive_minimum=0.0),
 
     Field("peak_pad", "Peak fit padding (pixels)", PEAK, "int", 1,
           "Extra pixels included outside the background range when fitting the "

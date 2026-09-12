@@ -23,6 +23,7 @@ from launcher.apps.global_settings import (
 )
 from launcher.apps.settings_editor import SettingsEditorTab
 from lr_reduction import field_spec as fs
+from lr_reduction.settings_document import SettingsDocument
 from lr_reduction.settings_resolver import (
     GLOBAL_WHITELIST,
     NotWhitelistedError,
@@ -244,6 +245,38 @@ def test_the_launcher_still_carries_the_tabs():
 # --------------------------------------------------------------------------
 
 
+def _resolve_and_wait(tab, timeout_ms=10000):
+    """Press Resolve and let the worker finish.
+
+    Discovery runs off the GUI thread, so a test has to wait for it — the same
+    reason a stalled mount no longer freezes the launcher.
+    """
+    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+    worker = tab._discovery_worker
+    assert worker is not None, "Resolve did not start a worker"
+    assert worker.wait(timeout_ms), "discovery worker did not finish"
+    QtWidgets.QApplication.instance().processEvents()
+    return tab
+
+
+def _full_experiment_tree(tmp_path, ipts="IPTS-30101"):
+    """ONE realistic tree, parametrized over tthd — not one tree per assertion.
+
+    Holds both settings files, both templates and an unreadable file, so the
+    up/down choice, the tthd==0 boundary, the two-note status path and the
+    permission-denied guard are all exercised against the same fixture. The v2
+    trees were each shaped to the single assertion they served, which is how a
+    hardcoded tthd and a sorted-glob both survived.
+    """
+    autoreduce = tmp_path / ipts / "shared" / "autoreduce"
+    autoreduce.mkdir(parents=True)
+    (autoreduce / "reduce_settings_up.json").write_text(json.dumps({"qmin": 0.002}))
+    (autoreduce / "reduce_settings_down.json").write_text(json.dumps({"qmin": 0.004}))
+    (autoreduce / "template_up.xml").write_text("<Reduction/>")
+    (autoreduce / "template_down.xml").write_text("<Reduction/>")
+    return tmp_path
+
+
 def _experiment_tree(tmp_path, ipts="IPTS-30101", tthd_up=True):
     autoreduce = tmp_path / ipts / "shared" / "autoreduce"
     autoreduce.mkdir(parents=True)
@@ -271,14 +304,14 @@ def test_the_production_path_resolves_and_populates_the_badges(tmp_path, monkeyp
 
     tab = SettingsEditorTab()
     tab.ipts_edit.setText("IPTS-30101")
-    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+    _resolve_and_wait(tab)
 
     assert tab.provenance, "the resolver produced no provenance"
     assert tab.document.get("qmin") == 0.002
     assert tab.badges["qmin"].text() == "[c]"
     assert tab.badges["qmax"].text() == "[a]"
     assert tab.badges["dqbin"].text() == "[f]"
-    assert "reduce_settings_up.json" in tab.report.toPlainText()
+    assert "reduce_settings_up.json" in tab.status_label.text()
 
 
 def test_saving_after_resolving_writes_the_provenance_sidecar(tmp_path, monkeypatch):
@@ -338,6 +371,28 @@ def test_removing_an_angle_redraws_the_column_attributions():
     tab.angle_table.setCurrentCell(0, column)
     QTest.mouseClick(tab.remove_angle_button, QtCore.Qt.LeftButton)
     assert tab.document.get("DBname") == ["b.dat"]
+    # AFTER, which is the whole point: the array is no longer the one the
+    # experiment file supplied, so a header still naming reduce_settings.json
+    # attributes this run's edit to a file that never said it. Asserting only
+    # the before-state let the re-record be deleted with the test green.
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b]")
+
+
+def test_adding_an_angle_reattributes_the_columns():
+    """add_angle had no test at all."""
+    document, provenance = SettingsResolver(
+        ResolutionContext(
+            json_settings={"DBname": ["a.dat"]}, json_detail="reduce_settings.json"
+        )
+    ).resolve_all()
+    tab = SettingsEditorTab()
+    tab.set_document(document, provenance)
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[c]")
+
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    assert tab.document.n_angles == 2
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b]")
 
 
 # --------------------------------------------------------------------------
@@ -393,3 +448,217 @@ def test_a_raising_dialog_slot_does_not_abort(monkeypatch):
         lambda _values: (_ for _ in ()).throw(RuntimeError("synthetic")),
     )
     dialog.accept()  # must not raise
+
+
+# --------------------------------------------------------------------------
+# v3 guards
+# --------------------------------------------------------------------------
+
+
+def test_the_gui_thread_stays_responsive_while_discovery_blocks(monkeypatch):
+    """C7: a stalled FUSE mount BLOCKS — it does not raise.
+
+    So `except OSError` and the slot guard are both irrelevant to it. Measured
+    on the synchronous version with a 2 s stub: zero timer ticks in 2.00 s. This
+    asserts the tick fires, which only happens if discovery is off the thread.
+    """
+    import time
+
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    def slow(ipts, tthd=1.0, **_kw):
+        time.sleep(0.75)
+        return ResolutionContext(ipts=ipts, discovery_status="slow stub")
+
+    tab = SettingsEditorTab()
+    tab._discover = slow
+    tab.ipts_edit.setText("IPTS-1")
+
+    ticks = []
+    timer = QtCore.QTimer()
+    timer.timeout.connect(lambda: ticks.append(1))
+    timer.start(50)
+
+    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+    assert tab.resolve_button.isEnabled() is False, "the button should be disabled while busy"
+
+    deadline = time.monotonic() + 5.0
+    while not ticks and time.monotonic() < deadline:
+        QtWidgets.QApplication.instance().processEvents()
+    timer.stop()
+
+    assert ticks, "the GUI thread was blocked by discovery"
+    assert tab._discovery_worker.wait(10000)
+    QtWidgets.QApplication.instance().processEvents()
+    assert tab.resolve_button.isEnabled() is True
+
+
+@pytest.mark.parametrize(
+    "tthd, expected",
+    [
+        pytest.param(1.0, "reduce_settings_up.json", id="up"),
+        pytest.param(-1.0, "reduce_settings_down.json", id="down"),
+        pytest.param(0.0, "reduce_settings_down.json", id="zero-is-down"),
+    ],
+)
+def test_the_tthd_field_reaches_discovery(tmp_path, monkeypatch, tthd, expected):
+    """C10: the UI field was ignored — discovery was called with a hardcoded 1.0.
+
+    A scientist typing tthd=-1 silently resolved from the *up* file. The v2
+    fixture never exercised it because its `tthd_up=False` parameter had no
+    call site.
+    """
+    import lr_reduction.settings_resolver as resolver_module
+
+    root = _full_experiment_tree(tmp_path)
+    real = resolver_module.discover_ipts_settings
+    tab = SettingsEditorTab()
+    tab._discover = lambda ipts, tthd=1.0, **_kw: real(ipts, tthd=tthd, root=str(root))
+    tab.ipts_edit.setText("IPTS-30101")
+    tab.tthd_edit.setText(str(tthd))
+    _resolve_and_wait(tab)
+
+    assert expected in tab.status_label.text()
+
+
+def test_an_unparseable_tthd_is_surfaced_not_guessed(tmp_path):
+    """Its sign chooses the geometry, so guessing 1.0 resolves the wrong file."""
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    tab.tthd_edit.setText("banana")
+    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+    assert tab._discovery_worker is None
+    assert "banana" in tab.status_label.text()
+
+
+def test_an_edit_made_before_resolving_ranks_as_this_run(tmp_path):
+    """C8: layer (b) had no production writer — pre-Resolve edits were discarded.
+
+    Not outranked. Discarded, though (b) is the top of the taxonomy.
+    """
+    import lr_reduction.settings_resolver as resolver_module
+
+    root = _full_experiment_tree(tmp_path)
+    real = resolver_module.discover_ipts_settings
+    tab = SettingsEditorTab()
+    tab._discover = lambda ipts, tthd=1.0, **_kw: real(ipts, tthd=tthd, root=str(root))
+
+    editor = tab.editors["qmin"]
+    editor.setText("0.123")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+    assert tab.badges["qmin"].text() == "[b]"
+
+    tab.ipts_edit.setText("IPTS-30101")
+    _resolve_and_wait(tab)
+
+    assert tab.document.get("qmin") == 0.123
+    assert tab.badges["qmin"].text() == "[b]"
+
+
+def test_reopening_a_saved_file_restores_its_badges(tmp_path, monkeypatch):
+    """C8: the sidecar was written and never read back."""
+    target = tmp_path / "saved.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *_a, **_k: (str(target), "")),
+    )
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *_a, **_k: (str(target), "")),
+    )
+    document, provenance = SettingsResolver(
+        ResolutionContext(json_settings={"qmin": 0.002}, json_detail="reduce_settings.json")
+    ).resolve_all()
+    tab = SettingsEditorTab()
+    tab.set_document(document, provenance)
+    tab.save_settings()
+
+    reopened = SettingsEditorTab()
+    reopened.load_settings()
+    assert reopened.provenance, "the sidecar beside the file was ignored"
+    assert reopened.badges["qmin"].text() == "[c]"
+
+
+def test_saving_keeps_every_field_the_editor_shows(tmp_path, monkeypatch):
+    """C3: Save wrote normalize(), dropping fields that have editable columns.
+
+    RBnum is runtime_owned AND per_angle, so it gets a table column a scientist
+    can type into — and Save discarded it with no message.
+    """
+    target = tmp_path / "kept.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *_a, **_k: (str(target), "")),
+    )
+    document = SettingsDocument()
+    document.add_angle(RBnum=197912, DBname="db.dat")
+    tab = SettingsEditorTab()
+    tab.set_document(document)
+    tab.save_settings()
+
+    written = json.loads(target.read_text())
+    assert written["RBnum"] == [197912]
+    for name in ("RBnum", "LambdaMinUse", "LambdaMaxUse"):
+        assert name in written
+
+
+def test_an_untouched_save_keeps_an_out_of_set_preference():
+    """C6: setCurrentText is a no-op on a non-editable combo.
+
+    So a stored value from an older version displayed blank, and a Save nobody
+    touched coerced the blank to None and DELETED the preference — reverting to
+    a default, which is different reduced data.
+    """
+    save_global_settings({"DetResFn": "rectangular"})
+    settings = QtCore.QSettings()
+    settings.setValue(f"{SETTINGS_GROUP}/DetResFn", "bogus_from_older_version")
+    settings.sync()
+
+    dialog = GlobalSettingsDialog()
+    assert dialog.editors["DetResFn"].currentText() == "bogus_from_older_version"
+    dialog.accept()
+    assert load_global_settings().get("DetResFn") == "bogus_from_older_version"
+
+
+def test_a_list_valued_preference_survives_as_numbers(monkeypatch):
+    """C4: QSettings returns a multi-entry value as a LIST of str.
+
+    The old guard coerced only the `str` branch, so a list-valued preference
+    entered layer (a) as strings and was written to the settings file, where the
+    reduction did arithmetic on them.
+    """
+    real_value = QtCore.QSettings.value
+    real_contains = QtCore.QSettings.contains
+
+    def as_stored_list(self, key, *args, **kwargs):
+        if key.endswith("data_x_range"):
+            return ["50", "200"]
+        return real_value(self, key, *args, **kwargs)
+
+    def contains(self, key):
+        return True if key.endswith("data_x_range") else real_contains(self, key)
+
+    monkeypatch.setattr(QtCore.QSettings, "value", as_stored_list)
+    monkeypatch.setattr(QtCore.QSettings, "contains", contains)
+    monkeypatch.setattr(
+        "launcher.apps.global_settings.GLOBAL_WHITELIST",
+        tuple(GLOBAL_WHITELIST) + ("data_x_range",),
+    )
+    restored = load_global_settings()["data_x_range"]
+    assert restored == [50, 200]
+    assert all(isinstance(entry, int) for entry in restored)
+
+
+def test_the_ui_label_does_not_claim_the_data_outranks_a_preference():
+    """C2: the label told a scientist the opposite of the resolution order.
+
+    A string assertion is fair here — the label is the artifact under test.
+    """
+    dialog = GlobalSettingsDialog()
+    labels = [
+        w.text() for w in dialog.findChildren(QtWidgets.QLabel) if "personal defaults" in w.text()
+    ]
+    assert labels, "the explanatory label is gone"
+    text = labels[0]
+    assert "or the data itself" not in text
+    assert "outrank" in text
