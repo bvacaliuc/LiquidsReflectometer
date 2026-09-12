@@ -5,8 +5,9 @@ charter §4 slug T3 · full design in
 `tasking/plan/settings-management/plan.md` (398 ln) — **authoritative source
 is `src/lr_reduction/{settings_document,field_spec,reduction_domains}.py` in
 the checkout, NOT the design doc** (out-of-tree; the doc is human background)
-**Retry attempt:** 3 (v3 — see Revision history; the v3 source branch is the
-existing `feature/settings-management` @ `8abfdce` with the Integrator todo on top)
+**Retry attempt:** 4 (v4 under the human N=4 cap extension — see Revision history;
+the v4 source branch is the existing `feature/settings-management` @ `ecc1e3b`
+with the v3 Integrator todo on top)
 
 Review domains (design-plan §10): **design-reviewer (blocking** — the layer
 model vs. the organic tangle this slug replaces), **ui-aspects-reviewer
@@ -640,3 +641,199 @@ optional-list nulls, `HUMAN_LAYERS`, sidecar-missing branch, badge labels, slot
 guard; active-row trap absent; sorting pinned; no `.destroy()`; dialog leak
 fixed; `accept()` guarded; validators attached. **Read this list before editing —
 reworking a landed fix wastes the last attempt.**
+
+## Revision history — v4 (human N=4 cap extension, 2026-09-12; todo @ `ecc1e3b`; attempt 4 of **N=4 extended**)
+
+**The human read `plans/settings-management-escalate.md` and authorized a bounded
+N=4 extension for this slug** — driven by C4 (silent science-correctness
+regression) and C3 (launcher abort). This is the **final attempt under the
+extension**; no discovery remains (the Integrator localized every site). v3 is the
+strongest version — read "Confirmed FIXED in v2/v3" before touching anything.
+Eight blocking clusters + two HIGH should-fixes below; **v3 source branch =
+existing `feature/settings-management` @ `ecc1e3b` with the v3 Integrator todo on
+top.** Anchors are v3-tip line numbers; they will drift as you edit — confirm each
+by symbol.
+
+### THE PROCESS FIX THAT UNBLOCKS THE ROOT CAUSE (do this first — it is *why* v2 and v3 both failed here)
+
+The per-site granularity defect recurred **twice** because the mutation record
+was (a) counted from prose and (b) unauditable. v4 makes it mechanical and
+committed:
+
+1. **Enumerate sites from the code, not the sentence** (test-reviewer's
+   formulation): for every shared helper/rule below, `grep -c` its call sites (and
+   for `_may_be_a_preference`, its **clauses**), and produce **one mutation per
+   hit**. The counts you must hit: `_guarded_step` **5**, `_record_edit`-family
+   **5**, `_may_be_a_preference` clauses **6**, the validate-or-refuse door **2**.
+2. **The mutation ledger lives IN THE REPO, committed at the feature tip** — a
+   `## Mutation ledger` section in `todo.md` (or a committed
+   `plans/settings-management-mutation-ledger.md`), one line per grep-hit:
+   `<helper>@<site-line> : <mutation> -> N failed (<test::name>)`. The commit
+   message alone is **not** acceptable (v3's "28 mutations" was unauditable by
+   construction — two reviewers independently could not check it). The Integrator
+   will audit the ledger against `grep -c` at the feature tip.
+
+### C1 (blocking) — `_guarded_step` catches the wrong exception class; 2 of 5 sites unpinned
+
+`_guarded_step` (`settings_resolver.py:416-421`) catches `except OSError`, but
+`Path.resolve()` raises **`RuntimeError`** on ELOOP (a self-referential symlink in
+an sshfs/FUSE `/SNS` IPTS `shared/` tree — an ordinary facility condition),
+`ValueError` on a NUL byte, `TypeError` on `None`/bytes. Sites `:447` and `:452`
+survive unwrapping (suite green); the launcher survives only because
+`_DiscoveryWorker.run` catches `BaseException` — every non-GUI caller gets the
+raise. **Fix:** `except (OSError, RuntimeError, ValueError)` (or `except Exception`
+recording the reason). **Mutate-once, per SITE (5):** unwrap each of the 5 guarded
+steps in turn — each reds its own test; `:447`/`:452` inject a real symlink loop
+(no monkeypatch).
+
+### C2 (blocking) — resolve status reports success for a failed read and contradicts itself
+
+`_guarded_step` returns `None` for **both** "raised" and "found nothing", so after
+a `chmod 000` the caller appends a flat "no reduce_settings*.json" **as the last
+word** — a persistent falsehood (`set_status`) the scientist acts on, reducing
+from defaults with a layer-(a) value that (c) was meant to outrank. The author
+separated the sentinel at the `is_dir` site (`:466-472`) but **not** at the two
+scan sites (`:477`/`:496`, where passing `[]` instead of `notes` is green). **Fix:**
+a distinguishable sentinel (`(ok, value)` or module-level `_FAILED`); append "no …"
+**only** when the scan succeeded; **assert the errno text** (not truthiness — the
+chmod-000 test asserts `assert ctx.discovery_status`, content unpinned).
+
+### C3 (blocking) — the discovery worker aborts the launcher (exit 134) on teardown — take the ROBUST form
+
+`_DiscoveryWorker` (`settings_editor.py:68-92`), parented at `:587`, has **no**
+`closeEvent`/`wait()`/`quit()`/`deleteLater` — closing the launcher with a resolve
+in flight gives `QThread: Destroyed while thread is still running`, **EXITCODE=134
+on every teardown path** (measured), in the exact stalled-`/SNS` scenario the
+worker was added for (v3 traded v2's freeze for an abort). **Do NOT just add
+`wait()`** — a `wait()` on a D-state read blocks as long as the freeze did.
+**Robust fix:** leave the worker **unparented**, hold it in
+`self._discovery_worker`, connect `finished → deleteLater`; on `closeEvent`
+disconnect `finished_with` and drop the reference — the stalled case **leaks one
+thread instead of aborting** (the correct trade). Guard `restoreOverrideCursor`
+(unreachable if the worker never returns → application-wide wait cursor persists
+for the process life). Also fold the should-fix: `_DiscoveryWorker` objects
+accumulate one per Resolve (6 presses → 6 live children). **Mutate:** a subprocess
+test — close with a resolve in flight, assert clean exit (not 134); it must red if
+the teardown handler is removed.
+
+### C4 (blocking, SCIENCE) — two of v3's fixes compose to promote file/sidecar content above the measurement
+
+`load_settings` seeds `self.provenance` from the sidecar (`:645-647`);
+`_pre_resolve_overrides` converts **recorded origin → authority** (`:548-551`);
+`resolve()` gates only layer (a) on `GLOBAL_WHITELIST`, so a sidecar-sourced `"b"`
+is promoted ungated. Result (measured, no typing): geometry fields
+(`dSampDet=99999`, `IncidentTheta=88`) — the `GLOBAL_EXCLUDED_GROUPS` set that has
+**no layer (a)** precisely so *"a preference must never override a measurement"* —
+reach layer (b) "set for this run" and **outrank the experiment file AND the
+measurement**. Door 1: a dropped/own sidecar in group-writable `shared/autoreduce`.
+Door 2: an "Add angle" click mints `Resolved(...,"b")` for **all 13** per-angle
+fields nobody typed. **This defeats the C4(ii) exclusion the human decided.**
+**Fix (one root, both doors):** (a) **never seed `ui_overrides` from provenance
+read off disk** — in-session edits are already tracked by `_record_edit`; (b) map
+a sidecar `"b"` to a **non-authoritative** marker (`"b*"`, label "set for a
+previous run") so the badge stays truthful and the value stays non-authoritative;
+(c) **separate a structural edit (row-count) from a value edit** — a row-count
+change must not mint `Resolved(...,"b")`; clear per-angle overrides when
+`ipts_edit` changes. **Mutate:** File→Open a sidecar with a geometry value, Resolve
+with no typing, assert the geometry field's `source_layer` is **not** (b) and does
+not outrank (e) → reds if the disk seed or the promotion remains; and an Add-angle
+between two Resolves must not change a per-angle field's authority.
+
+### C5 (blocking) — Save writes a document the panel already declared invalid
+
+`:677` calls `save_resolution` with **no `validate()` gate**, while
+`GlobalSettingsDialog.accept()` **does** gate on `check()` — two doors into one
+rule, one guarded (granularity again). `dqbin=0` (which this commit added
+`exclusive_minimum` for, reasoning it overflows downstream) writes to the
+`shared/autoreduce` file autoreduction runs. **Fix:** ONE shared
+validate-or-refuse helper used by **both** doors (not a second per-site copy).
+**Mutate, per DOOR (2):** feed an invalid `dqbin=0` through the editor Save and
+through the dialog accept — each must refuse; removing the shared gate reds both.
+
+### C6 (blocking) — three re-record sites unpinned, two are the most-used editing paths
+
+Sites/mutation (`_record_edit` → `refresh_badges`): `:358 _set_scalar` **survives**,
+`:366 _on_scalar_edited` red, `:388 _on_cell_changed` **survives**, `:399 add_angle`
+red, `:414 remove_selected_angle` red. A scientist types into a per-angle cell or
+flips a checkbox, the document changes, and the header still attributes the column
+to `reduce_settings.json` — full suite green. **Fix:** `_record_edit` at all five;
+**Mutate, per SITE (5):** replace `_record_edit`→`refresh_badges` at each, assert
+the badge flips to `[b]` after the edit → each reds.
+
+### C7 (blocking) — the whitelist's excluded-group clause is unpinnable as written
+
+`_may_be_a_preference` clause `:149` (`field.group in GLOBAL_EXCLUDED_GROUPS`) is
+**unreachable**: `GLOBAL_EXCLUDED_GROUPS=(fs.GEOMETRY,)` but `GEOMETRY ∉
+GLOBAL_GROUPS`, so the excluded-group clause can only fire for a group in BOTH
+(empty set) — the geometry exclusion actually rides the `not in GLOBAL_GROUPS`
+clause, and deleting the *explicit* clause (the one carrying the human decision)
+is green. **Fix + Mutate:** the guard test **monkeypatches `GLOBAL_GROUPS` to
+include `fs.GEOMETRY`** and asserts a geometry field is **still refused** — this
+makes the excluded-group clause the only thing standing between geometry and the
+whitelist, so deleting it reds. Count `_may_be_a_preference` as **6 clauses** in
+the ledger.
+
+### C8 (blocking) — `add_angle` lacks the guard its sibling documents 33 lines away
+
+`settings_document.py` `add_angle:203` (`list(current) + [values.get(name)]`) has
+no guard; `set_angle_field:236` **is** guarded (with a comment on why a `len()`
+check was insufficient). Loading a file with a **scalar** per-angle value + Add
+angle → `TypeError: 'float' object is not iterable` **mid-loop** → a ragged
+document (third angle invisible), a false "unchanged" claim, `refresh_report()`
+never re-runs so `validate()` never reports the lengths, and the file is written.
+**Fix:** guard `:203` as `:236` is, **and make `add_angle` transactional** — mutate
+a copy and commit, so a raise cannot leave a half-grown document; `report_problem`
+must not claim "unchanged" unless it knows so. **Mutate:** add-angle onto a scalar
+per-angle field, assert the document is unchanged (transaction rolled back) and no
+file is written → reds without the guard/transaction. (Pre-existing, byte-identical
+v2/v3 — but two clicks from a real file shape.)
+
+### v4 should-fix — the two HIGH ones are FOLDED (science/crash), the rest named
+
+- **[HIGH — FOLD] `qmin` admits `0` and it is the divisor.** v3 added
+  `exclusive_minimum` to `dqbin`/`tof_bin`/`DetSigma` and **missed the denominator**:
+  `qmin` is whitelisted, so `0` persists into layer (a) and outranks the guess/default
+  for every future experiment — `log_qvector(0.0,0.5,0.005) → ZeroDivisionError`,
+  `qmax=0 → OverflowError`. Add `exclusive_minimum=0.0` to `qmin` (and `qmax`).
+  Mutate: persist `qmin=0`, assert refused.
+- **[HIGH — FOLD] the six geometry divisors accept `0` and negative.** `mmpix`,
+  `dSampDet`, `dMod`, `dS1Samp`, `nx`, `ny` have no bound: `dSampDet=0 →
+  ZeroDivisionError` (`nr_reduction_calc.py:534`); negative → silently mirrored
+  geometry; `mmpix=0` zeros the beam-on-detector calc **silently**. Reachable by
+  typing, by an experiment file, and — via C4 — by a sidecar. v3 fixed the
+  non-finite half; the zero/negative half remains. Add exclusive-positive bounds;
+  mutate each.
+- Named-not-folded (reviewer's call): `load_resolution` is the unhardened twin of
+  `_read_json` on the production Open path (route it through `_read_json`);
+  `MAX_SETTINGS_BYTES` bypassable via a FIFO (`st_size=0`; `os.open` on a
+  writer-less FIFO blocks the worker forever) — require `stat.S_ISREG`, read
+  `MAX+1`; sidecar strings render as **rich text** in the badge + can forge
+  `source_layer` — validate against `LAYER_LABELS`, set `Qt.PlainText`; the
+  settings/sidecar pair is non-atomic with an **orphan-sidecar** case (an authority
+  grant given C4) — write+fsync+rename both, record the settings digest in the
+  sidecar; `render_value`'s nested branch is **lossy** (drops/moves an angle on
+  `None` padding, which is what `_equalise_angles` produces) — fix before the first
+  caller, drop "exact inverse" from the docstring; `show_in_combo` accumulates
+  strays; `.dat` admitted as a save suffix the editor's own Load refuses;
+  `user_chosen`/`normalize` zero production callers (wire or demote like (d));
+  precedence declared **8×** now (`global_settings.py:158` still pre-decision order).
+
+### v4 acceptance (final-gate — LAST attempt under the N=4 extension)
+
+- **Mutation ledger committed at the feature tip**, one line per `grep -c` hit;
+  counts `_guarded_step` 5, `_record_edit`-family 5, `_may_be_a_preference` 6,
+  validate-door 2 — each with its observed red. (The Integrator audits the ledger
+  against `grep -c`; a prose count is a reject.)
+- C1 catches `RuntimeError`/`ValueError` at all 5 sites; C2 distinguishable
+  sentinel + errno-text assertion; C3 **robust** worker teardown (leak-not-abort),
+  subprocess-proven, cursor guarded; **C4 both doors closed** — no disk-seeded or
+  click-minted (b) authority, geometry never outranks (c)/(e), badge truthful;
+  C5 one shared validate-or-refuse on both doors; C6 all 5 re-record sites pinned;
+  C7 excluded-group clause pinned via `GLOBAL_GROUPS` monkeypatch; C8 `add_angle`
+  guarded + transactional.
+- **HIGH should-fixes folded:** `qmin`/`qmax` and the six geometry divisors reject
+  `0`/negative.
+- `pixi run test-launcher` + `test-reduction` green; no `pixi.lock` change.
+- Draft PR body: C3/C4 as the science/crash fixes that drove the extension; the
+  mutation ledger's home; non-goals (design §9) unchanged. **This is attempt 4 of
+  the extended N=4 — the retry budget is exhausted after this.**

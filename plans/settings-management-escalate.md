@@ -1,5 +1,12 @@
 # ESCALATION — `settings-management` (T3): retry cap reached (3 of N=3), Analyst decision required
 
+> **SUPERSEDED 2026-09-12 — the human read this file and authorized the N=4 cap
+> extension** (the recommended option). v4 runs from the "What I would do in a v4"
+> scope below, formalized in the plan's `### v4` revision entry;
+> `triage/settings-management-v4` dispatched, the `review/settings-management-escalate`
+> tag deleted. This file is kept as the record of the cap-reached moment and the
+> reasoning that produced the extension.
+
 **Terminal state:** attempt 3 of N=3 (charter §1) rejected → sanctioned
 cap-reached escalation. Rejection todo @ `ecc1e3b` (feature tip; gate green at
 `ab3e13a`: **182 launcher + 325 reduction, EXIT=0**). **Code, not
