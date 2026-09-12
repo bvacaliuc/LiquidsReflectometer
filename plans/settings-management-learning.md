@@ -153,3 +153,81 @@ next derivation will undo.
 read every entry aloud against the question the rule is supposed to answer.
 Here that question was *"is this something a person should carry between
 experiments?"* — and eight entries answer no.
+
+## 8. Guard every site of a behaviour, and prove each one separately
+
+**Rule.** When a behaviour has several call sites, a guard on one of them proves
+one of them. Record a mutation per **site**, not per behaviour.
+
+**Why.** This was the most productive cluster of the whole slug, and every
+instance had the same shape — a property that looked covered because *a* test
+covered *a* site:
+
+- discovery wrapped two of its three filesystem touches. `is_dir()` **succeeds**
+  on a `chmod 000` share, so the tested guard never fired, while the unguarded
+  `exists()` beneath `select_by_geometry` raised straight out of the slot. The
+  module's headline promise — never take the launcher down when the mount is
+  unavailable — was silently not delivered, with a green suite.
+- the whitelist was pinned by one exemplar per group, so a hand-list of **six**
+  survived against a real **twenty**.
+- the angle-removal test asserted the column header *before* the removal, so
+  deleting the re-attribution was green; `add_angle` had no test at all.
+
+The fix for the first is worth separating from the test: push the guard into
+**one** helper every step calls. Wrapping each site individually would have been
+three copies of one rule, and the third is always the one that gets forgotten —
+which is exactly how it happened the first time.
+
+**How to apply.** Count the call sites before writing the guard. Then break each
+one in turn: if two sites share a test, that test is proving one of them.
+
+## 9. A shim tests the site you already thought about
+
+**Rule.** Prefer injecting the real failure over monkeypatching the function you
+expect to fail.
+
+**Why.** The "unreachable mount" guard was tested by monkeypatching
+`Path.is_dir` to raise. That could only ever exercise the site already wrapped in
+a `try` — the shim *was* the hypothesis. A real `chmod 000` directory found the
+truth instead: `is_dir()` returns True on it, and the failure surfaces two calls
+later, in the site nobody had guarded.
+
+The same distinction settled a smaller one: QSettings returns a cached typed
+value in-process and the on-disk string in a fresh one, so an in-process
+round-trip tests the cache. Both are the same lesson — **the shim reproduces
+your model, the real thing reproduces the world.** Where a real injection is
+cheap (a mode bit, a subprocess), it is worth more than the mock.
+
+## 10. Two clauses guarded a field that does not exist — say so
+
+**Rule.** When a defensive clause cannot be reached by any current input, test it
+on a synthetic input and write down that it is defending a future.
+
+**Why.** The whitelist predicate has five clauses. Two — `type == "path"` and
+`runtime_owned` — turned out to be unreachable: every such field also sits
+outside the included groups, so the group clause excludes it first, and deleting
+either specific clause left the counter-example test green. The honest options
+were to delete them as dead code or to isolate them, and deleting would have
+removed the protection that keeps a *future* field added to an included group
+out of the layer that outranks a dataset guess.
+
+So they are tested on synthetic `Field` objects, with the reason stated in the
+test. A clause guarding a future is worth keeping and worth pinning; what is not
+acceptable is a clause that looks tested and is not.
+
+## 11. A promise narrowed is a promise kept
+
+**Rule.** When a guarantee cannot be delivered in full, narrow the words and name
+the residual, rather than leaving the broad claim standing.
+
+**Why.** The discovery docstring said "degrades, never raises". `/SNS` is FUSE,
+and a stalled mount **blocks in D-state** — it does not raise, so `except OSError`
+and the slot guard were both irrelevant to the failure most likely to occur.
+Measured: 2.00 s blocked, zero timer ticks. The work moved to a worker thread,
+and the docstring now says "never raises — it can still block", with the caller's
+obligation spelled out.
+
+The same move appears twice more in this slug: layer (d) is *declared and
+honoured but not populated*, said in the docstring, a constant and a test; and
+`LAYER_ORDER`'s partial scope ((e)/(f) are not mappings) is stated rather than
+left to be discovered. Each replaces a comfortable sentence with a true one.
