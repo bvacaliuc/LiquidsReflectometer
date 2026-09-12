@@ -225,21 +225,34 @@ the wiring reds it (today nothing does).
   ordered table so the C4(ii) decision below is a one-line change. Mutate:
   swap two rows in the table → the precedence test reds (assert `source_layer`,
   per-boundary tests, not one blanket test).
-- **C4(ii) — SCIENTIFIC-CORRECTNESS DECISION, PENDING HUMAN (do not guess):**
-  `GLOBAL_WHITELIST` (derived by group) includes instrument-truth geometry —
-  `IncidentTheta, mmpix, dSampDet, dMod, xi_ref, dS1Samp, nx, ny` — whose
-  documented defaults read *"Unset reads it from the instrument settings / the
-  PV."* So a stored global value **silently beats the measured geometry**:
-  identical UI + identical experiment settings file → **different reduced
-  data.** This is not a code call. The question for the human (surfaced in the
-  report): **(1)** where does layer (a) sit relative to (c) experiment-file and
-  (e) dataset-guess — the design §4 note already calls (a)-above-(c) "unusual
-  (user-general beats experiment-specific)"; and **(2)** should the instrument-
-  geometry group be excluded from the global whitelist entirely (a preference
-  must never outrank a measurement)? v2 leaves the geometry group and (a)'s
-  placement vs (c)/(e) EXACTLY as the human directs — the single-source table
-  from C4(i) makes it a one-line application. Until answered, v2's gate treats
-  C4(ii) as the human's out-of-band decision, **not** a rejection ground.
+- **C4(ii) — SCIENTIFIC-CORRECTNESS DECISION, RESOLVED BY THE HUMAN 2026-09-12
+  (fully science-safe option):** `GLOBAL_WHITELIST` included instrument-truth
+  geometry (`IncidentTheta, mmpix, dSampDet, dMod, xi_ref, dS1Samp, nx, ny`)
+  whose defaults come from the PV/measurement, so a stored global value
+  silently beat the measured geometry (identical UI + experiment file →
+  different reduced data). **Human decision — implement exactly this:**
+  1. **Exclude the instrument-geometry group from the global whitelist
+     entirely** — a user preference must never outrank a measured/PV value.
+     Add the group to a `GLOBAL_GROUPS` exclusion (or drop it from the derived
+     set) so those fields have **no layer (a)** and resolve
+     (b)→(c)→(d)→(e)→(f) only. Keep the derive-by-group property (C6a) — the
+     exclusion is itself a named, guarded rule.
+  2. **Layer (a) sits BELOW the experiment file.** The resolved precedence
+     order in the single-source table (C4(i)) is:
+     **(b) this-run override → (c) IPTS json → (d) IPTS xml → (a) user-global
+     → (e) dataset-guess → (f) default.** Rationale: this-run beats a standing
+     preference (C4(i)); the experiment-specific file beats a user-general
+     preference (this decision); a user's explicit preference still beats a
+     heuristic guess (e) and the built-in default (f) for the non-geometry,
+     non-experiment fields it covers.
+  **Mutate-once for the decision:** a test that a geometry field
+  (`IncidentTheta`) set in the global store does NOT win over a measured (e)
+  value (asserts `source_layer` is `e`, not `a`) — reds if geometry is still
+  whitelisted; and a non-geometry field defined in both (a) and (c) resolves
+  to **(c)** (asserts `source_layer == 'c'`) — reds if (a) is still above (c).
+  Update the design doc §4 note (which called (a)-above-(c) "unusual") to
+  record that it was resolved to (a)-below-(c). This closes C4(ii); C4(i) +
+  this is the complete C4 fix.
 
 ### C5 (blocking) — discovery: hidden survivor, inert layer, wrong rule, un-caught raises
 
@@ -316,8 +329,8 @@ choppers" for `LambdaMin/Max` vs "absent"; the `reseed()` gap
 - `field_spec.as_text()` extracted and used by both files; per-element
   coercion shared; C3a/C3b round-trips green.
 - C4(i) done (this-run beats global; single ordered table). **C4(ii) applied
-  exactly as the human directs** (geometry-group whitelist membership + (a)'s
-  placement) — not guessed.
+  per the 2026-09-12 human decision**: geometry group EXCLUDED from the
+  whitelist; precedence (b)→(c)→(d)→(a)→(e)→(f); both C4(ii) mutations red.
 - C5a/C6a/C6b/C7 guards present and each RED under its named mutation
   (recorded in the commit body — amendment 16, EVERY guard: v1's hidden
   survivor is why); layer (d) live-or-demoted; template rule uses the shared
