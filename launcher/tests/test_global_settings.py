@@ -6,6 +6,7 @@ reaches the shared store, that the launcher offers it, and that a badge reports
 the origin the resolver actually recorded.
 """
 
+import json
 import subprocess
 import sys
 import textwrap
@@ -150,7 +151,7 @@ def test_the_dialog_loads_the_stored_value():
 def _resolved_tab(**context):
     document, provenance = SettingsResolver(ResolutionContext(**context)).resolve_all()
     tab = SettingsEditorTab()
-    tab.set_resolution(document, provenance)
+    tab.set_document(document, provenance)
     return tab, provenance
 
 
@@ -191,7 +192,7 @@ def test_badges_follow_a_replaced_resolution():
     document, provenance = SettingsResolver(
         ResolutionContext(json_settings={"qmax": 0.3}, json_detail="reduce_settings.json")
     ).resolve_all()
-    tab.set_resolution(document, provenance)
+    tab.set_document(document, provenance)
     assert tab.badges["qmax"].text() == "[c]"
 
 
@@ -236,3 +237,159 @@ def test_the_launcher_still_carries_the_tabs():
     assert isinstance(window.centralWidget(), ReductionInterface)
     titles = [window.tabs.tabText(i) for i in range(window.tabs.count())]
     assert "Settings editor" in titles
+
+
+# --------------------------------------------------------------------------
+# C1 — the resolver must actually be reachable from the shipped app
+# --------------------------------------------------------------------------
+
+
+def _experiment_tree(tmp_path, ipts="IPTS-30101", tthd_up=True):
+    autoreduce = tmp_path / ipts / "shared" / "autoreduce"
+    autoreduce.mkdir(parents=True)
+    name = "reduce_settings_up.json" if tthd_up else "reduce_settings_down.json"
+    (autoreduce / name).write_text(json.dumps({"qmin": 0.002, "Sname": "from_experiment"}))
+    return tmp_path
+
+
+def test_the_production_path_resolves_and_populates_the_badges(tmp_path, monkeypatch):
+    """The defect this whole cluster was about: nothing in the app called it.
+
+    42 tests were green while `resolve_all` had zero production callers, so
+    every badge rendered empty in the running launcher. This drives the button a
+    scientist presses.
+    """
+    import lr_reduction.settings_resolver as resolver_module
+
+    root = _experiment_tree(tmp_path)
+    real_discover = resolver_module.discover_ipts_settings
+    monkeypatch.setattr(
+        "launcher.apps.settings_editor.discover_ipts_settings",
+        lambda ipts, tthd=1.0, **_kw: real_discover(ipts, tthd=tthd, root=str(root)),
+    )
+    save_global_settings({"qmax": 0.42})
+
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-30101")
+    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+
+    assert tab.provenance, "the resolver produced no provenance"
+    assert tab.document.get("qmin") == 0.002
+    assert tab.badges["qmin"].text() == "[c]"
+    assert tab.badges["qmax"].text() == "[a]"
+    assert tab.badges["dqbin"].text() == "[f]"
+    assert "reduce_settings_up.json" in tab.report.toPlainText()
+
+
+def test_saving_after_resolving_writes_the_provenance_sidecar(tmp_path, monkeypatch):
+    """Save must route through save_resolution, not a bare document.save()."""
+    from lr_reduction.settings_resolver import provenance_path
+
+    target = tmp_path / "out.json"
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getSaveFileName",
+        staticmethod(lambda *_a, **_k: (str(target), "")),
+    )
+    document, provenance = SettingsResolver(
+        ResolutionContext(global_settings={"qmax": 0.42})
+    ).resolve_all()
+    tab = SettingsEditorTab()
+    tab.set_document(document, provenance)
+    tab.save_settings()
+
+    assert target.exists()
+    assert provenance_path(target).exists()
+    assert json.loads(provenance_path(target).read_text())["qmax"]["source_layer"] == "a"
+
+
+def test_editing_a_resolved_field_flips_its_badge_to_this_run():
+    """C2c: an origin that stops tracking the value is worse than none.
+
+    The badge used to keep naming the experiment file after the value had been
+    replaced by hand — and named the wrong file at that.
+    """
+    document, provenance = SettingsResolver(
+        ResolutionContext(json_settings={"qmax": 0.3}, json_detail="reduce_settings.json")
+    ).resolve_all()
+    tab = SettingsEditorTab()
+    tab.set_document(document, provenance)
+    assert tab.badges["qmax"].text() == "[c]"
+
+    editor = tab.editors["qmax"]
+    editor.setText("0.77")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+
+    assert tab.document.get("qmax") == 0.77
+    assert tab.badges["qmax"].text() == "[b]"
+
+
+def test_removing_an_angle_redraws_the_column_attributions():
+    """A removal shifts every per-angle column the headers attribute."""
+    document, provenance = SettingsResolver(
+        ResolutionContext(
+            json_settings={"DBname": ["a.dat", "b.dat"]}, json_detail="reduce_settings.json"
+        )
+    ).resolve_all()
+    tab = SettingsEditorTab()
+    tab.set_document(document, provenance)
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[c]")
+
+    tab.angle_table.setCurrentCell(0, column)
+    QTest.mouseClick(tab.remove_angle_button, QtCore.Qt.LeftButton)
+    assert tab.document.get("DBname") == ["b.dat"]
+
+
+# --------------------------------------------------------------------------
+# C3 — the extracted renderer, and a validated dialog
+# --------------------------------------------------------------------------
+
+
+def test_the_dialog_uses_the_shared_renderer(monkeypatch):
+    """C3: the fix must be the one T2 made, not a second copy of it.
+
+    `str([50, 200])` is `"[50, 200]"`, which `coerce` reads back as the strings
+    `'[50'` and `'200]'`. T2 fixed that in the settings tab, but the fix lived
+    in a private method — so this file grew its own `str(value)`. No whitelisted
+    field is list-typed *today* (the geometry group, which held the only one,
+    was excluded by the C4(ii) decision), so the bug is currently unreachable
+    through this dialog. That makes the property worth pinning rather than the
+    symptom: this file must call the shared renderer, so a future whitelisted
+    list field cannot resurrect it a third time.
+    """
+    calls = []
+    real = fs.render_value
+    monkeypatch.setattr(fs, "render_value", lambda value: calls.append(value) or real(value))
+
+    save_global_settings({"qmax": 0.42})
+    GlobalSettingsDialog()
+    assert 0.42 in calls, "the dialog rendered a value without the shared renderer"
+
+
+def test_the_shared_renderer_round_trips_a_list():
+    """The property itself, independent of who calls it."""
+    assert fs.render_value([50, 200]) == "50, 200"
+    assert fs.get("data_x_range").coerce(fs.render_value([50, 200])) == [50, 200]
+
+
+def test_the_dialog_refuses_a_value_that_fails_validation():
+    """A preference outranks a guess and the default, so it must be valid.
+
+    `dead_time=-5.0` used to persist and then outrank a measurement for every
+    future experiment.
+    """
+    dialog = GlobalSettingsDialog()
+    editor = dialog.editors["dead_time"]
+    editor.clear()
+    QTest.keyClicks(editor, "-5.0")
+    dialog.accept()
+    assert "dead_time" not in load_global_settings()
+
+
+def test_a_raising_dialog_slot_does_not_abort(monkeypatch):
+    dialog = GlobalSettingsDialog()
+    monkeypatch.setattr(
+        "launcher.apps.global_settings.save_global_settings",
+        lambda _values: (_ for _ in ()).throw(RuntimeError("synthetic")),
+    )
+    dialog.accept()  # must not raise

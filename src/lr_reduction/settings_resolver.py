@@ -33,6 +33,7 @@ launcher with it. A failed scan leaves layers (c)/(d) empty, records why in
 that are available.
 """
 
+import copy
 import json
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
@@ -40,10 +41,39 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from lr_reduction import field_spec as fs
-from lr_reduction.settings_document import SettingsDocument
+from lr_reduction.autoreduce_paths import select_by_geometry
+from lr_reduction.save_reduced_data import make_json_safe
+from lr_reduction.settings_document import SettingsDocument, atomic_write_json
 
-#: Layers in preference order. First one holding a value wins.
-LAYERS = ("a", "b", "c", "d", "e", "f")
+#: Layers in preference order — **the single source of that order**.
+#:
+#: `resolve()`, `user_chosen()` and the fall-throughs all read this tuple. An
+#: earlier version declared an order here and then hard-coded a separate walk
+#: beside it, so reversing this changed nothing: a declaration that its
+#: implementation ignores is worse than no declaration, because it is believed.
+#:
+#: The order is the human's decision of 2026-09-12, and each step has a reason:
+#:
+#: * **(b) this run** beats everything a person set earlier — an override that
+#:   is overridden is not an override;
+#: * **(c) experiment file** and **(d) experiment template** beat **(a) user
+#:   preference**, because a setting that belongs to *this experiment* is more
+#:   specific than one that belongs to *this person*;
+#: * **(a)** still beats **(e) a guess from the data** and **(f) the default**
+#:   for the fields it is allowed to cover.
+LAYER_ORDER = ("b", "c", "d", "a", "e", "f")
+
+#: Layers a *person* set deliberately, as opposed to inherited or derived.
+HUMAN_LAYERS = ("a", "b")
+
+#: Layers `discover_ipts_settings` can populate today. (d) is declared in the
+#: taxonomy and honoured by `resolve()` when a caller supplies `xml_settings`,
+#: but nothing populates it automatically yet — mapping a template's vocabulary
+#: onto config fields is `new_reduction_from_template.config_from_template`'s
+#: job, and doing it here would either duplicate that mapping or pull Mantid
+#: into the one module whose value is not needing it. Declared, not pretended:
+#: a badge never shows [d] from discovery, and a test pins that.
+DISCOVERY_LAYERS = ("c",)
 
 #: What to call each layer in a provenance badge or a report.
 LAYER_LABELS = {
@@ -65,19 +95,69 @@ GLOBAL_GROUPS = (
     fs.PROCESSING,
     fs.QSPACE,
     fs.WAVELENGTH,
-    fs.GEOMETRY,
     fs.DEADTIME,
     fs.RESOLUTION,
     fs.PEAK,
 )
 
+#: Excluded from the global layer by an explicit scientific decision
+#: (human, 2026-09-12), not by omission.
+#:
+#: The instrument-geometry fields — `IncidentTheta`, `mmpix`, `dSampDet`,
+#: `dMod`, `xi_ref`, `dS1Samp`, `nx`, `ny` — document their defaults as *"unset
+#: reads it from the instrument settings / the PV"*. They are **measurements**.
+#: A stored personal preference that outranked one would mean the same UI and
+#: the same experiment file producing **different reduced data**, silently.
+#:
+#: So these fields have no layer (a) at all and resolve (b)->(c)->(d)->(e)->(f).
+#: **A preference must never outrank a measurement.** Guarded by name, because
+#: an exclusion that only exists as an absent group is an exclusion nobody can
+#: see.
+GLOBAL_EXCLUDED_GROUPS = (fs.GEOMETRY,)
+
 #: Fields a user may set globally. Per-angle and runtime-owned fields are
 #: excluded by construction — they describe one measurement, not a preference.
-GLOBAL_WHITELIST = tuple(
-    f.name
-    for f in fs.FIELD_SPEC
-    if f.group in GLOBAL_GROUPS and not f.per_angle and not f.runtime_owned
-)
+def _may_be_a_preference(field):
+    """Is this field something a person can sensibly carry between experiments?
+
+    Derived rather than listed, so a new field is covered without anyone
+    remembering — but every clause is a rule someone can argue with:
+
+    * its group must be one people hold preferences about, and must not be an
+      excluded one (geometry: see GLOBAL_EXCLUDED_GROUPS);
+    * per-angle and runtime-owned fields describe one measurement, not a person;
+    * a path is never a preference — it names a location in one experiment;
+    * free text is never a preference either, unless it is a closed choice.
+      This keeps a future free-form field (a formula, say) out of the layer that
+      outranks a dataset guess, without anyone having to notice it was added.
+    """
+    if field.group in GLOBAL_EXCLUDED_GROUPS:
+        return False
+    if field.group not in GLOBAL_GROUPS:
+        return False
+    if field.per_angle or field.runtime_owned:
+        return False
+    if field.type == "path":
+        return False
+    if field.type == "str" and not field.allowed:
+        return False
+    return True
+
+
+GLOBAL_WHITELIST = tuple(f.name for f in fs.FIELD_SPEC if _may_be_a_preference(f))
+
+
+def _copy(value):
+    """Return a value the caller may mutate without rewriting its source layer.
+
+    The resolved document, the layer dict it came from, and the frozen
+    `Resolved` were one object: editing a resolved setting rewrote the
+    experiment file's in-memory copy, so the next `resolve()` returned the
+    edit as though the file had said it. `Resolved` being frozen protects the
+    binding, not the list behind it — the same distinction `Field.default_value`
+    exists for, which is why layer (f) was already safe and only (f) was.
+    """
+    return copy.deepcopy(value)
 
 
 class NotWhitelistedError(ValueError):
@@ -99,17 +179,20 @@ class Resolved:
         return f"{base} ({self.source_detail})" if self.source_detail else base
 
     def as_record(self):
-        """A JSON-safe record, so provenance survives being saved and reloaded."""
-        return {
-            "value": self.value,
-            "source_layer": self.source_layer,
-            "source_detail": self.source_detail,
-        }
+        """A JSON-safe record of the ORIGIN. The value lives in the document.
+
+        Storing the value here too meant two copies that could disagree — and
+        they did: provenance was snapshotted before per-angle arrays were padded
+        to equal length, so a file could carry 55 provenance values against 52
+        settings. One fact, one place.
+        """
+        return {"source_layer": self.source_layer, "source_detail": self.source_detail}
 
     @classmethod
-    def from_record(cls, record):
+    def from_record(cls, record, value=None):
+        """Rebuild from a stored record; ``value`` comes from the document."""
         return cls(
-            value=record["value"],
+            value=value,
             source_layer=record["source_layer"],
             source_detail=record.get("source_detail", ""),
         )
@@ -137,6 +220,9 @@ class ResolutionContext:
     dataset_detail: str = "dataset"
     #: Why discovery found what it found — including "the mount was unavailable".
     discovery_status: str = "not attempted"
+    #: The template discovery saw, if any. Reported, not parsed — see
+    #: DISCOVERY_LAYERS for why layer (d) is declared but not populated.
+    template_path: Optional[str] = None
 
     def set_global(self, name, value):
         """Set a user-global preference, refusing anything outside the whitelist."""
@@ -156,33 +242,56 @@ class SettingsResolver:
 
     # -- one field ---------------------------------------------------------
 
+    def _layer_sources(self, ctx):
+        """The (layer, mapping, detail) triples, in the declared order.
+
+        Built from LAYER_ORDER so there is exactly one place the order lives.
+        (e) and (f) are not mappings and are handled after this walk.
+        """
+        available = {
+            "a": (ctx.global_settings, ""),
+            "b": (ctx.ui_overrides, ""),
+            "c": (ctx.json_settings, ctx.json_detail),
+            "d": (ctx.xml_settings, ctx.xml_detail),
+        }
+        return [
+            (layer, *available[layer]) for layer in LAYER_ORDER if layer in available
+        ]
+
     def resolve(self, name, context=None):
         """Return the :class:`Resolved` value of ``name``.
 
-        One walk, in one place. The provenance badge later reads the very
-        object produced here rather than re-deriving where a value came from —
-        two implementations of "which layer won" would drift, and a badge that
-        disagrees with the value is worse than no badge.
+        One walk, in one place. The provenance badge later reads the very object
+        produced here rather than re-deriving where a value came from — two
+        implementations of "which layer won" would drift, and a badge that
+        disagrees with the value beside it is worse than no badge.
         """
         ctx = context if context is not None else self.context
         field = fs.get(name)
 
-        for layer, mapping, detail in (
-            # (a) and (b) carry no detail: LAYER_LABELS already names them,
-            # and a detail that repeats the label renders as
-            # "user preference (user preference)" on a badge.
-            ("a", ctx.global_settings, ""),
-            ("b", ctx.ui_overrides, ""),
-            ("c", ctx.json_settings, ctx.json_detail),
-            ("d", ctx.xml_settings, ctx.xml_detail),
-        ):
-            if name in mapping and mapping[name] is not None:
-                return Resolved(mapping[name], layer, detail)
+        for layer, mapping, detail in self._layer_sources(ctx):
+            # The whitelist is enforced here, at the READER, as well as at the
+            # two writers. A ResolutionContext can be constructed directly with
+            # any dict — a third door — so a whitelist checked only on the way
+            # in is not a whitelist. This is also what implements the geometry
+            # exclusion: those fields simply have no layer (a).
+            if layer == "a" and name not in GLOBAL_WHITELIST:
+                continue
+            if name not in mapping:
+                continue
+            value = mapping[name]
+            # `None` normally means "this layer does not set it". For the
+            # optional lists it is a real value — LambdaMin unset means "derive
+            # it from the chopper ranges" — so there the key's presence is what
+            # counts, and an explicit null wins.
+            if value is None and not field.optional_list:
+                continue
+            return Resolved(_copy(value), layer, detail)
 
         if ctx.dataset_probe is not None:
             guessed = ctx.dataset_probe(name)
             if guessed is not None:
-                return Resolved(guessed, "e", ctx.dataset_detail)
+                return Resolved(_copy(guessed), "e", ctx.dataset_detail)
 
         return Resolved(field.default_value(), "f", "")
 
@@ -198,12 +307,27 @@ class SettingsResolver:
         and they are produced together from one walk so they cannot disagree.
         """
         ctx = context if context is not None else self.context
-        provenance = {f.name: self.resolve(f.name, ctx) for f in fs.FIELD_SPEC}
+        walked = {f.name: self.resolve(f.name, ctx) for f in fs.FIELD_SPEC}
 
         document = SettingsDocument()
-        for name, resolved in provenance.items():
+        for name, resolved in walked.items():
             document.set(name, resolved.value)
         self._equalise_angles(document)
+        # The resolved state is the baseline a later edit is measured against,
+        # not itself an edit.
+        document.reseed()
+
+        # Provenance is recorded AFTER equalising, from the document's final
+        # contents. Snapshotting it before meant the padded arrays and their
+        # recorded values disagreed — 55 provenance entries against 52 settings.
+        # Copied, not shared. Recording provenance FROM the document fixes the
+        # length disagreement (C2b) but would hand back the document's own list
+        # objects — so editing a resolved setting would silently rewrite the
+        # snapshot that is supposed to describe what was resolved.
+        provenance = {
+            name: Resolved(_copy(document.get(name)), resolved.source_layer, resolved.source_detail)
+            for name, resolved in walked.items()
+        }
         return document, provenance
 
     @staticmethod
@@ -227,22 +351,53 @@ class SettingsResolver:
 # -- discovery -------------------------------------------------------------
 
 
+#: Refuse to parse a settings file larger than this. A deeply nested or
+#: enormous JSON is a denial of the GUI thread, not a settings file.
+MAX_SETTINGS_BYTES = 4 * 1024 * 1024
+
+
 def _read_json(path):
+    path = Path(path)
+    size = path.stat().st_size
+    if size > MAX_SETTINGS_BYTES:
+        raise ValueError(
+            f"{path.name} is {size} bytes; refusing to parse more than {MAX_SETTINGS_BYTES}"
+        )
     with open(path, "r") as handle:
         return json.load(handle)
 
 
 def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
-    """Arm layers (c) and (d) from an experiment's autoreduce directory.
+    """Arm the experiment layers from an IPTS autoreduce directory.
 
     Read-only and failure-tolerant by design: the mount may be down, the IPTS
-    may not exist, and the files may be unreadable or malformed. Every one of
-    those is an ordinary Tuesday at a facility, and none of them is a reason to
-    stop the launcher — they leave the layers empty and the reason recorded.
+    may not exist, the files may be unreadable, malformed, enormous or deeply
+    nested, and Mantid may not be installed at all. Every one of those is an
+    ordinary day at a facility and none is a reason to take the launcher down —
+    they leave the layers empty and the reason recorded.
+
+    Only layer (c) is populated. Layer (d) is honoured by `resolve()` when a
+    caller supplies `xml_settings`, but discovery does not fill it: mapping a
+    template's vocabulary onto config fields belongs to
+    `new_reduction_from_template.config_from_template`, and reproducing that
+    here would be a second copy of a mapping — the failure this campaign has
+    paid for repeatedly. The template is reported when present so the status
+    line is honest about what was seen and what was used.
     """
     ctx = context if context is not None else ResolutionContext()
     ctx.ipts = ipts
-    directory = Path(root) / str(ipts) / "shared" / "autoreduce"
+
+    root_path = Path(root).resolve()
+    try:
+        directory = (root_path / str(ipts) / "shared" / "autoreduce").resolve()
+    except OSError as exc:
+        ctx.discovery_status = f"could not resolve a path under {root_path}: {exc}"
+        return ctx
+
+    # An IPTS carrying "/" or ".." would otherwise walk out of the facility root.
+    if not directory.is_relative_to(root_path):
+        ctx.discovery_status = f"{ipts!r} does not name a directory under {root_path}"
+        return ctx
 
     try:
         if not directory.is_dir():
@@ -254,35 +409,35 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
 
     notes = []
 
-    # Layer (c). The up/down choice is the autoreduction's own helper rather
-    # than a second copy of the rule — imported lazily because that module
-    # pulls in Mantid, which this one otherwise does not need.
-    try:
-        from lr_autoreduce.new_reduce_REF_L import get_default_setting_file
+    # Layer (c). The up/down rule comes from lr_reduction.autoreduce_paths, the
+    # one place it lives — the same function template.py and the autoreduction
+    # use. Discovery previously borrowed it by importing the autoreduction
+    # module, which pulls Mantid (~2.6 s and a network version check) to make a
+    # filename decision, and a Mantid-free launcher could not import it at all.
+    settings_path = select_by_geometry(directory, "reduce_settings", ".json", tthd)
+    if settings_path is None:
+        notes.append("no reduce_settings*.json")
+    else:
+        try:
+            ctx.json_settings = _read_json(settings_path)
+            ctx.json_detail = Path(settings_path).name
+            notes.append(f"settings from {ctx.json_detail}")
+        except (OSError, ValueError, RecursionError) as exc:
+            # ValueError covers json.JSONDecodeError (a subclass) and the size
+            # cap; RecursionError is what deeply nested JSON raises and is NOT
+            # an Exception subclass path anyone expects until it happens.
+            notes.append(f"settings file unreadable: {exc}")
 
-        settings_path = get_default_setting_file(str(directory), tthd)
-        ctx.json_settings = _read_json(settings_path)
-        ctx.json_detail = Path(settings_path).name
-        notes.append(f"settings from {ctx.json_detail}")
-    except (OSError, json.JSONDecodeError) as exc:
-        # BEFORE the ValueError clause: JSONDecodeError subclasses ValueError,
-        # so the broader clause below would catch a malformed file and label it
-        # "no settings file found", which is a different and misleading fact.
-        notes.append(f"settings file unreadable: {exc}")
-    except ValueError as exc:
-        # The helper raises when neither file exists. For autoreduction that is
-        # fatal; for the editor it just means layer (c) is inactive.
-        notes.append(str(exc))
-
-    # Layer (d).
+    # Layer (d): reported, not consumed. Same up/down rule, because the earlier
+    # sorted(glob(...))[0] here was a third copy and a wrong one — it returned
+    # template_down.xml for an up-geometry run, every time.
     try:
-        templates = sorted(directory.glob("template*.xml"))
-        if templates:
-            ctx.xml_settings = {}
-            ctx.xml_detail = templates[0].name
-            notes.append(f"template {ctx.xml_detail} present")
-        else:
+        template_path = select_by_geometry(directory, "template", ".xml", tthd)
+        if template_path is None:
             notes.append("no template*.xml")
+        else:
+            ctx.template_path = template_path
+            notes.append(f"template {Path(template_path).name} present (layer (d) not consumed)")
     except OSError as exc:
         notes.append(f"template scan failed: {exc}")
 
@@ -290,67 +445,61 @@ def discover_ipts_settings(ipts, tthd=1.0, root="/SNS/REF_L", context=None):
     return ctx
 
 
-#: Key the provenance is stored under, alongside the settings themselves.
-PROVENANCE_KEY = "_provenance"
+#: Suffix of the sidecar file holding origins for a settings file.
+PROVENANCE_SUFFIX = ".provenance.json"
+
+
+def provenance_path(path):
+    """Sidecar holding the origins for ``path``."""
+    path = Path(path)
+    return path.with_name(path.stem + PROVENANCE_SUFFIX)
 
 
 def save_resolution(path, document, provenance):
-    """Write settings and their origins together, atomically.
+    """Write the settings, and their origins beside them.
 
-    One file, because provenance kept somewhere else stops being updated. The
-    write uses the same discipline as :meth:`SettingsDocument.save` — temp file
-    in the target directory, fsync, ``os.replace`` — so an interrupted write
-    cannot destroy the previous good settings.
+    **Two files, deliberately.** Provenance used to be written into the settings
+    JSON under a `_provenance` key, and `json_to_config` raises `AttributeError`
+    on any key that is not a config field — so a file written that way and
+    dropped into `shared/autoreduce` as `reduce_settings*.json` would **stop
+    autoreduction for that experiment**. The "one file" convenience was not
+    worth a facility outage, and the alternative — teaching the reduction's
+    loader to skip the key — changes code the facility runs to suit a
+    convenience of the editor's.
 
-    The origins are what let a later reload answer "did a person choose this, or
-    did it fall through to a default?" — the question a reduction record could
-    not answer before.
+    So the settings file stays exactly what every existing reader expects, and
+    the origins live in a sidecar that only this module reads. Both are written
+    through the same atomic helper the editor uses.
     """
     path = Path(path)
-    payload = dict(document.normalize())
-    payload[PROVENANCE_KEY] = {
-        name: resolved.as_record() for name, resolved in provenance.items()
-    }
-    _atomic_write_json(path, payload)
-    return path
-
-
-def _atomic_write_json(path, payload):
-    """Same discipline as SettingsDocument.save: temp file, fsync, replace."""
-    import os
-    import tempfile
-
-    path = Path(path)
-    handle_fd, temporary = tempfile.mkstemp(
-        dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+    atomic_write_json(path, make_json_safe(document.normalize()))
+    atomic_write_json(
+        provenance_path(path),
+        {name: resolved.as_record() for name, resolved in provenance.items()},
     )
-    try:
-        with os.fdopen(handle_fd, "w") as handle:
-            json.dump(payload, handle, indent=2)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(temporary, 0o644)
-        os.replace(temporary, path)
-    except BaseException:
-        try:
-            os.unlink(temporary)
-        except OSError:
-            pass
-        raise
+    return path
 
 
 def load_resolution(path):
     """Read back ``(settings, provenance)`` written by :func:`save_resolution`.
 
-    A file without provenance loads with an empty map rather than failing — the
-    facility has settings files that predate this module, and refusing to read
+    A settings file with no sidecar loads with an empty provenance map rather
+    than failing — the facility has files that predate this module, and refusing
     them would make the resolver useless exactly where it is most needed.
     """
     with open(path, "r") as handle:
-        stored = json.load(handle)
-    records = stored.pop(PROVENANCE_KEY, {})
-    provenance = {name: Resolved.from_record(r) for name, r in records.items()}
-    return stored, provenance
+        settings = json.load(handle)
+
+    sidecar = provenance_path(path)
+    provenance = {}
+    if sidecar.exists():
+        with open(sidecar, "r") as handle:
+            records = json.load(handle)
+        provenance = {
+            name: Resolved.from_record(record, settings.get(name))
+            for name, record in records.items()
+        }
+    return settings, provenance
 
 
 def user_chosen(provenance):
@@ -360,5 +509,5 @@ def user_chosen(provenance):
     the distinction a reduction record needs and could not previously make.
     """
     return tuple(
-        name for name, resolved in provenance.items() if resolved.source_layer in ("a", "b")
+        name for name, resolved in provenance.items() if resolved.source_layer in HUMAN_LAYERS
     )

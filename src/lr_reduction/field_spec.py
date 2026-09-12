@@ -199,6 +199,21 @@ class Field:
             return self.coerce_element(text)
         return self.canonical(_coerce_typed(text, self.type))
 
+    def render(self, value):
+        """Render a stored value as editor text — the inverse of :meth:`coerce`.
+
+        Delegates to :func:`render_value`; kept as a method so a field that ever
+        needs its own rendering has the hook.
+
+        Lives beside `coerce` so the pair cannot drift. It was previously a
+        private helper on the settings tab, which meant the next widget that
+        needed it grew its own `str(value)` — and `str([50, 200])` is
+        `"[50, 200]"`, which `coerce` reads back as the strings `'[50'` and
+        `'200]'`. That exact defect has now appeared in two separate files; a
+        fix that cannot be reused is a fix that re-breaks in the next one.
+        """
+        return render_value(value)
+
     # -- value -> problem ------------------------------------------------
 
     def check(self, value, where=""):
@@ -336,6 +351,22 @@ def _coerce_typed(text, type_name):
         parts = [p for p in stripped.replace(",", " ").split() if p]
         return [_coerce_typed(p, inner) for p in parts]
     return stripped
+
+
+def render_value(value):
+    """Render a stored value as editor text.
+
+    The inverse of `_coerce_typed`, and deliberately a module function: this was
+    a private helper on the settings tab, so the next widget that needed it grew
+    its own `str(value)` — and `str([50, 200])` is `"[50, 200]"`, which reads
+    back as the strings `'[50'` and `'200]'`. The same defect has now appeared
+    in two files; one that cannot be imported is one that recurs.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, (list, tuple)):
+        return ", ".join("" if entry is None else str(entry) for entry in value)
+    return str(value)
 
 
 def _type_problem(value, type_name):

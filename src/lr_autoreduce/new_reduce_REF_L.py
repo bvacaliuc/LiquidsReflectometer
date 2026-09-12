@@ -44,6 +44,7 @@ from mantid.simpleapi import LoadEventNexus
 from plot_publisher import plot1d
 
 import lr_reduction.new_reduction_from_file as nrff
+from lr_reduction.autoreduce_paths import select_by_geometry
 
 #from lr_reduction import workflow
 from lr_reduction.data_info import DataType
@@ -104,21 +105,7 @@ def get_default_setting_file(output_dir: str, tthd: float) -> str:
     @param tthd: Two-theta detector value
     @return: Path to the setting file
     """
-    output_dir = Path(output_dir)
-    setting_file = None
-
-    # Read tthd to determine the geometry
-    if tthd > 0:
-        setting_path = output_dir / "reduce_settings_up.json"
-    else:
-        setting_path = output_dir / "reduce_settings_down.json"
-
-    default_setting_path = output_dir / "reduce_settings.json"
-
-    if setting_path.exists():
-        setting_file = str(setting_path)
-    elif default_setting_path.exists():
-        setting_file = str(default_setting_path)
+    setting_file = select_by_geometry(output_dir, "reduce_settings", ".json", tthd)
 
     if setting_file is None:
         raise ValueError("No settings file found: place a settings file in shared/autoreduce")

@@ -88,7 +88,16 @@ class LauncherWindow(QMainWindow):
         self.global_settings_action.triggered.connect(self.open_global_settings)
 
     def open_global_settings(self):
-        GlobalSettingsDialog(self).exec_()
+        """Open the dialog, and dispose of it.
+
+        Without the deleteLater a dialog and its several hundred widgets are
+        retained for the life of the process, once per invocation.
+        """
+        dialog = GlobalSettingsDialog(self)
+        try:
+            dialog.exec_()
+        finally:
+            dialog.deleteLater()
 
 
 # referenced by pyproject.toml, part of the GUI system

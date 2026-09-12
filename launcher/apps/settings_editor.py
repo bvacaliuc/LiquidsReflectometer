@@ -26,8 +26,15 @@ from pathlib import Path
 from qtpy import QtCore, QtGui, QtWidgets
 
 from launcher.app_identity import ensure_identity
+from launcher.apps.global_settings import load_global_settings
 from lr_reduction import field_spec as fs
 from lr_reduction.settings_document import SettingsDocument
+from lr_reduction.settings_resolver import (
+    Resolved,
+    SettingsResolver,
+    discover_ipts_settings,
+    save_resolution,
+)
 
 #: Above this, populating the table freezes the GUI thread for seconds and
 #: costs ~1100x the file size in memory. A settings file with more angles than
@@ -98,6 +105,35 @@ class SettingsEditorTab(QtWidgets.QWidget):
         bar = QtWidgets.QWidget()
         row = QtWidgets.QHBoxLayout()
         bar.setLayout(row)
+
+        # The production entry point for the resolver. Without this the whole
+        # layer machinery had no caller: every badge rendered empty and the
+        # muddle T3 exists to replace was untouched beside a second unreached
+        # mechanism.
+        row.addWidget(QtWidgets.QLabel("IPTS"))
+        self.ipts_edit = QtWidgets.QLineEdit()
+        self.ipts_edit.setPlaceholderText("IPTS-30101")
+        self.ipts_edit.setToolTip(
+            "Experiment to resolve settings for. Reads shared/autoreduce read-only."
+        )
+        self.ipts_edit.setMaximumWidth(140)
+        row.addWidget(self.ipts_edit)
+
+        row.addWidget(QtWidgets.QLabel("tthd"))
+        self.tthd_edit = QtWidgets.QLineEdit("1.0")
+        self.tthd_edit.setValidator(QtGui.QDoubleValidator())
+        self.tthd_edit.setToolTip(
+            "Detector two-theta. Its sign selects the up/down settings file."
+        )
+        self.tthd_edit.setMaximumWidth(70)
+        row.addWidget(self.tthd_edit)
+
+        self.resolve_button = QtWidgets.QPushButton("Resolve from experiment")
+        self.resolve_button.setToolTip(
+            "Resolve every setting from its layers and show where each one came from"
+        )
+        self.resolve_button.clicked.connect(lambda _checked=False: self.resolve_for_experiment())
+        row.addWidget(self.resolve_button)
 
         self.load_button = QtWidgets.QPushButton("Load settings...")
         self.load_button.setToolTip(
@@ -274,12 +310,8 @@ class SettingsEditorTab(QtWidgets.QWidget):
 
     @staticmethod
     def _as_text(value):
-        """Render a stored value for a single-line editor."""
-        if value is None:
-            return ""
-        if isinstance(value, (list, tuple)):
-            return ", ".join("" if v is None else str(v) for v in value)
-        return str(value)
+        """Thin alias; the rendering itself is shared (field_spec.render_value)."""
+        return fs.render_value(value)
 
     def _build_report_panel(self):
         panel = QtWidgets.QGroupBox("Validation and changes")
@@ -296,6 +328,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         """Store a scalar and refresh the panel, reporting rather than aborting."""
         try:
             self.document.set(name, value)
+            self._record_edit(name)
             self.refresh_report()
         except Exception as exc:  # noqa: BLE001
             self.report_problem(exc)
@@ -303,6 +336,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
     @guarded
     def _on_scalar_edited(self, name, widget):
         self.document.set(name, fs.get(name).coerce(widget.text()))
+        self._record_edit(name)
         self.refresh_report()
 
     @guarded
@@ -324,12 +358,16 @@ class SettingsEditorTab(QtWidgets.QWidget):
         item = self.angle_table.item(row, column)
         value = fs.get(name).coerce_element(item.text() if item is not None else "")
         self.document.set_angle_field(row, name, value)
+        self._record_edit(name)
         self.refresh_report()
 
     @guarded
     def add_angle(self):
         self.document.add_angle()
         self.refresh_angles()
+        # A row change shifts every per-angle column, so the headers that
+        # attribute them have to be redrawn too.
+        self.refresh_badges()
         self.refresh_report()
 
     @guarded
@@ -344,21 +382,21 @@ class SettingsEditorTab(QtWidgets.QWidget):
             return
         self.document.remove_angle(row)
         self.refresh_angles()
+        self.refresh_badges()
         self.refresh_report()
 
     # -- refresh -----------------------------------------------------------
 
-    @guarded
-    def set_resolution(self, document, provenance):
-        """Adopt a resolved document together with the origins it came from.
+    def _record_edit(self, name):
+        """Note that a person just set this field, and re-badge it.
 
-        One call, because the badge must describe the value beside it. Setting
-        them separately is how a display and the thing it describes drift — the
-        defect that cost this slug three rejections in its own render paths, and
-        the reason the resolver returns both from a single walk.
+        Provenance travels WITH the document. Without this the badge kept
+        claiming the layer the value arrived from — so after editing a field the
+        screen still named an experiment file as its source, and named the wrong
+        file at that. An origin that stops tracking the value is worse than none.
         """
-        self.provenance = dict(provenance)
-        self.set_document(document)
+        self.provenance[name] = Resolved(self.document.get(name), "b", "")
+        self.refresh_badges()
 
     def refresh_badges(self):
         """Show where each value came from, reading the resolver's own record.
@@ -393,13 +431,15 @@ class SettingsEditorTab(QtWidgets.QWidget):
             badge.setToolTip(f"Value came from: {resolved.label}")
 
     @guarded
-    def set_document(self, document):
+    def set_document(self, document, provenance=None):
         """Adopt a document and render all of it.
 
         The single entry point a resolution layer uses: replacing the document
         without the three refreshes leaves the view showing the previous one.
         """
         self.document = document
+        # Provenance arrives with the document it describes, never separately.
+        self.provenance = dict(provenance) if provenance is not None else {}
         self.refresh_angles()
         self.refresh_scalars()
         self.refresh_badges()
@@ -464,6 +504,34 @@ class SettingsEditorTab(QtWidgets.QWidget):
     # -- files -------------------------------------------------------------
 
     @guarded
+    def resolve_for_experiment(self):
+        """Discover the experiment's files, resolve every layer, and display it.
+
+        This is the path the whole module exists for: discovery arms the
+        experiment layers, the user's global preferences supply layer (a), the
+        resolver walks them, and the document arrives with the provenance that
+        describes it. Failure is reported into the panel — a missing mount or an
+        unreadable file leaves the layers empty and resolution continues.
+        """
+        ipts = self.ipts_edit.text().strip()
+        if not ipts:
+            self.report.setPlainText("Enter an IPTS to resolve settings for it.")
+            return
+        try:
+            tthd = float(self.tthd_edit.text())
+        except ValueError:
+            tthd = 1.0
+
+        context = discover_ipts_settings(ipts, tthd=tthd)
+        context.global_settings = load_global_settings()
+        document, provenance = SettingsResolver(context).resolve_all()
+        self.set_document(document, provenance)
+        self.report.setPlainText(
+            f"Resolved {ipts}.\n\nDiscovery: {context.discovery_status}\n\n"
+            + self.report.toPlainText()
+        )
+
+    @guarded
     def load_settings(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
@@ -502,7 +570,10 @@ class SettingsEditorTab(QtWidgets.QWidget):
         if Path(path).suffix.lower() not in (".json", ".dat"):
             path = path + ".json"
         try:
-            self.document.save(path)
+            # save_resolution, not document.save: it writes the settings file
+            # unchanged AND a provenance sidecar beside it, so the record of
+            # where each value came from survives the save.
+            save_resolution(path, self.document, self.provenance)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.warning(self, "Could not save settings", str(exc))
             return

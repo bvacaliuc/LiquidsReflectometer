@@ -19,7 +19,7 @@ plotting on for someone who had turned it off. That is the identical defect T2
 was rejected for, arriving through a different door.
 """
 
-from qtpy import QtCore, QtWidgets
+from qtpy import QtCore, QtGui, QtWidgets
 
 from launcher.app_identity import ensure_identity
 from lr_reduction import field_spec as fs
@@ -148,7 +148,15 @@ class GlobalSettingsDialog(QtWidgets.QDialog):
             if value is not None:
                 editor.setCurrentText(str(value).lower() if field.type == "bool" else str(value))
             return editor
-        editor = QtWidgets.QLineEdit("" if value is None else str(value))
+        # The shared renderer, not str(): str([50, 200]) is "[50, 200]", which
+        # coerce reads back as the strings '[50' and '200]'. T2 fixed this in
+        # the settings tab; the fix lived in a private method, so this file grew
+        # the bug again.
+        editor = QtWidgets.QLineEdit(fs.render_value(value))
+        if field.type in ("int", "float"):
+            editor.setValidator(
+                QtGui.QIntValidator() if field.type == "int" else QtGui.QDoubleValidator()
+            )
         return editor
 
     def values(self):
@@ -166,9 +174,27 @@ class GlobalSettingsDialog(QtWidgets.QDialog):
         return values
 
     def accept(self):
+        """Validate, save, and never let an exception leave the slot.
+
+        A raise here reaches qFatal() and takes the whole launcher down. And a
+        preference is the layer that outranks a dataset guess and the built-in
+        default, so an unvalidated one — `qmax='abc'`, `dead_time=-5.0` — would
+        persist and outrank a measurement for every future experiment.
+        """
         try:
-            save_global_settings(self.values())
-        except NotWhitelistedError as exc:
+            values = self.values()
+            problems = [
+                problem
+                for problem in (fs.get(name).check(value) for name, value in values.items())
+                if problem
+            ]
+            if problems:
+                QtWidgets.QMessageBox.warning(
+                    self, "Cannot save", "\n".join(problems)
+                )
+                return
+            save_global_settings(values)
+        except Exception as exc:  # noqa: BLE001 -- a slot must not abort the process
             QtWidgets.QMessageBox.warning(self, "Cannot save", str(exc))
             return
         super().accept()
