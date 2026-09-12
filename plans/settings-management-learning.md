@@ -231,3 +231,80 @@ The same move appears twice more in this slug: layer (d) is *declared and
 honoured but not populated*, said in the docstring, a constant and a test; and
 `LAYER_ORDER`'s partial scope ((e)/(f) are not mappings) is stated rather than
 left to be discovered. Each replaces a comfortable sentence with a true one.
+
+## 12. Fixes compose, and the composition is nobody's cluster
+
+**Rule.** After landing several fixes that touch one data path, ask what they do
+*together*. Each was reviewed alone; the interaction was reviewed by no one.
+
+**Why.** Three v3 fixes, each correct and each demanded by a reviewer:
+
+1. **C8** wired the sidecar *read* side, so `provenance` could be seeded from a
+   file on disk;
+2. **C8** populated `ui_overrides` from recorded provenance, so pre-Resolve
+   edits stopped being discarded;
+3. **C5** re-recorded `Resolved(..., "b")` on angle add/remove, so a stale
+   header stopped attributing a changed column to the experiment file.
+
+Composed: a `"b"` written into a sidecar for a *previous* run — in a
+group-writable `shared/autoreduce` — became this run's authority, and layer (b)
+is gated by nothing. So instrument geometry, the group excluded from layer (a)
+*precisely* because a preference must never override a measurement, outranked
+the experiment file and the measurement, with nobody typing anything. An "Add
+angle" click did the same for all 13 per-angle fields.
+
+Nothing in any of the three is wrong. The defect lives between them, and it
+defeated a decision a human had made two rounds earlier.
+
+**How to apply.** The fix is one idea, not three patches: **authority is
+something a person does in this session, not something a file claims.** Track it
+at its source (`_session_edits`) rather than inferring it from a recorded
+origin, and give a recorded-but-not-authoritative value its own marker so the
+badge can stay truthful without granting power. More generally — when a review
+cycle lands several fixes on one path, the next cycle's first question should be
+what they now do together.
+
+## 13. When you cannot make a failure safe, choose which failure
+
+**Rule.** Some conditions have no clean handling. Pick the survivable one
+deliberately, and write down why.
+
+**Why.** v2 called discovery synchronously and a stalled `/SNS` froze the GUI.
+v3 moved it to a worker — and closing the launcher with a resolve in flight
+destroyed a running QThread: **exit 134**, in the exact stalled-mount case the
+worker was added for. The freeze had been traded for a crash.
+
+`wait()` is the reflex and it is wrong: waiting on a D-state read blocks exactly
+as long as the freeze did. There is no third option where the thread stops
+promptly, because the kernel will not let it. So the choice is between an abort
+and a **leak**, and the leak wins on the merits: it ends with the process, while
+an abort takes every other tab's unsaved state with it.
+
+The worker is therefore unparented, held in one reference, and `closeEvent`
+disconnects and lets go. The docstring says leak-not-abort and why.
+
+**How to apply.** When both branches are bad, do not pick by which looks tidier
+in code review. Ask what each costs the user at the moment it happens, and say
+in the comment that the other option was considered — otherwise the next
+reader "fixes" it back by adding the `wait()`.
+
+## 14. A record only counts if someone else can check it
+
+**Rule.** Evidence of thoroughness belongs in the repository, enumerated from
+the code, not asserted in a commit message.
+
+**Why.** The per-site granularity defect recurred in v2 and again in v3, and the
+reason is not that I did not run the mutations — I did, and reported "28
+mutations, no survivors". It is that the claim was **unauditable by
+construction**: nothing said which 28, or where, or how the sites were counted.
+Two reviewers independently could not verify it, so the defect that the count
+was supposed to rule out survived twice more.
+
+The ledger now lives at `plans/settings-management-mutation-ledger.md`, one row
+per site, with the `grep -c` command that produced each count and the observed
+result of each mutation — including the two that did *not* red first time,
+because a list of only successes is the prose count wearing a table.
+
+**How to apply.** For any claim of the form "I checked all N of these": commit
+the enumeration, generate it mechanically, and record the failures alongside the
+passes. If a reviewer cannot re-derive N, the number is decoration.
