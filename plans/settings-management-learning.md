@@ -84,3 +84,72 @@ that matters.
 **How to apply.** When two except clauses could both match, put the specific one
 first and say in a comment why the order is load-bearing — the next person to
 tidy the clauses alphabetically needs to know.
+
+## 5. A mechanism nothing calls is not a feature — it is a second muddle
+
+**Rule.** Before a slug is done, name the line in the shipped application that
+executes the thing you built. If there isn't one, the work is a precondition,
+not a payoff.
+
+**Why.** T3 v1 delivered a complete resolver — layers, provenance, discovery,
+persistence, 42 green tests — with **zero production callers**. `set_resolution`
+was reachable only from tests, so `self.provenance` stayed empty and every
+badge rendered blank in the running launcher. The charter's complaint was that
+settings arrived from an undefined muddle of sources; v1 left that muddle
+running and added an unreached mechanism beside it. Strictly worse than nothing,
+because the tests said it worked.
+
+The plan is not a defence. It described an architecture in two pieces and I
+built two pieces. Nothing in it said "and something must call this" — and
+noticing that gap is the developer's job, not the plan's.
+
+**How to apply.** For any new module, write the wiring test first: drive the
+button, assert the observable effect. It fails immediately for the right reason
+and cannot be satisfied by the module existing. "Is it called?" is a different
+question from "does it work?", and only the first one is about shipping.
+
+## 6. Extract the fix, or watch it recur in the next file
+
+**Rule.** When a defect is fixed inside a private method, the fix is unavailable
+to the next caller who needs it — and that caller will re-derive it, wrongly.
+
+**Why.** Three instances, one shape:
+
+- rendering a list: T2 fixed `str([50, 200])` → `"[50, 200]"` inside the
+  settings tab's private `_as_text`. The global-settings dialog, written later,
+  grew its own `str(value)`. Now `field_spec.render_value`, beside `coerce`.
+- the atomic write: `SettingsDocument.save` had it; `save_resolution` grew a
+  second copy that had drifted around the symlink refusal. Now
+  `atomic_write_json`, imported by both.
+- the up/down rule: the reduction and the autoreduction each had a copy, so the
+  resolver wrote a **third** — `sorted(glob("template*.xml"))[0]`, which
+  returned `template_down.xml` for an up-geometry run every time. Now
+  `autoreduce_paths.select_by_geometry`, stdlib-only, derived by all three.
+
+The last one is the clearest: the duplication existed because borrowing the rule
+meant importing Mantid to make a filename decision. **A fix that is expensive to
+reuse gets copied.** Extraction is not tidying; it is what makes the fix hold.
+
+## 7. A derived rule still needs someone to read what it derived
+
+**Rule.** Deriving membership from a property prevents drift. It does not make
+the membership correct.
+
+**Why.** `GLOBAL_WHITELIST` is derived from FIELD_SPEC by group, chosen
+precisely so a new field could not be forgotten. The derivation swept in the
+instrument-geometry group — `IncidentTheta`, `mmpix`, `dSampDet`, `dMod`,
+`xi_ref`, `dS1Samp`, `nx`, `ny` — whose documented defaults read *"unset reads
+it from the instrument settings / the PV."* They are **measurements**. A stored
+personal preference outranking one means identical UI and identical experiment
+file producing **different reduced data**, silently.
+
+The elegance of the rule concealed the wrongness of its output, and I did not
+print the list and read it. The human's decision — exclude the group, and put
+(a) below the experiment file — is recorded as a named exclusion with its
+reason, not as an absent group, because an exclusion nobody can see is one the
+next derivation will undo.
+
+**How to apply.** After writing a derivation, enumerate what it produced and
+read every entry aloud against the question the rule is supposed to answer.
+Here that question was *"is this something a person should carry between
+experiments?"* — and eight entries answer no.
