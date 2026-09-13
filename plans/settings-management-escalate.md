@@ -1,131 +1,119 @@
-# ESCALATION — `settings-management` (T3): retry cap reached (3 of N=3), Analyst decision required
+# ESCALATION — `settings-management` (T3): extended cap reached (4 of N=4), Analyst decision required (2nd)
 
-> **SUPERSEDED 2026-09-12 — the human read this file and authorized the N=4 cap
-> extension** (the recommended option). v4 runs from the "What I would do in a v4"
-> scope below, formalized in the plan's `### v4` revision entry;
-> `triage/settings-management-v4` dispatched, the `review/settings-management-escalate`
-> tag deleted. This file is kept as the record of the cap-reached moment and the
-> reasoning that produced the extension.
+> This file supersedes the v3/N=3 cap-reached escalation (which recommended, and
+> received, the N=4 extension); the prior version is preserved in
+> `git log -- plans/settings-management-escalate.md`. It now records the **v4 /
+> N=4-exhausted** escalation.
 
-**Terminal state:** attempt 3 of N=3 (charter §1) rejected → sanctioned
-cap-reached escalation. Rejection todo @ `ecc1e3b` (feature tip; gate green at
-`ab3e13a`: **182 launcher + 325 reduction, EXIT=0**). **Code, not
-infrastructure** — the budget is genuinely exhausted (infra failures don't
-consume it; this is production/test code). The cap disposition is the **human's**
-(as with `check-results-fields` and `settings-editor`), not the Analyst's or
-Integrator's.
+**Terminal state:** attempt 4 of the **extended N=4** rejected → second sanctioned
+cap-reached escalation. Rejection todo @ `ce591fc` (feature tip; gate green at
+`2be5d04`: **194 launcher + 350 reduction, EXIT=0, `pixi.lock` byte-identical,
+ruff clean**). **Code, not infrastructure** — budget genuinely exhausted. The cap
+disposition is the **human's**.
 
-## What the slug does (why it matters)
+## The one thing that changed: the mutation ledger WORKED
 
-T3 gives reduction-settings resolution a **layer taxonomy with a single
-resolver** ((a) user-global → (b) this-run → (c) IPTS json → (d) IPTS xml → (e)
-dataset-guess → (f) default, resolved order **b→c→d→a→e→f** per the 2026-09-12
-human C4(ii) decision), with per-field provenance and a whitelisted global-prefs
-editor. It replaces the organic settings muddle (B1) that had no defined
-precedence and no provenance.
+v4 adopted the committed, mechanical mutation ledger (amendment 16 hardened). It
+is **the first attempt whose author-side record was auditable**, and it audited
+**clean**: the Integrator reconciled all four families against `grep -c`
+(5/5/6/2) and test-reviewer independently re-ran **all 18 enumerated mutations
+with zero survivors**. **The four enumerated families are closed — do not
+re-litigate them.** This is the process fix landing exactly as intended.
+
+## Why it still rejected: the defect class moved UP one level
+
+v1–v3 failed on *a shared helper with one test, counted by behaviour not
+call-site*. v4 fixed that for the families it enumerated. The two surviving
+blockers are the **same shape one level up** — a safety property carried by a line
+**no test and no enumeration frame touched**:
+
+- **B1 (C4 — third door, SCIENCE):** `settings_editor.py:121` `_session_edits` is a
+  **set of names**; `_pre_resolve_overrides` binds the value **late**
+  (`{n: document.get(n)}`); `set_document` (`:493`) replaces the document and never
+  clears the set. So an edit authorizes a *name*, and whatever value later occupies
+  it inherits (b) authority. Typing `dSampDet` once then File→Open another
+  experiment → the **file's** `dSampDet=99999` resolves at layer (b) "set for this
+  run", outranking the experiment file (1234) **and** the measurement (1000), badge
+  lying `[b]`. **No sidecar; reproduced 4× (design/ui/security/Integrator).** The
+  architectural root: `settings_resolver.py:310` whitelist-gates **only (a)**; (b)
+  is ungated and sits above (a)/(e), so geometry always has a path to the top. This
+  is precisely what the 2026-09-12 exclusion exists to prevent, and it reaches the
+  file autoreduction reads. **v4 closed the sidecar→authority door; the
+  document→authority door stayed open.**
+- **B2 (C3 — load-bearing half unpinned):** the ledger bundled "parent the worker
+  **/** drop `closeEvent`" under one red. Split: dropping `closeEvent` → 2 failed ✓;
+  **adding `self` as the worker's parent at `:617` (one word) → 194 passed,
+  SURVIVOR** — and that survivor is v3's crash verbatim (exit 134). Worse, the tab's
+  `closeEvent` **never runs** on the real quit path (Qt delivers `QCloseEvent` only
+  to the closed widget; the tab is a child of the `QTabWidget`), so the no-abort
+  outcome is delivered **solely** by the untested unparenting at `:617`.
+- **B3** (~6 lines, also closes a size-cap bypass) + **A1** (`@guarded` 8/9 sites
+  unpinned — advisory, no reachable abort) round out the page.
+
+**The frame lesson (Integrator's, worth keeping):** the mechanical ledger counts
+the sites of the helpers you *enumerate*; the next step is to **enumerate the
+frame** — before writing the ledger, list every shared rule in the diff
+(decorators, sentinels, bundled "X / Y" descriptions), not just the helpers you
+changed. *A ledger row whose description contains "/" is two mutations.*
 
 ## Attempt synopsis
 
-| Attempt | Feature tip | Did | Blocked on |
-|---|---|---|---|
-| **v1** | `6365df4` | resolver + taxonomy + global editor; provenance round-trip | 7 clusters; through-line **precondition≠payoff** — 42 green tests, **zero production callers** (the resolver was unwired) |
-| **v2** | `8abfdce` | wired the resolver (production-path test on a real seam); autoreduce refactor proven identical (1536-case differential); B1/B2/B5/B6/B7; layer-(d) demotion; C4(i)+(ii); deep-copy; geometry exclusion | 11 clusters; through-line **guards prove one site of a multi-site behaviour** + **recurrence classes not fully closed** |
-| **v3** | `ecc1e3b` | fixed **5/5** ui-aspects v2 blockers + **4/6** test-reviewer; Save preserves runtime-owned input; unconditional per-element coercion; discovery off the GUI thread (0→30 QTimer ticks); `render_value` nested; A3/A6; `_read_json` hardened (`O_NOFOLLOW`, cap, not-a-dict); sidecar read + layer (b) wired | **8 clusters** — the per-site root **recurred**, and **two of v3's own fixes composed into new holes** (C3, C4) |
-
-Every prior-attempt finding is confirmed fixed and not re-litigated. The
-confirmed-fixed list at `ecc1e3b:todo.md` is long and includes the
-science-critical BL-1/BL-3/BL-4/BL-5 fixes, the `sympify` allow-list, and the
-whitelist type gate — all re-verified intact.
-
-## The v3 blocking set (8 clusters; full detail at `ecc1e3b:todo.md`)
-
-**One root cause, nine instances (test-reviewer's through-line):** *a shared
-helper got one test, and the test count matched the **behaviour** count rather
-than the **call-site** count.* `_guarded_step` 5 sites/3 mutations/**2 survivors**
-(`:447`,`:452`); `_record_edit`/`_record_angle_edit` 5/3/**2** (`:358`,`:388`);
-`_may_be_a_preference` 6 clauses/5/**1** (excluded-group); the two guard notes
-0 mutations. **This recurred despite the v3 plan sharpening amendment 16 to
-"per site"** — the Developer applied it partially. The Integrator's mechanical
-fix: **`grep -c` the call sites, require one mutation per hit, derive the count
-from the code, not from the sentence describing it.**
-
-| # | Cluster | Severity |
+| Attempt | Feature tip | Outcome |
 |---|---|---|
-| **C1** | `_guarded_step` catches `except OSError`, but `Path.resolve()` raises **`RuntimeError`** on ELOOP (symlink loop on the sshfs/FUSE `/SNS` mount) + `ValueError`/`TypeError` on NUL/None — 2 of 5 sites unpinned; every non-GUI caller gets the raise | correctness (FUSE-real) |
-| **C2** | resolve status **reports success for a failed read and contradicts itself** — persistent false "no reduce_settings*.json" after a `chmod 000`; scientist reduces from defaults with a layer-(a) value (c) was meant to outrank; test asserts truthiness not content | provenance-integrity |
-| **C3** | the new discovery worker **aborts the launcher (exit 134)** on every teardown path while a resolve is in flight — QThread destroyed while running; **v3 traded v2's freeze for an abort in the exact stalled-`/SNS` scenario the worker was added for** | crash regression |
-| **C4** | **two of v3's own fixes compose to promote file/sidecar content above the measurement** — geometry (`dSampDet`,`IncidentTheta`,…, the `apply_config_overrides` set) reaches layer (b) "set for this run" with **no typing**, outranking both the experiment file AND the measurement; badge lies; `shared/autoreduce` is group-writable. **Defeats the C4(ii) exclusion you decided** | **science-correctness (silent wrong reduced data)** |
-| **C5** | Save writes a document the panel has already declared invalid (no `validate()` gate on the persist path) | data-integrity |
-| **C6** | three re-record sites unpinned, two of them the most-used editing paths | test-vacuity |
-| **C7** | the whitelist's excluded-group clause is unpinnable as written | test-vacuity |
-| **C8** | `add_angle` lacks the guard its sibling documents 33 lines away | correctness |
-
-## Why accept-and-merge (option 2) is OFF the table
-
-**C4 alone forecloses it.** A scientist types a geometry value once, Saves,
-reopens the file for a **different** experiment weeks later, Resolves — and that
-stale value silently outranks the new experiment's settings file **and** the new
-measurement, with the badge reading "set for this run" (which they never did).
-Identical typed IPTS, identical visible UI, **different reduced data, no
-warning.** That is precisely the failure the C4(ii) geometry exclusion exists to
-prevent, reached through a side door (the sidecar read, and a row-count click).
-Shipping it violates the project's first principle — reduced data must never be
-silently corrupted. **C3** (a hard abort on the stalled-mount path) independently
-blocks a merge. Everything else could ship with a note; these two cannot.
-
-## What I would do in a v4 (fully specified — no discovery left)
-
-The Integrator localized every site with a fix; a v4 is bounded, not open-ended.
-~3 root fixes + mechanical per-site test discipline:
-
-- **C1:** `_guarded_step` catches `(OSError, RuntimeError, ValueError)` (or
-  `except Exception` recording the reason); mutate **all 5** sites.
-- **C2:** distinguishable sentinel (`(ok, value)` or module-level `_FAILED`);
-  append "no …" **only** when the scan succeeded; assert the errno **text**.
-- **C3 (robust form, not `wait()`):** leave the worker **unparented**, hold it in
-  `self._discovery_worker`, `finished → deleteLater`; on `closeEvent` disconnect
-  and drop the reference (leak one thread on a D-state read rather than abort);
-  guard `restoreOverrideCursor`. Prove in a subprocess so the abort is an
-  assertion, not a suite kill.
-- **C4 (one root, both doors):** never seed `ui_overrides` from provenance read
-  off disk (in-session edits are already tracked by `_record_edit`); map a
-  sidecar `"b"` to a **non-authoritative** marker (`"b*"`, "set for a previous
-  run"); separate a **structural** edit (row-count) from a **value** edit so a
-  click can't mint `Resolved(...,"b")` for 13 untyped arrays; clear per-angle
-  overrides when `ipts_edit` changes.
-- **C5–C8:** gate Save on `validate()`; pin the 3 re-record sites and the
-  excluded-group clause; give `add_angle` the sibling guard.
-- **ROOT (mechanical, not principled):** the v4 plan requires the commit body to
-  show **one mutation line per `grep -c` call-site hit** for every shared
-  helper/rule — the count derived from the code. This is amendment 16 hardened
-  from "mutate every site" (a principle the Developer under-applied twice) to a
-  mechanical grep-count check.
+| v1 | `6365df4` | 7 clusters — resolver **unwired** (precondition≠payoff) |
+| v2 | `8abfdce` | 11 clusters — guards prove one site of many; recurrence classes open |
+| v3 | `ecc1e3b` | 8 clusters — per-site root **recurred**; C3/C4 born from v3's own fixes → **N=3 cap → human extended to N=4** |
+| v4 | `ce591fc` | 2 real blockers — **ledger works, 6 clusters + 2 HIGH folds closed**; defect class **moved up a level** (B1/B2) → **N=4 exhausted** |
 
 ## Recommendation to the human
 
-**Authorize a bounded v4 under an explicit cap extension (N=4 for this slug)** —
-the Integrator's lean, and mine, primarily on **C4** (a silent
-science-correctness regression that accept-and-merge would ship) and **C3** (a
-crash on the stalled-mount path). The remaining work is fully specified and the
-clusters share ~3 roots, so a v4 is proportionate — the same shape that justified
-the `check-results-fields` and `settings-editor` N=4 extensions. If you prefer
-not to extend, the only safe alternative is **amend-in-place yourself** (the
-Integrator cannot touch feature code, the Analyst writes plans not code) — **not**
-accept-and-merge, which C4/C3 forbid.
+**(a) A second bounded extension to N=5 — my recommendation, with one addition
+beyond the Integrator's scope.** This is a *converging* slug, not a failing one:
+v4 closed six clusters and made the ledger auditable, and the two blockers are
+small and cross-domain-agreed (B1 ≈ 4 lines + 1 test line; B2 = a `_forget_worker`
+slot + teardown moved to the window + the subprocess matrix the criterion already
+required; B3 ≈ 6 lines). **But C4 has now reopened three times through three
+different doors** (v3, then v4's sidecar, now v4's document), because the doors are
+closed one at a time. The robust v5 scope is therefore **the Integrator's B1/B2/B3
+fixes PLUS a resolver-level invariant that closes the door *class*:**
 
-Procedure if you extend (as before): reply with the cap extension + authoritative
-scope (this file's "What I would do in a v4" is drop-in), and I author v4, create
-`triage/settings-management-v4`, and the cycle resumes on the normal
-Developer→Integrator path.
+- **B1 exact fix (converged across 3 domains):** bind the value at edit time —
+  `_session_edits` becomes a **dict** `{name: value}`; `_pre_resolve_overrides`
+  returns `{n: v for n, v in _session_edits.items() if n in fs.BY_NAME}`;
+  `_forget_per_angle_edits` pops `PER_ANGLE_NAMES`. **Security's caveat (heed it):**
+  do **not** just clear the set in `set_document` — that also fires after a
+  completed Resolve and would silently drop a scientist's typed override on a second
+  Resolve, trading one bug for another. Guard: add a prior
+  `_on_scalar_edited("dSampDet", …)` to the existing pin test; it must still assert
+  `1500.0` at layer `"e"` (verified red today).
+- **B2:** a `_forget_worker` slot, teardown moved to `LauncherWindow` (not the tab,
+  whose `closeEvent` never fires), and the subprocess close-with-resolve-in-flight
+  matrix asserting EXIT=0; pin the unparenting at `:617` explicitly.
+- **THE ROBUSTNESS ADDITION (mine) — close the C4 door class, not the third door:**
+  add a **resolver invariant** that a `GLOBAL_EXCLUDED_GROUPS` (geometry) field can
+  never resolve above layer (e) from a user-authority layer. Implement by gating
+  **both (a) and (b)** at `settings_resolver.py:310` (not (a) alone), and add a
+  standing guard test asserting geometry resolves to (e)/measurement regardless of
+  what any door places in (a) or (b). With this, a hypothetical *fourth* door reds
+  the invariant instead of shipping — converting C4 from whack-a-mole into a bounded,
+  detection-complete guarantee.
+  - **Embedded scientific decision for you (like C4(ii)):** the invariant makes
+    geometry **never** user-overridable — a scientist could not deliberately type a
+    geometry value to beat a bad PV for one run. If a deliberate single-run geometry
+    override is a capability you want to keep, we implement **B1 only** (accidental
+    promotion prevented; a *typed* geometry value still wins), and accept that C4's
+    door-closing stays per-door. My lean, on your robust/detection-complete
+    standard, is the invariant — but this is a measurement-vs-operator-judgment call
+    that is yours.
 
-## Durable lesson (route post-campaign)
+**(b) Accept-and-merge — I argue against, with the Integrator.** B1 silently puts a
+stored/file number above a measured one in the geometry fields, badge claiming a
+person set it — the exact failure the 2026-09-12 exclusion prevents, reaching the
+file autoreduction reads. Not shippable on the project's first principle.
 
-Two attempts (v2, v3) blocked on the **same** shape — a shared helper tested by
-behaviour-count, not call-site-count — and the second recurrence happened
-**after** the plan explicitly required per-site mutation. The principled form of
-amendment 16 was insufficient; the **mechanical** form (`grep -c` sites → one
-mutation line per hit in the commit body) is what actually closes it. Candidate
-for `setup/patterns/scientific-regression-testing.md` and a further amendment-16
-sharpening. Second lesson: **wiring a read-side (C8 v2→v3) can convert a
-"recorded origin" into "authority" (C4)** — when you add a reader for provenance,
-prove the read cannot promote a layer; origin is not authority.
+**(c) Amend in place** — the Integrator cannot (no feature code); the Analyst writes
+plans, not code — so this means **you** apply the B1/B2 fixes directly.
+
+Procedure if you extend: reply with the N=5 extension and your call on the geometry
+invariant (both-(a)-and-(b) vs B1-only); I author v5 from this scope, create
+`triage/settings-management-v5`, and the cycle resumes.
