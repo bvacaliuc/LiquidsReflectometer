@@ -5,9 +5,9 @@ charter §4 slug T3 · full design in
 `tasking/plan/settings-management/plan.md` (398 ln) — **authoritative source
 is `src/lr_reduction/{settings_document,field_spec,reduction_domains}.py` in
 the checkout, NOT the design doc** (out-of-tree; the doc is human background)
-**Retry attempt:** 4 (v4 under the human N=4 cap extension — see Revision history;
-the v4 source branch is the existing `feature/settings-management` @ `ecc1e3b`
-with the v3 Integrator todo on top)
+**Retry attempt:** 5 of N=5 (second human cap extension, 2026-09-15) — see
+Revision history; the v5 source branch is the existing
+`feature/settings-management` @ `ce591fc` with the v4 Integrator todo on top
 
 Review domains (design-plan §10): **design-reviewer (blocking** — the layer
 model vs. the organic tangle this slug replaces), **ui-aspects-reviewer
@@ -837,3 +837,60 @@ v2/v3 — but two clicks from a real file shape.)
 - Draft PR body: C3/C4 as the science/crash fixes that drove the extension; the
   mutation ledger's home; non-goals (design §9) unchanged. **This is attempt 4 of
   the extended N=4 — the retry budget is exhausted after this.**
+
+## Revision history — v5 (SECOND human cap extension to N=5, 2026-09-15; todo @ `ce591fc`; attempt 5 of **N=5 extended**)
+
+The human read the second escalation (`plans/settings-management-escalate.md` @
+`ce591fc`) and authorized a **second bounded extension to N=5** — recommendation
+(a) accepted **with the resolver invariant** (item 4). The slug is converging:
+**the mutation ledger audited clean** (all 18 mutations re-run, zero survivors),
+**six clusters and both HIGH folds are closed and MUST NOT be re-litigated**, and
+the two real blockers plus B3 have fixes agreed across three domains. **v5 source
+branch = existing `feature/settings-management` @ `ce591fc` with the v4 Integrator
+todo on top.** Anchors are v4-tip line numbers; confirm each by symbol.
+
+**v5 scope — nothing outside this list (human, 2026-09-15):**
+
+1. **B1 — bind the layer-(b) value at edit time.** `_session_edits` becomes a
+   **dict** `{name: value}`; `_pre_resolve_overrides` returns
+   `{n: v for n, v in _session_edits.items() if n in fs.BY_NAME}`;
+   `_forget_per_angle_edits` pops `PER_ANGLE_NAMES`. **Do NOT clear the set in
+   `set_document`** (security's caveat: it also fires after a completed Resolve and
+   would drop a scientist's typed override on a second Resolve). **Guard:** add a
+   prior `_on_scalar_edited("dSampDet", ...)` to the existing pin test; it must
+   still assert `1500.0` at layer `"e"` (verified red at v4).
+2. **B2 — worker teardown.** A `_forget_worker` slot connected to the worker's
+   `finished` signal; `closeEvent` made defensive; **teardown moved to where it
+   runs** (`LauncherWindow.closeEvent` forwarding or `QApplication.aboutToQuit`) —
+   the tab's own `closeEvent` never fires on the real quit path; **pin the
+   unparenting at `:617` explicitly**; the **window-level subprocess matrix** (idle
+   / mid-resolve / stalled / repeated / close-after-completed-resolve) each
+   asserting **exit 0 and the override cursor released**.
+3. **B3 — sidecar read hardening.** Route the sidecar read through `_read_json`
+   with the **regular-file gate**: `O_NONBLOCK` open so a writer-less FIFO returns
+   `ENXIO`, `S_ISREG` on the fstat'd fd, then clear `O_NONBLOCK`. Name the wider
+   Load/Save stalled-mount exposure in the **PR body as a follow-up, not in v5**.
+4. **THE INVARIANT — the human's science decision (verbatim):** *a
+   `GLOBAL_EXCLUDED_GROUPS` (geometry) field never resolves above layer (e) from a
+   user-authority layer. Gate BOTH (a) and (b) at `settings_resolver.py:310`, and
+   add a standing guard test asserting geometry resolves to (e)/the measurement
+   regardless of what any door places in (a) or (b). A deliberate per-run geometry
+   override is deferred to a later, explicit, badged feature — it is not a side
+   effect of an edit.* (This closes the C4 door-**class**: a hypothetical fourth
+   door reds the invariant instead of shipping. The B1-only alternative — keep
+   typed geometry overrides, per-door closing — was **not** chosen.)
+5. **Advisory item 9 ONLY** — the test closing over an undefined `ipts`: fix the
+   identifier so the success path is exercised. **Every other advisory (1–8,
+   10–17) is recorded in the draft-PR body, not fixed in v5.**
+
+**Ledger requirement (amendment 16, hardened by the Integrator's frame lesson):**
+before writing the ledger, **enumerate the frame** — every shared rule in the diff
+(decorators, sentinels, bundled descriptions), not only the helpers changed. **A
+ledger row whose description contains "/" is two rows.** Each new or changed guard
+records its mutation and observed red, committed at the feature tip.
+
+**Final-gate bar (Integrator):** **PASS when items 1–4 are present and their
+mutations red and the subprocess matrix passes.** Item 5 missing is advisory. Any
+further finding that is **not a genuinely new correctness defect** goes in the PR
+body; **a genuinely new correctness defect escalates to the human — there is no
+N=6 without a decision from the human.**

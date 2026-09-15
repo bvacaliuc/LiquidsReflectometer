@@ -1,5 +1,14 @@
 # ESCALATION — `settings-management` (T3): extended cap reached (4 of N=4), Analyst decision required (2nd)
 
+> **SUPERSEDED 2026-09-15 — the human authorized a second bounded extension to
+> N=5 with the resolver invariant** (recommendation (a) accepted, item 4 adopted:
+> geometry never resolves above (e) from a user-authority layer; a deliberate
+> per-run geometry override is deferred to a later badged feature). v5 runs from
+> the five-item scope in the plan's `### v5` entry;
+> `triage/settings-management-v5` dispatched, the
+> `review/settings-management-escalate` tag deleted. This file is kept as the
+> record of the cap-reached moment.
+
 > This file supersedes the v3/N=3 cap-reached escalation (which recommended, and
 > received, the N=4 extension); the prior version is preserved in
 > `git log -- plans/settings-management-escalate.md`. It now records the **v4 /
