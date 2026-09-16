@@ -308,3 +308,67 @@ because a list of only successes is the prose count wearing a table.
 **How to apply.** For any claim of the form "I checked all N of these": commit
 the enumeration, generate it mechanically, and record the failures alongside the
 passes. If a reviewer cannot re-derive N, the number is decoration.
+
+## 15. Close the class, not the doors
+
+**Rule.** When the same defect arrives through a second route, stop patching
+routes and state the property that must hold.
+
+**Why.** Geometry outranking a measurement arrived twice: once through a sidecar
+seeding `ui_overrides`, once through an "Add angle" click minting authority for
+fields nobody typed. v4 closed both, correctly — and a third route would have
+been a third fix, in a slug that had already spent two attempts on exactly this
+shape.
+
+The invariant states it once: *a field in an excluded group never resolves above
+layer (e) from a **user-authority layer***, expressed over
+`USER_AUTHORITY_LAYERS` rather than over `"a"` and `"b"` by name, so a layer
+added later inherits the protection instead of needing its own patch. A
+hypothetical fourth door now reds the invariant instead of shipping.
+
+**How to apply.** Two instances of one defect is the signal. Ask what property
+was violated, express it where the decision is made — here, inside the
+resolution walk — and quantify it over the class rather than the members.
+
+## 16. "Leak, don't abort" is not achieved by letting go
+
+**Rule.** Releasing the last reference to a running Qt thread is what destroys
+it. To leak deliberately, hold it.
+
+**Why.** v4 chose the right trade and implemented its opposite. The reasoning —
+a stalled worker should leak rather than abort, because a leak ends with the
+process while an abort takes every other tab's unsaved state — was correct and
+is preserved. But the implementation *dropped the reference*, and an unparented
+QThread is owned by Python: releasing it deletes the C++ object, and deleting a
+running QThread is precisely `QThread: Destroyed while thread is still running`,
+then `abort()`. Measured: **exit -6**, on the stalled teardown the fix was for.
+
+Parking the worker in a module-level list is what the decision actually
+requires. And a parked worker that later finishes is reclaimed, because parking
+is for one still blocked at teardown, not a permanent hold.
+
+**How to apply.** When the intended behaviour is "do nothing and let it run",
+check who owns the object. In PyQt, "do nothing" and "delete it" are the same
+statement unless something keeps a reference.
+
+## 17. A guard is only wired where the code runs
+
+**Rule.** Put teardown on the object whose teardown actually fires, and pin the
+wiring from a test that can reach it.
+
+**Why.** Two instances in one cluster. v4's worker guard lived on the tab's
+`closeEvent` — which does **not** fire when a tab inside a QTabWidget inside a
+QMainWindow is destroyed, so the guard never ran on the path that quits the
+application, which is exactly when a resolve is most likely in flight. And
+`aboutToQuit` was connected inside `main()`, a function no test calls, so the
+connection was unpinned; factoring it into `install_shutdown_hooks(app, window)`
+let a test install the same wiring the application ships.
+
+Both were invisible in-process: `exit -6` is not something an in-process
+assertion can observe. A subprocess matrix over the real window — idle,
+mid-resolve, stalled, repeated, after a completed resolve, and quit-by-signal —
+is what made the exit code the thing under test.
+
+**How to apply.** For lifecycle code, ask which object Qt actually tears down,
+and whether the test can drive the path the user takes. If the answer needs a
+process, spend the process.
