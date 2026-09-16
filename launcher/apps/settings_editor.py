@@ -66,6 +66,34 @@ def guarded(method):
     return wrapper
 
 
+#: Workers deliberately kept alive past teardown.
+#:
+#: "Leak rather than abort" is not achieved by dropping the reference — that is
+#: what *causes* the abort. An unparented QThread is owned by Python, so
+#: releasing the last reference deletes the C++ object, and deleting a running
+#: QThread is precisely `QThread: Destroyed while thread is still running`
+#: followed by `abort()`. Measured: exit -6 on the stalled-mount teardown.
+#:
+#: To leak on purpose the object has to be *held*. A stalled worker is parked
+#: here, where nothing will collect it, and the process exits with the thread
+#: still blocked in its read — which is the outcome we chose: a leak ends with
+#: the process; an abort takes every other tab's unsaved state with it.
+_PARKED_WORKERS = []
+
+
+def _reclaim_parked(worker):
+    """Release a parked worker that turned out to finish after all.
+
+    Parking is for a worker still blocked when the window goes away. Most of
+    those are stalled forever, but a merely-slow one completes a moment later
+    and there is no reason to hold it for the life of the process. Without this
+    the removal below was unreachable — `shutdown` disconnected `finished`
+    before parking, so nothing could ever take a worker off the list.
+    """
+    if worker in _PARKED_WORKERS:
+        _PARKED_WORKERS.remove(worker)
+
+
 class _DiscoveryWorker(QtCore.QThread):
     """Runs `discover_ipts_settings` off the GUI thread.
 
@@ -117,8 +145,12 @@ class SettingsEditorTab(QtWidgets.QWidget):
         self._discover = discover_ipts_settings
         self._discovery_worker = None
         self._pending_overrides = {}
-        # Names the user edited in THIS session. Authority for layer (b).
-        self._session_edits = set()
+        # What the user edited in THIS session, and the value they set — bound
+        # at edit time, not read back from the document later. A Resolve
+        # replaces the document wholesale, so looking the value up afterwards
+        # returned whatever the resolution had just written, and a scientist's
+        # typed override silently became the experiment file's value.
+        self._session_edits = {}
         self._busy = False
         self._rows_hidden = 0
         self._last_error = None
@@ -427,7 +459,8 @@ class SettingsEditorTab(QtWidgets.QWidget):
     # -- refresh -----------------------------------------------------------
 
     def _forget_per_angle_edits(self):
-        self._session_edits.difference_update(fs.PER_ANGLE_NAMES)
+        for name in fs.PER_ANGLE_NAMES:
+            self._session_edits.pop(name, None)
 
     def _record_structural_change(self):
         """A row was added or removed: re-attribute the columns, grant nothing.
@@ -453,7 +486,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         screen still named an experiment file as its source, and named the wrong
         file at that. An origin that stops tracking the value is worse than none.
         """
-        self._session_edits.add(name)
+        self._session_edits[name] = self.document.get(name)
         self.provenance[name] = Resolved(self.document.get(name), "b", "")
         self.refresh_badges()
 
@@ -574,8 +607,8 @@ class SettingsEditorTab(QtWidgets.QWidget):
         does here, not something a file claims.
         """
         return {
-            name: self.document.get(name)
-            for name in self._session_edits
+            name: value
+            for name, value in self._session_edits.items()
             if name in fs.BY_NAME
         }
 
@@ -616,7 +649,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         # process, an abort takes the other tabs' unsaved state with it.
         worker = _DiscoveryWorker(ipts, tthd, self._discover)
         worker.finished_with.connect(self._discovery_finished)
-        worker.finished.connect(worker.deleteLater)
+        worker.finished.connect(self._forget_worker)
         self._discovery_worker = worker
         worker.start()
 
@@ -656,21 +689,47 @@ class SettingsEditorTab(QtWidgets.QWidget):
             QtWidgets.QApplication.restoreOverrideCursor()
         self.resolve_button.setEnabled(True)
 
-    def closeEvent(self, event):
-        """Let go of a running worker rather than destroying it.
+    def _forget_worker(self):
+        """Release a worker that has finished."""
+        self._discovery_worker = None
 
-        Disconnecting first means a late result cannot touch a widget that is
-        going away; dropping the reference means Qt is not holding a running
-        QThread when it tears the parent down.
+    def shutdown(self):
+        """Let go of a running worker without destroying it. Safe to call twice.
+
+        **Called from the window**, because this tab's own `closeEvent` does not
+        fire on the path that actually quits the application — a tab inside a
+        QTabWidget inside a QMainWindow is torn down without one, which is why
+        the guard added in v4 never ran where it mattered.
+
+        Disconnect first, so a late result cannot touch a widget that is going
+        away. Then *park* a still-running worker rather than dropping it: see
+        `_PARKED_WORKERS` — releasing the reference is what aborts.
         """
         worker = self._discovery_worker
-        if worker is not None and worker.isRunning():
+        if worker is not None:
+            for signal, slot in (
+                (worker.finished_with, self._discovery_finished),
+                (worker.finished, self._forget_worker),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    # Already disconnected, or the C++ object is gone.
+                    pass
             try:
-                worker.finished_with.disconnect(self._discovery_finished)
-            except (TypeError, RuntimeError):
-                pass
+                still_running = worker.isRunning()
+            except RuntimeError:
+                still_running = False
+            if still_running and worker not in _PARKED_WORKERS:
+                _PARKED_WORKERS.append(worker)
+                # Reclaim it if it ever finishes; see _reclaim_parked.
+                worker.finished.connect(lambda w=worker: _reclaim_parked(w))
             self._discovery_worker = None
         self._release_busy()
+
+    def closeEvent(self, event):
+        """Defensive: the real teardown comes through `shutdown` from the window."""
+        self.shutdown()
         super().closeEvent(event)
 
     def set_status(self, text):

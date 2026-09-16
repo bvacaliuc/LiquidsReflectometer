@@ -43,6 +43,7 @@ that are available.
 import copy
 import json
 import os
+import stat
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
@@ -80,6 +81,13 @@ LAYER_ORDER = ("b", "c", "d", "a", "e", "f")
 
 #: Layers a *person* set deliberately, as opposed to inherited or derived.
 HUMAN_LAYERS = ("a", "b")
+
+#: Layers whose value a *person or a file they control* supplied, as opposed to
+#: the instrument or the built-in defaults. The invariant below is expressed
+#: against this set, so a future user-authority layer inherits the protection
+#: instead of needing its own door closed.
+USER_AUTHORITY_LAYERS = ("a", "b")
+
 
 #: A value that was recorded as someone's run-level choice but is **not
 #: authoritative now** — read from a sidecar written for a previous run, or
@@ -302,11 +310,29 @@ class SettingsResolver:
         field = fs.get(name)
 
         for layer, mapping, detail in self._layer_sources(ctx):
-            # The whitelist is enforced here, at the READER, as well as at the
-            # two writers. A ResolutionContext can be constructed directly with
-            # any dict — a third door — so a whitelist checked only on the way
-            # in is not a whitelist. This is also what implements the geometry
-            # exclusion: those fields simply have no layer (a).
+            # THE INVARIANT (human's science decision, 2026-09-15):
+            #
+            #     a field in an excluded group never resolves above layer (e)
+            #     from a user-authority layer.
+            #
+            # Expressed once, over the whole class of user layers, because
+            # closing doors one at a time did not hold. v4 closed two — a
+            # sidecar seeding `ui_overrides`, and an "Add angle" click minting
+            # authority — and a third would have been a third fix. Instrument
+            # geometry comes from the instrument: `IncidentTheta`, `dSampDet`
+            # and the rest document their defaults as read from the PV, so a
+            # value a person or their file supplies must never outrank the
+            # measurement. Identical UI and identical experiment file producing
+            # different reduced data is the outcome this prevents.
+            #
+            # A deliberate per-run geometry override is a later, explicit,
+            # badged feature. It is not something an edit does as a side effect.
+            if layer in USER_AUTHORITY_LAYERS and field.group in GLOBAL_EXCLUDED_GROUPS:
+                continue
+            # The whitelist is enforced here, at the READER, as well as at both
+            # writers. A ResolutionContext can be constructed directly with any
+            # dict — a third door — so a whitelist checked only on the way in is
+            # not a whitelist.
             if layer == "a" and name not in GLOBAL_WHITELIST:
                 continue
             if name not in mapping:
@@ -391,29 +417,46 @@ MAX_SETTINGS_BYTES = 4 * 1024 * 1024
 def _read_json(path):
     """Read a settings file, refusing the shapes that are not one.
 
-    ``O_NOFOLLOW`` because the directory confinement above validates the
-    *directory* and then this used to ``open()`` whatever the name pointed at —
-    a symlink out of the facility root would have been read while the badge
-    reported the in-root filename. `atomic_write_json` already refuses to write
-    through a link; reading through one is the same hole facing the other way,
-    in the module whose product is truthful provenance.
+    Three gates, each for a failure that has a name:
+
+    * ``O_NOFOLLOW`` — the directory confinement validates the *directory*, and
+      this used to ``open()`` whatever the name pointed at, so a symlink out of
+      the facility root would be read while the badge reported the in-root
+      filename. The write side has refused links since T2; reading through one
+      is the same hole facing the other way, in the module whose product is
+      truthful provenance.
+    * ``O_NONBLOCK`` + ``S_ISREG`` — a FIFO reports ``st_size == 0``, so the size
+      cap waves it through, and a blocking ``open()`` on one with no writer
+      **waits forever** — on the discovery worker, the thread that exists so the
+      GUI does not block. ``O_NONBLOCK`` makes the open itself return rather
+      than wait; the rejection is then done by ``S_ISREG`` on the already-open
+      descriptor, which also covers directories, devices and sockets. (Measured:
+      ``O_RDONLY|O_NONBLOCK`` on a writer-less FIFO *succeeds* — ``ENXIO`` is the
+      write-side behaviour — so the non-blocking flag is what avoids the wait
+      and ``S_ISREG`` is what refuses the file.) The flag is cleared once the
+      type is known, so the read itself behaves normally.
+    * a size cap and an object check, so an enormous file or a top-level list
+      cannot become a ``TypeError`` several layers away from the file.
     """
     path = Path(path)
-    handle_fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    handle_fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
     try:
-        size = os.fstat(handle_fd).st_size
-        if size > MAX_SETTINGS_BYTES:
+        info = os.fstat(handle_fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"{path.name} is not a regular file")
+        if info.st_size > MAX_SETTINGS_BYTES:
             raise ValueError(
-                f"{path.name} is {size} bytes; refusing to parse more than {MAX_SETTINGS_BYTES}"
+                f"{path.name} is {info.st_size} bytes; refusing to parse more "
+                f"than {MAX_SETTINGS_BYTES}"
             )
+        # Checked as a regular file, so blocking reads are safe again.
+        os.set_blocking(handle_fd, True)
         with os.fdopen(handle_fd, "r") as handle:
             handle_fd = None
             payload = json.load(handle)
     finally:
         if handle_fd is not None:
             os.close(handle_fd)
-    # A top-level list or string would make `name not in mapping` a substring
-    # test, or a TypeError, several layers away from the file that caused it.
     if not isinstance(payload, dict):
         raise ValueError(f"{path.name} holds a {type(payload).__name__}, not an object")
     return payload
@@ -592,14 +635,15 @@ def load_resolution(path):
     than failing — the facility has files that predate this module, and refusing
     them would make the resolver useless exactly where it is most needed.
     """
-    with open(path, "r") as handle:
-        settings = json.load(handle)
+    # Through _read_json, not a bare open(): this is the production Open path,
+    # and it was the unhardened twin of the discovery read — same FIFO, symlink
+    # and not-an-object exposure, on a file a user picks from a dialog.
+    settings = _read_json(path)
 
     sidecar = provenance_path(path)
     provenance = {}
     if sidecar.exists():
-        with open(sidecar, "r") as handle:
-            records = json.load(handle)
+        records = _read_json(sidecar)
         provenance = {
             name: Resolved.from_record(record, settings.get(name))
             for name, record in records.items()

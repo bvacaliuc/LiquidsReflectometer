@@ -82,3 +82,99 @@ Recorded because a ledger that only lists successes is the prose count again.
   field in the isolation test used an *included* group, so dropping the clause
   changed nothing. A counter-example in a non-included group
   (`group=NAMING`, numeric, scalar) now isolates it: **1 failed**.
+
+---
+
+# v5
+
+Frame enumerated before the run, per the Integrator's lesson: every shared rule
+in the diff, and **a row whose description contains "/" is two rows** — so the
+`O_NONBLOCK`/`S_ISREG` gate is listed as two, and the invariant is listed once
+per layer it covers rather than once as a class.
+
+Two mutations do not produce a test failure but a **hang**. That is the defect
+itself: a blocking `open()` on a writer-less FIFO never returns, on the worker
+thread that exists so the GUI does not block. Recorded as observed, with the
+per-invocation `timeout` that caught them.
+
+## THE INVARIANT — geometry never resolves above (e) from a user layer
+
+| # | mutation | observed |
+|---|---|---|
+| 1 | gate layer (a) only — drop (b) from the class | **8 failed** `...[via-layer-b]` |
+| 2 | gate layer (b) only — drop (a) from the class | **8 failed** `test_the_invariant_refuses_layer_a_even_if_the_whitelist_admits_it` |
+| 3 | remove the gate entirely | **8 failed, 8 passed** `...never_resolves_above_the_measurement` |
+
+Row 2 needed a new test. The `(a)` arm is **not independently observable** with
+the existing guards, because geometry is already refused at layer (a) by
+`GLOBAL_WHITELIST` — so dropping the invariant's (a) half changed nothing and
+every test stayed green. The isolating guard monkeypatches `GLOBAL_WHITELIST` to
+*admit* the field, which leaves the invariant as the only thing standing. Same
+unreachable-clause shape as v4's C7.
+
+## B1 — the layer-(b) value is bound at edit time
+
+| # | mutation | observed |
+|---|---|---|
+| 4 | value not bound at edit time (`= None`) | **1 failed** `test_a_typed_override_survives_a_second_resolve` |
+| 5 | `_pre_resolve_overrides` re-reads the document | **1 failed** `test_a_typed_override_is_not_rewritten_by_an_intervening_load` |
+| 6 | `_forget_per_angle_edits` no longer pops | **1 failed** `test_per_angle_edits_do_not_follow_a_change_of_experiment` |
+
+Row 5 needed a new test too. A second Resolve alone does **not** expose it: for a
+non-geometry field layer (b) wins, so the document still holds what was typed and
+re-reading returns the same value. The isolating sequence is
+**edit → Load → Resolve**, where `set_document` has swapped the document
+underneath and re-reading hands back the loaded file's value as though the
+scientist had typed it.
+
+## B2 — worker teardown
+
+| # | mutation | observed |
+|---|---|---|
+| 7 | worker parented to the tab | **1 failed** `test_the_worker_is_unparented` |
+| 8 | `shutdown` drops instead of parking | **1 failed** `...tears_down_cleanly[stalled]` |
+| 9 | window `closeEvent` does not forward | **1 failed** `...tears_down_cleanly[stalled]` |
+| 10 | `aboutToQuit` not connected | **1 failed** `...tears_down_cleanly[quit-signal]` |
+| 11 | a finished parked worker is never reclaimed | **1 failed** `test_a_parked_worker_is_reclaimed_if_it_finishes` |
+
+Row 10 needed the `quit-signal` scenario: `aboutToQuit` is wired in `main()`,
+which no test calls, so the connection was unpinned. The wiring is now a
+factored `install_shutdown_hooks(app, window)` the test installs itself.
+
+Row 11 was **dead code** when first written — `shutdown` disconnected `finished`
+before parking, so nothing could ever take a worker off the list. Parked workers
+now reconnect a reclaim slot, which makes the removal both reachable and useful:
+a merely-slow worker that completes after teardown is released rather than held
+for the life of the process.
+
+Not a row: `_forget_worker`'s clearing of `self._discovery_worker`. Deleting it
+changes no observable behaviour, because `resolve_for_experiment` overwrites the
+attribute on every run and `shutdown` clears it. Recorded as defensive rather
+than claimed as pinned.
+
+## B3 — the read gate, on both paths
+
+| # | mutation | observed |
+|---|---|---|
+| 12 | `O_NONBLOCK` removed | **HUNG** (`timeout 75`) `test_a_fifo_is_refused_rather_than_waited_on` |
+| 13 | `S_ISREG` removed | **1 failed** `test_a_directory_is_refused` |
+| 14 | `O_NOFOLLOW` removed | **1 failed** `test_a_symlinked_settings_file_is_not_read_through` |
+| 15 | size cap removed | **1 failed** `test_discovery_refuses_an_oversized_settings_file` |
+| 16 | not-an-object check removed | **1 failed** `test_a_settings_file_that_is_not_an_object_is_reported` |
+| 17 | Open path bypasses `_read_json` | **HUNG** (`timeout 75`) `test_the_open_path_reads_through_the_same_gate` |
+
+## Item 5
+
+| # | mutation | observed |
+|---|---|---|
+| 18 | (control) the fixed test exercises the success path | **passes**; before the fix it closed over an undefined `ipts` and never reached the assertion |
+
+## Three that did not red on the first pass
+
+Recorded because a ledger of only successes is the prose count wearing a table.
+All three were **my tests, not the code** — and two of them revealed that the
+behaviour they named was unobservable as written:
+
+1. invariant (a) arm — hidden behind the whitelist; isolating guard added.
+2. B1 re-read — invisible without an intervening Load; sequence-specific guard added.
+3. `aboutToQuit` — wired in `main()`, which no test calls; wiring factored out so a test can install it.

@@ -887,9 +887,259 @@ def test_the_wait_cursor_is_released_once():
     from lr_reduction.settings_resolver import ResolutionContext
 
     tab = SettingsEditorTab()
-    tab._discover = lambda _ipts, _tthd=1.0, **_kw: ResolutionContext(ipts=ipts)
+    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(ipts=ipts)
     tab.ipts_edit.setText("IPTS-1")
     _resolve_and_wait(tab)
     assert QtWidgets.QApplication.overrideCursor() is None
     tab._release_busy()
     assert QtWidgets.QApplication.overrideCursor() is None
+
+
+# --------------------------------------------------------------------------
+# v5 — B1: the layer-(b) value is bound when it is typed
+# --------------------------------------------------------------------------
+
+
+def test_a_typed_geometry_override_still_loses_to_the_measurement():
+    """B1 + the invariant together: typing it does not make it authoritative.
+
+    The value is now bound at edit time rather than read back from the document
+    after a Resolve has replaced it — so this exercises the real (b) path, and
+    the invariant is what refuses it. A deliberate per-run geometry override is
+    a later, explicit, badged feature; it is not a side effect of an edit.
+    """
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    editor = tab.editors["dSampDet"]
+    editor.setText("99999")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+    assert tab._session_edits.get("dSampDet") == 99999.0
+
+    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(
+        ipts=ipts, dataset_probe=lambda name: 1500.0 if name == "dSampDet" else None
+    )
+    _resolve_and_wait(tab)
+
+    assert tab.document.get("dSampDet") == 1500.0
+    assert tab.provenance["dSampDet"].source_layer == "e"
+
+
+def test_a_typed_override_survives_a_second_resolve():
+    """Bound at edit time, so a completed Resolve does not erase it.
+
+    Reading the value back out of the document after a Resolve returned whatever
+    the resolution had just written, so a scientist's typed override silently
+    became the experiment file's value on the next Resolve.
+    """
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    editor = tab.editors["qmax"]
+    editor.setText("0.44")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+
+    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(
+        ipts=ipts, json_settings={"qmax": 0.9}, json_detail="reduce_settings.json"
+    )
+    _resolve_and_wait(tab)
+    assert tab.document.get("qmax") == 0.44
+
+    _resolve_and_wait(tab)
+    assert tab.document.get("qmax") == 0.44, "the second Resolve dropped the override"
+    assert tab.provenance["qmax"].source_layer == "b"
+
+
+# --------------------------------------------------------------------------
+# B2 — teardown, at the window, in a real process
+# --------------------------------------------------------------------------
+
+
+TEARDOWN_PROGRAM = """
+import os, sys, time
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+import tempfile
+from qtpy import QtCore, QtWidgets
+
+root = tempfile.mkdtemp()
+QtCore.QSettings.setDefaultFormat(QtCore.QSettings.IniFormat)
+for fmt in (QtCore.QSettings.IniFormat, QtCore.QSettings.NativeFormat):
+    QtCore.QSettings.setPath(fmt, QtCore.QSettings.UserScope, root)
+
+app = QtWidgets.QApplication([])
+from launcher.new_launcher import LauncherWindow
+from lr_reduction.settings_resolver import ResolutionContext
+
+SCENARIO = sys.argv[1]
+window = LauncherWindow()
+tab = window.tabs.settings_editor_tab
+
+def quick(ipts, _tthd=1.0, **_kw):
+    return ResolutionContext(ipts=ipts)
+
+def stalled(ipts, _tthd=1.0, **_kw):
+    time.sleep(5)   # far longer than teardown; short enough to run often
+    return ResolutionContext(ipts=ipts)
+
+if SCENARIO != "idle":
+    tab.ipts_edit.setText("IPTS-1")
+
+if SCENARIO == "mid-resolve":
+    tab._discover = quick
+    tab.resolve_for_experiment()
+elif SCENARIO in ("stalled", "quit-signal"):
+    tab._discover = stalled
+    tab.resolve_for_experiment()
+elif SCENARIO == "repeated":
+    tab._discover = quick
+    for _ in range(3):
+        tab.resolve_for_experiment()
+        if tab._discovery_worker is not None:
+            tab._discovery_worker.wait(5000)
+        app.processEvents()
+elif SCENARIO == "after-completed-resolve":
+    tab._discover = quick
+    tab.resolve_for_experiment()
+    tab._discovery_worker.wait(5000)
+    app.processEvents()
+
+if SCENARIO == "quit-signal":
+    # The path closeEvent never sees: quit the application directly, under a
+    # real event loop, so aboutToQuit is what has to release the worker.
+    from launcher.new_launcher import install_shutdown_hooks
+    install_shutdown_hooks(app, window)
+    QtCore.QTimer.singleShot(200, app.quit)
+    app.exec_()
+else:
+    window.close()
+    app.processEvents()
+
+assert QtWidgets.QApplication.overrideCursor() is None, "override cursor left set"
+print("teardown-clean")
+"""
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        "idle",
+        "mid-resolve",
+        "stalled",
+        "repeated",
+        "after-completed-resolve",
+        "quit-signal",
+    ],
+)
+def test_the_window_tears_down_cleanly(scenario):
+    """A real process, because exit 134 is not observable in-process.
+
+    v3's worker was parented and never released, so closing the launcher with a
+    resolve in flight destroyed a running QThread — `QThread: Destroyed while
+    thread is still running`, abort, exit 134, on every teardown path. v4 put the
+    guard on the tab's `closeEvent`, which **does not fire** when a tab inside a
+    QTabWidget inside a QMainWindow is torn down, so the guard never ran where it
+    mattered. Teardown is at the window now, and this asserts the exit code the
+    user would have seen.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", TEARDOWN_PROGRAM, scenario],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert result.returncode == 0, f"exit {result.returncode}\n{result.stderr[-2000:]}"
+    assert "teardown-clean" in result.stdout
+
+
+def test_the_tab_is_reachable_for_shutdown_from_the_window():
+    """Pins the wiring the matrix depends on, so a rename fails here first."""
+    from launcher.new_launcher import LauncherWindow
+
+    window = LauncherWindow()
+    assert hasattr(window.tabs.settings_editor_tab, "shutdown")
+    window.close()
+
+
+def test_the_worker_is_unparented():
+    """Pinned explicitly: a parented QThread is destroyed with its parent.
+
+    That destruction, not the thread itself, is what aborts the process.
+    """
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    tab = SettingsEditorTab()
+    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(ipts=ipts)
+    tab.ipts_edit.setText("IPTS-1")
+    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+    worker = tab._discovery_worker
+    assert worker.parent() is None, "the worker must not be parented to the tab"
+    assert worker.wait(10000)
+
+
+def test_a_typed_override_is_not_rewritten_by_an_intervening_load(tmp_path, monkeypatch):
+    """Binding at edit time matters when the document is REPLACED in between.
+
+    A second Resolve alone does not show it: for a non-geometry field layer (b)
+    wins, so the document still holds what was typed and re-reading it returns
+    the same value. The isolating sequence is edit -> Load -> Resolve, where
+    `set_document` has swapped the document underneath — re-reading then hands
+    the loaded file's value back as though the scientist had typed it.
+    """
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    other = tmp_path / "other.json"
+    other.write_text(json.dumps({"qmax": 0.77}))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog, "getOpenFileName",
+        staticmethod(lambda *_a, **_k: (str(other), "")),
+    )
+
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    editor = tab.editors["qmax"]
+    editor.setText("0.44")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+
+    tab.load_settings()
+    assert tab.document.get("qmax") == 0.77
+
+    assert tab._pre_resolve_overrides().get("qmax") == 0.44, (
+        "the override became the loaded file's value"
+    )
+
+    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(ipts=ipts)
+    _resolve_and_wait(tab)
+    assert tab.document.get("qmax") == 0.44
+
+
+def test_a_parked_worker_is_reclaimed_if_it_finishes():
+    """Parking is for a worker still blocked at teardown, not a permanent hold.
+
+    A merely-slow one completes a moment later, and holding it for the life of
+    the process is a leak we did not choose. Before this the removal was
+    unreachable: `shutdown` disconnected `finished` before parking, so nothing
+    could take a worker off the list.
+    """
+    import time
+
+    from launcher.apps.settings_editor import _PARKED_WORKERS
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    def slow(ipts, _tthd=1.0, **_kw):
+        time.sleep(0.4)
+        return ResolutionContext(ipts=ipts)
+
+    before = len(_PARKED_WORKERS)
+    tab = SettingsEditorTab()
+    tab._discover = slow
+    tab.ipts_edit.setText("IPTS-1")
+    QTest.mouseClick(tab.resolve_button, QtCore.Qt.LeftButton)
+    worker = tab._discovery_worker
+
+    tab.shutdown()  # still running -> parked
+    assert worker in _PARKED_WORKERS
+
+    assert worker.wait(10000)
+    QtWidgets.QApplication.instance().processEvents()
+    assert worker not in _PARKED_WORKERS, "a finished worker was held forever"
+    assert len(_PARKED_WORKERS) == before

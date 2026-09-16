@@ -87,6 +87,17 @@ class LauncherWindow(QMainWindow):
         )
         self.global_settings_action.triggered.connect(self.open_global_settings)
 
+    def closeEvent(self, event):
+        """Release the settings tab's worker before Qt tears the tree down.
+
+        The tab's own `closeEvent` does not fire on this path — closing the main
+        window destroys the tab widget's children without one — so a guard that
+        lived only on the tab never ran when the application actually quit,
+        which is exactly when a resolve is most likely to still be in flight.
+        """
+        self.tabs.settings_editor_tab.shutdown()
+        super().closeEvent(event)
+
     def open_global_settings(self):
         """Open the dialog, and dispose of it.
 
@@ -100,6 +111,17 @@ class LauncherWindow(QMainWindow):
             dialog.deleteLater()
 
 
+def install_shutdown_hooks(app, window):
+    """Release the discovery worker on every path that ends the process.
+
+    `closeEvent` covers the window's close button. `aboutToQuit` covers
+    everything else — a signal, the session manager, a File->Quit action — which
+    bypasses `closeEvent` entirely. A factored function rather than two lines in
+    `main()` so a test can install the same wiring it ships.
+    """
+    app.aboutToQuit.connect(window.tabs.settings_editor_tab.shutdown)
+
+
 # referenced by pyproject.toml, part of the GUI system
 def main():
     # One QSettings identity for every layer of the launcher, established
@@ -109,6 +131,7 @@ def main():
     migrate_legacy_settings()
     app = QApplication([])
     window = LauncherWindow()
+    install_shutdown_hooks(app, window)
     window.show()
     sys.exit(app.exec_())
 

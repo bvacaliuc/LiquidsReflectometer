@@ -1052,3 +1052,152 @@ def test_the_shared_refusal_gate_reports_an_invalid_divisor():
 def test_the_shared_refusal_gate_ignores_unknown_keys():
     """A settings file may carry keys this version does not know."""
     assert fs.refusals({"a_field_from_the_future": 1}) == []
+
+
+# --------------------------------------------------------------------------
+# v5 — THE INVARIANT (human's science decision, 2026-09-15)
+# --------------------------------------------------------------------------
+
+
+GEOMETRY_FIELDS = ("IncidentTheta", "mmpix", "dSampDet", "dMod", "xi_ref", "dS1Samp", "nx", "ny")
+
+
+@pytest.mark.parametrize("name", GEOMETRY_FIELDS)
+@pytest.mark.parametrize(
+    "door",
+    [
+        pytest.param("global_settings", id="via-layer-a"),
+        pytest.param("ui_overrides", id="via-layer-b"),
+    ],
+)
+def test_geometry_never_resolves_above_the_measurement_from_a_user_layer(name, door):
+    """The standing guard: a class invariant, not a per-door patch.
+
+    v4 closed two doors into layer (b) — a sidecar seeding `ui_overrides`, and
+    an "Add angle" click minting authority — and a third door would have been a
+    third fix. These fields document their defaults as read from the instrument
+    or the PV. A value a person or their file supplies must never outrank the
+    measurement, because identical UI and identical experiment file producing
+    different reduced data is not a thing a settings editor may cause.
+    """
+    ctx = ResolutionContext(dataset_probe=lambda field: 1500.0 if field == name else None)
+    setattr(ctx, door, {name: 99999.0})
+    resolved = SettingsResolver(ctx).resolve(name)
+    assert resolved.source_layer == "e"
+    assert resolved.value == 1500.0
+
+
+@pytest.mark.parametrize("name", GEOMETRY_FIELDS)
+def test_geometry_falls_to_the_default_when_nothing_measures_it(name):
+    """With no probe, it must still not take the user's value."""
+    ctx = ResolutionContext(global_settings={name: 99999.0}, ui_overrides={name: 88888.0})
+    resolved = SettingsResolver(ctx).resolve(name)
+    assert resolved.source_layer == "f"
+
+
+@pytest.mark.parametrize("name", GEOMETRY_FIELDS)
+def test_the_experiment_file_may_still_set_geometry(name):
+    """The invariant is about USER authority, not about the experiment.
+
+    (c) and (d) are the experiment's own record of how it was configured, and
+    they remain able to set geometry — otherwise a legitimately-recorded
+    configuration could not be reproduced.
+    """
+    ctx = ResolutionContext(
+        json_settings={name: 1234.0},
+        json_detail="reduce_settings.json",
+        dataset_probe=lambda field: 1500.0 if field == name else None,
+    )
+    resolved = SettingsResolver(ctx).resolve(name)
+    assert resolved.source_layer == "c"
+    assert resolved.value == 1234.0
+
+
+def test_a_non_geometry_field_still_honours_a_this_run_override():
+    """The positive control: the invariant must not disable layer (b)."""
+    ctx = ResolutionContext(
+        ui_overrides={"qmax": 0.44},
+        json_settings={"qmax": 0.9},
+        json_detail="reduce_settings.json",
+    )
+    assert SettingsResolver(ctx).resolve("qmax").source_layer == "b"
+
+
+def test_the_invariant_is_expressed_over_the_layer_class():
+    """A future user-authority layer inherits the protection.
+
+    Stated against USER_AUTHORITY_LAYERS rather than against "a" and "b" by
+    name, so adding a layer does not mean remembering to add a door-closing fix.
+    """
+    from lr_reduction.settings_resolver import USER_AUTHORITY_LAYERS
+
+    assert set(USER_AUTHORITY_LAYERS) == {"a", "b"}
+    assert set(USER_AUTHORITY_LAYERS) <= set(LAYER_ORDER)
+
+
+# --------------------------------------------------------------------------
+# B3 — the regular-file gate, on both read paths
+# --------------------------------------------------------------------------
+
+
+def test_a_fifo_is_refused_rather_than_waited_on(tmp_path):
+    """A writer-less FIFO reports st_size 0 and a blocking open never returns.
+
+    On the discovery worker — the thread that exists so the GUI does not block.
+    """
+    from lr_reduction.settings_resolver import _read_json
+
+    fifo = tmp_path / "reduce_settings.json"
+    os.mkfifo(fifo)
+    with pytest.raises(ValueError, match="not a regular file"):
+        _read_json(fifo)
+
+
+def test_a_directory_is_refused(tmp_path):
+    from lr_reduction.settings_resolver import _read_json
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        _read_json(tmp_path)
+
+
+def test_the_open_path_reads_through_the_same_gate(tmp_path):
+    """`load_resolution` was the unhardened twin, on a file a user picks."""
+    fifo = tmp_path / "picked.json"
+    os.mkfifo(fifo)
+    with pytest.raises(ValueError, match="not a regular file"):
+        load_resolution(fifo)
+
+
+def test_a_regular_settings_file_still_reads(tmp_path):
+    """The positive control for all three gates."""
+    target = tmp_path / "fine.json"
+    document, provenance = SettingsResolver(
+        ResolutionContext(global_settings={"qmax": 0.42})
+    ).resolve_all()
+    save_resolution(target, document, provenance)
+    settings, restored = load_resolution(target)
+    assert settings["qmax"] == 0.42
+    assert restored["qmax"].source_layer == "a"
+
+
+@pytest.mark.parametrize("name", GEOMETRY_FIELDS)
+def test_the_invariant_refuses_layer_a_even_if_the_whitelist_admits_it(monkeypatch, name):
+    """Isolates the (a) arm, which the whitelist otherwise hides.
+
+    Geometry is already refused at layer (a) by `GLOBAL_WHITELIST`, so removing
+    the (a) half of the invariant changes nothing and the guard stays green —
+    the same unreachable-clause shape as v4's C7. Admitting the field to the
+    whitelist makes the invariant the only thing left standing, which is the
+    property the human's decision actually names: *a preference must never
+    outrank a measurement*, whatever route the preference took.
+    """
+    import lr_reduction.settings_resolver as module
+
+    monkeypatch.setattr(module, "GLOBAL_WHITELIST", tuple(module.GLOBAL_WHITELIST) + (name,))
+    ctx = ResolutionContext(
+        global_settings={name: 99999.0},
+        dataset_probe=lambda field: 1500.0 if field == name else None,
+    )
+    resolved = SettingsResolver(ctx).resolve(name)
+    assert resolved.source_layer == "e"
+    assert resolved.value == 1500.0
