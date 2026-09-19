@@ -867,8 +867,13 @@ todo on top.** Anchors are v4-tip line numbers; confirm each by symbol.
    / mid-resolve / stalled / repeated / close-after-completed-resolve) each
    asserting **exit 0 and the override cursor released**.
 3. **B3 — sidecar read hardening.** Route the sidecar read through `_read_json`
-   with the **regular-file gate**: `O_NONBLOCK` open so a writer-less FIFO returns
-   `ENXIO`, `S_ISREG` on the fstat'd fd, then clear `O_NONBLOCK`. Name the wider
+   with the **regular-file gate**: `O_NONBLOCK` open so the open itself returns
+   instead of waiting, `S_ISREG` on the fstat'd fd to refuse the file, then clear
+   `O_NONBLOCK`. (Corrected in v6: this said a writer-less FIFO "returns `ENXIO`".
+   It does not — `O_RDONLY|O_NONBLOCK` on one **succeeds**; `ENXIO` is the
+   write-side behaviour. So `O_NONBLOCK` is what avoids the forever-wait and
+   `S_ISREG` is what does the refusing — measured, and stated correctly in
+   `settings_resolver._read_json`'s own docstring.) Name the wider
    Load/Save stalled-mount exposure in the **PR body as a follow-up, not in v5**.
 4. **THE INVARIANT — the human's science decision (verbatim):** *a
    `GLOBAL_EXCLUDED_GROUPS` (geometry) field never resolves above layer (e) from a

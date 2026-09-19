@@ -372,3 +372,67 @@ is what made the exit code the thing under test.
 **How to apply.** For lifecycle code, ask which object Qt actually tears down,
 and whether the test can drive the path the user takes. If the answer needs a
 process, spend the process.
+
+
+## 18. Record an edit at the granularity the thing can change at
+
+**Rule.** When you snapshot "what the user set", snapshot the unit that has a
+stable identity — not an aggregate whose *index* can move underneath it.
+
+**Why.** `_session_edits[name] = document.get(name)` froze all thirteen
+per-angle arrays whole. The array's identity is positional: angle 2's value is
+"the thing at index 1". Anything that changes the row count — loading a
+different experiment, removing an angle — re-indexes every element, so the
+frozen column no longer described the angles it was recorded against. Because
+that column then arrived at layer (b), which outranks the experiment file, a
+Load silently dropped the file's extra angle and a Remove resurrected the angle
+just deleted — both badged "set for this run", so the screen confirmed the
+wrong answer. The value was never wrong; the *index* was, and the snapshot had
+frozen the wrong one of the two.
+
+**How to apply.** Ask what makes the recorded thing findable again later. If the
+answer is a position in a container someone else can resize, record the cell
+(`{(name, row): value}`) and reassemble against the container as it stands at
+use time. Copy it, too: a getter that hands back the live object makes the
+record an alias, so the document rewrites its own provenance.
+
+## 19. A mutation the correct code cannot be distinguished from is not a guard
+
+**Rule.** When mutation-testing a *reindexing* operation, pick the case where
+nothing else writes the slot under test — usually the boundary element.
+Otherwise a neighbour's shift covers for the bug.
+
+**Why.** The mutation "keep the removed row's own edit" survived a guard written
+specifically for Remove-angle. With edits at rows 0, 1, 2 and row 0 removed, the
+correct code drops row 0 and shifts 1→0, 2→1; the mutant keeps row 0 *and*
+shifts 1→0 — which **overwrites** the stale entry. Both produce `{0:'b', 1:'c'}`.
+The guard could not observe the behaviour it was named for, and only running the
+mutation revealed it; reasoning about the code said it was covered.
+
+**How to apply.** For any shift/compaction/renumbering, the discriminating
+fixture removes the LAST recorded element — nothing shifts over its slot — and
+then grows the container again so the stale index comes back into range. More
+generally: a mutation that survives is information about the *test*, so never
+retire it by widening the assertion until you can say which input distinguishes
+the two programs.
+
+## 20. A hand-maintained tuple beside an enumeration is fail-open
+
+**Rule.** If a rule is expressed against a subset of an enumeration, derive the
+subset from the enumeration. Declaring both by hand means adding a member
+silently opts it out of the rule.
+
+**Why.** `USER_AUTHORITY_LAYERS = ("a", "b")` sat beside
+`LAYER_ORDER = ("b","c","d","a","e","f")`, and the geometry invariant — the
+science decision that a personal preference must never override a measurement —
+is expressed against that subset. A new layer (the deferred per-run badged
+override is exactly one) would not appear in the subset, so the invariant would
+not cover it, and nothing compared the two to say so. The extension defaulted to
+*unprotected*, which is the wrong direction for a safety rule.
+
+**How to apply.** Make one table the single source for each member's identity
+and its classification, project the derived views off it, and add a test that
+every member of the enumeration carries a classification. Then adding a member
+without classifying it fails a test instead of quietly widening the hole. Check
+the derived value is byte-identical to the literal it replaces, so the
+refactor's correctness does not rest on the reader's memory.
