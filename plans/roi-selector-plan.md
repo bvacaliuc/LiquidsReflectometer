@@ -5,6 +5,38 @@ the scientist is waiting to review this). Full design/background:
 `tasking/plan/roi-selector/plan.md` (the authoritative source is
 `launcher/apps/roi_selector.py` in the checkout, NOT the design doc). **Retry attempt:** 1.
 
+## T1 strategy — Advisor-reconciled 2026-09-19 (supersedes the A1-first framing below)
+
+The Advisor's position (`tasking/plan/roi-selector/advisor-position-t1-strategy.md`), accepted:
+
+- **Slug cut (§4 sizing):** `roi-estimate` (Qt-free layer-(e) probe — **dispatched now** as slug 1,
+  `plans/roi-estimate-plan.md`) → `roi-view` (2D map + TOF projection + drag, R14) → `roi-tab`
+  (per-run flow R1/R2, writes through `SettingsDocument`) → `roi-vs-197-review` (the comparison) →
+  `settings-builder-on-document` (the fold-in on a landed #197).
+- **A1 (patch + re-enable the old 2268-line tab) is D-1 — the human's call**, NOT dispatched. Worth
+  doing only if the beamline needs a usable tab *this week*; otherwise it is churn the rewrite
+  discards and it biases the #197 comparison (patched-old-tab vs a 180-line dialog). The A1 scope
+  is retained below as the spec should D-1 = yes.
+- **No-overlay constraint (Advisor §1 — the Slug-B-deferral hazard):** every T1 slug writes tab
+  edits **through `SettingsDocument`** (`set_angle_field` already models the `None` collapse); the
+  resolver is read **once at seed time**; the layer walk is **never enumerated in T1 code** (use
+  the resolver API) — so Slug B lands later without touching T1, and T1 never rebuilds
+  `_session_edits`'s three-state hazard under another name.
+- **"Independent" = independent of #197's *code*, not the campaign model (§2.1):** build on
+  `SettingsDocument`/`FIELD_SPEC`/resolver + library helpers (`nr_tools.get_lam_range`,
+  `binary_processing.get_y_tof`); read #197 for domain facts, never copy its functions (F3 is the
+  fourth-copy cautionary case).
+- **Fix the comparison criteria before building (§2.2):** the `roi-vs-197-review` slug scores
+  R1–R14 + #197's F1–F6 for both artefacts, same IPTS fixture, the five feature-spectrum axes,
+  reviewer ≠ implementer.
+- **Landing order (§2.3, D-2):** recommend **(i)** #197 lands first on `exp-review` (F1/F2/F4 as
+  review comments), T1 stacks on it; **no T1 slug touches `json_settings_builder.py`.**
+
+**Decisions surfaced to the human (Advisor §4):** D-1 (A1 vs roi-estimate-first — roi-estimate
+dispatched as the no-regrets opener; A1 awaits your word); D-2 (landing order — (i) recommended);
+D-3 (tell the scientists layer-(b)/B6-b is deferred — yes, one sentence, with the parked plan as
+the pointer).
+
 ## Independence (why this dispatches now, concurrent with Slug A)
 
 - **Base:** `agentic/exp` @ `6da473d` — already carries the **S0 launcher-test harness**

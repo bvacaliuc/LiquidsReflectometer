@@ -65,3 +65,39 @@ alone (amendment 17 processed-set + reconcile). **What to check afterward:** did
 picked up and reviewed without the Analyst? did any rejection→v2 get handled by the
 reconcile routine post-compaction? did it converge to a PR? Record the verdict
 (including failure) in the campaign retrospective — a negative result is a valid finding.
+
+## Revision history — v2 (after v1 review; 2026-09-19; review todo @ `30985822`)
+
+v1 gate green at `2136a8f` (145 launcher + 246 reduction, EXIT=0) and the **blocking citation
+gate PASSED** (72 items sampled, zero dangling, 92% semantic hit). **The code is correct — the
+save-config-json fix stands.** REJECTED on **record accuracy + two guard gaps** (Integrator I-39);
+5 of 6 blockers are prose, F1/F2 are ~12 lines of test + 2 ledger rows. Full findings: `todo.md`
+at the review tip (`30985822`).
+
+**Fairness (Integrator, recorded):** the synthesis was committed 8 min BEFORE the v6 rejection
+landed (12:12:49 vs 12:21:27) — the two staleness blockers are transcription, not care; `d5733af`
+(the v6 rejection) already holds the replacement language.
+
+### Prose corrections (transcribe from ground truth — verify-prose, amendment-16 sibling)
+1. **Section G:** v6 was **REJECTED → decompose**, not "fixed"; a fourth generation exists.
+   Restate per `d5733af`'s mandated correction (the residue currently repeats the wrong sentence).
+2. **Two attribution slips:** harness-hardening §2 dates amendment 16's rule three weeks before
+   settings-editor §8 existed; the inaccurate test name traces to the Analyst's hedged plan —
+   correct both to the record.
+3. **Two tree-mismatch claims:** two byte-identical savers still in `src/` → the count is **3→3,
+   not 3→2**; "nothing drives the reduction entry point" is **false** (a GUI checkbox does).
+
+### Guard gaps (the two real test additions — amendments 16/18/21)
+- **F1:** `make_json_safe` is an **unguarded removable clause that is load-bearing** on the GUI
+  path (reproduce the `PosixPath` `TypeError`); add the guard + a mutation-ledger row.
+- **F2:** the truncation guard asserts **no NEW file appears** — wrong axis. It must assert the
+  **prior file SURVIVES** a failed save (a mutation that destroys previous settings currently
+  passes all six guards). Re-point to the state that matters (**amendment 21:** vary the STATE —
+  a failed write *over an existing file*).
+
+### Acceptance (v2)
+- The three prose groups corrected against ground truth; F1/F2 guards added with mutation-ledger
+  rows (mutate → RED); `pixi run test-launcher` + `test-reduction` green; `pixi.lock` untouched.
+- Draft PR on pass (synthesis + the standing save-config-json fix). Merging is the human's (§7).
+
+Dispatched as `triage/learnings-review-v2`.
