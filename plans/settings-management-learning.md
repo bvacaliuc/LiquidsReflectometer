@@ -436,3 +436,58 @@ every member of the enumeration carries a classification. Then adding a member
 without classifying it fails a test instead of quietly widening the hole. Check
 the derived value is byte-identical to the literal it replaces, so the
 refactor's correctness does not rest on the reader's memory.
+
+
+## 21. An `if/elif` over a value's STATES must say what happens in none of them
+
+**Rule.** When branching on what state a value is in — has a value / is a
+container / is absent — an `if/elif` with no `else` does not "do nothing". It
+*preserves whatever was already recorded*, which for a cache or a record is a
+silent wrong answer rather than a no-op.
+
+**Why.** v6 recorded a per-angle edit with
+`if row is None: … elif isinstance(current, (list, tuple)) and 0 <= row < len(current): …`.
+`set_angle_field` deliberately collapses an `optional_list` column back to
+`None` when its last populated cell is cleared — that is the sanctioned "derive
+it from the chopper ranges" state, protected on purpose. With `current is None`,
+**both arms are False and the method neither records nor removes**, so cells
+from earlier keystrokes survived describing a column that no longer existed. The
+deleted value came back badged as the scientist's own, and
+`new_reduction_from_template` forces `lam_range` from it, so `LAMBDA >= None`
+kills the reduction. Rejected as B1′ (`d5733af`), confirmed five times.
+
+This was the **third** consecutive recurrence in the same two functions:
+`_session_edits` had to model three states — a value, a whole column, and
+absent-`None` — and v4→v5 missed whole-column while v5→v6 missed absent-`None`.
+Amendment 18 governs a value's *type*; `None`-as-a-real-value is a *state* the
+type does not distinguish, which is why it kept escaping.
+
+**How to apply.** Enumerate the states a value can occupy before writing the
+branch, and write the `else` even when you believe it is unreachable — make it
+remove the record or raise, never fall through. When a setter can *change the
+shape* of the thing you are recording (a list collapsing to `None`), the
+recorder has to handle that shape as a first-class case, not as a guard
+condition that happens to be False.
+
+## 22. Subtracting a feature removes tested behaviour that was merely adjacent
+
+**Rule.** When a work order says "remove X", separate the behaviour that *is* X
+from the behaviour that merely *lived inside* X. Deleting the second under cover
+of the first removes tested behaviour with no finding and no discussion.
+
+**Why.** Slug A removes the layer-(b) pre-run UI override, and the removal list
+named `_record_edit` and "the 'set for this run' badge population". But
+`_record_edit` did two separable things: it granted layer-(b) authority (the
+feature) and it re-attributed the badge so the origin stopped naming a file that
+no longer supplied the value (not the feature — it is NFR-8 provenance, which
+the same acceptance bar requires be kept "intact"). Four tests pinned the second
+independently, one parametrized across three widget types precisely because an
+earlier attempt had silently deleted two of those paths. The re-attribution was
+kept and relabelled `b*` — provably not layer (b): absent from `LAYER_ORDER`,
+authority `"none"`, never entering `ui_overrides`.
+
+**How to apply.** For each symbol on a removal list, ask what it does *besides*
+the thing being removed, and check whether any test pins that separately — a
+test that keeps passing is not evidence, since you are about to delete it too.
+Where the two are genuinely entangled, say so in the commit and give the
+reviewer the one-line revert, rather than making the call silently.
