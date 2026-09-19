@@ -485,9 +485,13 @@ def save_config_json(filepath, config):
     and the broken one was the public name a newcomer reaches for.
 
     ``__dict__`` is the right source rather than an implementation-detail
-    shortcut: the four path fields are properties backed by ``_Spath_override``
-    and its siblings, and it is the **private** names that ``json_to_config``
-    can set again through its ``hasattr`` gate.
+    shortcut, though not for the reason first given here: ``Spath`` **does**
+    have a setter, so the public form would survive the ``hasattr`` gate. The
+    real reasons are that the private ``_*_override`` names **re-derive** their
+    paths from ``experiment_id`` on load, whereas the public form freezes the
+    resolved absolute path into the file; and that ``base_path`` is a property
+    with **no** setter, so any "save every public attribute" scheme hits
+    ``AttributeError: property 'base_path' has no setter`` on reload.
     """
     # Serialize BEFORE opening. `json.dump` raising part-way through left a
     # truncated file behind, so a failed save destroyed the previous settings.
