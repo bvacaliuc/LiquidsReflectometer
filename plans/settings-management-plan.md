@@ -5,9 +5,9 @@ charter §4 slug T3 · full design in
 `tasking/plan/settings-management/plan.md` (398 ln) — **authoritative source
 is `src/lr_reduction/{settings_document,field_spec,reduction_domains}.py` in
 the checkout, NOT the design doc** (out-of-tree; the doc is human background)
-**Retry attempt:** 5 of N=5 (second human cap extension, 2026-09-15) — see
-Revision history; the v5 source branch is the existing
-`feature/settings-management` @ `ce591fc` with the v4 Integrator todo on top
+**Retry attempt:** 6 (bounded, amendment 20 footing, 2026-09-19) — see Revision
+history; the v6 source branch is the existing `feature/settings-management` @
+`8c7dfbb` with the v5 Integrator todo on top
 
 Review domains (design-plan §10): **design-reviewer (blocking** — the layer
 model vs. the organic tangle this slug replaces), **ui-aspects-reviewer
@@ -894,3 +894,101 @@ mutations red and the subprocess matrix passes.** Item 5 missing is advisory. An
 further finding that is **not a genuinely new correctness defect** goes in the PR
 body; **a genuinely new correctness defect escalates to the human — there is no
 N=6 without a decision from the human.**
+
+## Revision history — v6 (bounded, amendment 20 footing; 2026-09-19; todo @ `8c7dfbb`; B1 alone)
+
+Human-approved after the v5/N=5 (3rd) escalation — the slug is one narrow,
+fully-diagnosed fix from done (findings 8→2→1; v5's ledger audited clean, all 17
+mutations red, 3/4 domains clear). **Scope is B1 alone + the record corrections +
+three advisories; nothing else.** v6 source = existing `feature/settings-management`
+@ `8c7dfbb` + the v5 Integrator todo. Runs on the **amendment 20** footing (criterion
+below).
+
+### item 1 (BLOCKING) — B1, the robust per-cell form
+
+v5 defect: `_record_edit` (`settings_editor.py:481`; `_session_edits[name] =
+self.document.get(name)` at `:489`) froze the **whole array** for the 13 per-angle
+fields, so a later Load or Remove-angle mis-aligned every per-angle column via
+`_equalise_angles` padding → wrong reduced data, badged "set for this run".
+
+**Amendment 18 — type domain governed:** `_session_edits` holds BOTH **scalars** and
+the **13 per-angle arrays** (`fs.PER_ANGLE_NAMES`). The v5 prescription was
+scalar-correct, array-wrong. **Behaviour per type under the fix:**
+- **Scalar:** bind the value at edit time (unchanged); a document swap must not lose
+  it, a row-count change is irrelevant to it.
+- **Per-angle array:** record **per cell** — `_session_edits[(name,row)] = value` as
+  a **copy**, reassembled against the *current* row count at resolve time, so a
+  Load/Remove between edit and Resolve cannot shift indices.
+
+**Fix:** `_record_edit` records per-cell for `PER_ANGLE_NAMES` (keyed `(name,row)`),
+scalars as today; `_pre_resolve_overrides` reassembles per-angle cells against the
+current arrays; `_record_structural_change` (`:465`) rebinds/prunes the per-cell
+entries on a row-count change (**the strict subset** that fixes Remove-angle alone);
+bind a **copy** (`list(...)`/value copy), never the attribute (`SettingsDocument.get`
+returns the live object — the `_copy` hazard). **Do NOT clear `_session_edits` in
+`set_document`** (security's v5 caveat — it also fires after a completed Resolve and
+would drop a typed override).
+
+**Guard (mutate-once):** one fixture that **varies the row count between the edit and
+the Resolve**, both triggers, **IPTS set BEFORE the edit** (an `ipts_edit.setText()`
+after the edit fires `_forget_per_angle_edits` and pops the snapshot under test):
+- **Load:** 2-angle tab, type a per-angle value on angle 2, Load a 3-angle
+  experiment, Resolve → the typed value stays on the scientist's angle; the file's
+  other angles are intact (not shifted, not `None`-padded over).
+- **Remove-angle:** 3 angles, edit, remove angle 1, Resolve → no resurrected/
+  mis-aligned array; `save_settings` writes the correct arrays.
+- Mutations: `_record_structural_change`→no-op reds Remove-angle; `_pre_resolve_overrides`
+  →v4 read-back reds Load; keep-the-live-list (no copy) reds a mutate-the-resolved-doc test.
+
+### item 2 — mandatory record corrections
+
+- **Rename `tests/test_settings_resolver.py:1163`
+  `test_the_open_path_reads_through_the_same_gate`** — its name outruns its coverage
+  (it calls `load_resolution(fifo)` directly, never `load_settings`/the Open path);
+  rename to what it covers (e.g. `test_load_resolution_refuses_a_fifo_sidecar`).
+- **Correct two prose items:** the `deleteLater` comment at `settings_editor.py:646-649`
+  and the `_PARKED_WORKERS` comment, to match their code.
+- **Correct this plan's ENXIO sentence (v5 item 3/B3):** a writer-less FIFO opened
+  `O_RDONLY|O_NONBLOCK` **succeeds** — it does NOT return `ENXIO` (ENXIO is the write
+  side). `O_NONBLOCK` avoids the blocking wait; `S_ISREG` refuses the file. (Error
+  originated in the v4 work order; corrected here.)
+- **State the residual plainly + fix ledger row 17's heading:** a local `mkfifo` (not
+  merely a stalled mount) still freezes the GUI on Open and hangs autoreduction —
+  **pre-existing, follow-up**, in the PR body.
+
+### items 3–5 — the three advisories promoted into scope
+
+- **item 3 (adv-1):** the sidecar half of ledger row 17 gets its **own test** —
+  `mkfifo` on the provenance-sidecar path, assert the read is refused/non-blocking
+  (the settings-file read was pinned; the sidecar was the unpinned 2nd call site of
+  `_read_json`).
+- **item 4 (adv-2):** add `--timeout` to the **reduction** pixi task (`pyproject.toml`
+  — `test-reduction` arms none; `test-launcher` has 120 s) so the two hang-mode guards
+  can red in CI.
+- **item 5 (adv-8):** one **`LAYERS` table** mapping each letter → (order, label,
+  authority) + a test that **every `LAYER_ORDER` member carries an authority
+  classification**. The deferred per-run badged-override feature *is* a new layer and
+  the extension is **fail-open** today.
+
+Everything else on the v5 advisory list rides the **PR body**, not the diff.
+
+### ledger + acceptance
+
+- **Mutate-once (amendment 16 as folded):** frame first; **one row per call site** of
+  every helper introduced or **re-pointed**; split `/`/"and"/"or" rows; a hang-mode
+  mutation needs the `--timeout` item 4 adds. Ledger committed at the feature tip.
+- **Harness restore-safety (Developer contract):** chunk under 600 s, per-invocation
+  timeout, restore-FIRST, verify by symbol before any commit.
+
+### amendment-20 criterion (in force)
+
+**If v6 is rejected on the same *demonstrate-the-case-you-thought-of* shape at a new
+level, DECOMPOSE `settings-management` into single-review-surface slugs (§4 sizing
+rule) — do NOT extend the cap.**
+
+### final-gate bar (Integrator)
+
+**PASS when items 1–5 are present and their mutations red.** Anything not a genuinely
+new correctness defect rides the PR body; a genuinely new correctness defect
+escalates to the human (amendment 20 decides decompose-vs-extend). Draft PR on pass;
+merging stays the human's deploy decision (charter §7).

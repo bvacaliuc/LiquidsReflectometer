@@ -1,5 +1,11 @@
 # ESCALATION — `settings-management` (T3): extended cap reached (5 of N=5), Analyst decision required (3rd)
 
+> **SUPERSEDED 2026-09-19 — the human approved a bounded v6 for B1 alone** on the
+> charter §9 amendment-20 footing (decompose-don't-extend if the same shape recurs at
+> a new level). v6 runs from the five-item scope in the plan's `### v6` entry;
+> `triage/settings-management-v6` dispatched, the `review/settings-management-escalate`
+> tag deleted. This file is kept as the record of the 3rd cap-reached moment.
+
 > This file supersedes the v4/N=4 cap-reached escalation (which recommended, and
 > received, the N=5 extension with the resolver invariant); prior versions are in
 > `git log -- plans/settings-management-escalate.md`. It now records the **v5 /
