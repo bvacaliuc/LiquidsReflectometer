@@ -23,6 +23,7 @@ from launcher.app_identity import APP_NAME, ORG_NAME
 from launcher.apps.settings_editor import SettingsEditorTab
 from lr_reduction import field_spec as fs
 from lr_reduction.settings_document import SettingsDocument
+from lr_reduction.settings_resolver import ResolutionContext
 
 pytestmark = pytest.mark.usefixtures("isolated_qapp", "no_qmessagebox")
 
@@ -432,3 +433,111 @@ def test_an_enumerated_editor_offers_the_declared_spellings():
     combo = tab.editors["DetResFn"]
     offered = [combo.itemText(i) for i in range(combo.count())]
     assert offered == list(fs.DET_RES_CHOICES)
+
+
+# -- B1: a session edit is a CELL, not the whole per-angle column -----------
+#
+# v5 recorded `_session_edits[name] = document.get(name)` — the whole array,
+# and the live one. Between that edit and the Resolve the row count can change
+# (Load a different experiment, Remove an angle), and layer (b) then supplied
+# an array of the OLD length for the WHOLE field: `_equalise_angles` padded it
+# with None over the file's real angles, or resurrected an angle the scientist
+# had just removed. Badged "set for this run", so the screen agreed with it.
+#
+# Every fixture here sets the IPTS BEFORE the edit on purpose:
+# `ipts_edit.textChanged` is wired to `_forget_per_angle_edits`, so setting it
+# afterwards pops the very snapshot under test and the guard would pass for
+# the wrong reason.
+
+
+def _resolve_now(tab, json_settings=None):
+    """Drive a real Resolve to completion without touching /SNS."""
+    settings = dict(json_settings or {})
+
+    def quick(ipts, _tthd=1.0, **_kw):
+        return ResolutionContext(
+            ipts=ipts, json_settings=settings, json_detail="experiment file"
+        )
+
+    tab._discover = quick
+    tab.resolve_for_experiment()
+    worker = tab._discovery_worker
+    if worker is not None:
+        worker.wait(5000)
+    QtWidgets.QApplication.instance().processEvents()
+
+
+def test_a_typed_angle_value_survives_loading_an_experiment_with_more_angles(
+    tmp_path, monkeypatch
+):
+    """The Load trigger: the row count grows between the edit and the Resolve."""
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+
+    for _ in range(2):
+        QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    tab.angle_table.item(1, column).setText("typed_by_hand.dat")
+    assert tab.document.get("DBname") == [None, "typed_by_hand.dat"]
+
+    # The experiment actually has three angles.
+    experiment = {"DBname": ["file_0.dat", "file_1.dat", "file_2.dat"]}
+    path = tmp_path / "reduce_settings.json"
+    path.write_text(json.dumps(experiment))
+    monkeypatch.setattr(
+        QtWidgets.QFileDialog,
+        "getOpenFileName",
+        staticmethod(lambda *_a, **_k: (str(path), "")),
+    )
+    tab.load_settings()
+    assert tab.document.n_angles == 3
+
+    _resolve_now(tab, json_settings=experiment)
+
+    # The typed value stays on the scientist's angle and the file's other two
+    # angles are intact — not shifted, not None-padded over.
+    assert tab.document.get("DBname") == [
+        "file_0.dat",
+        "typed_by_hand.dat",
+        "file_2.dat",
+    ]
+
+
+def test_removing_an_angle_does_not_resurrect_it_through_a_session_edit():
+    """The Remove-angle trigger: the row count shrinks between edit and Resolve."""
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+
+    for name in ("a.dat", "b.dat", "c.dat"):
+        QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+        tab.angle_table.item(tab.angle_table.rowCount() - 1, column).setText(name)
+
+    tab.angle_table.item(2, column).setText("c_fixed.dat")
+    tab.angle_table.setCurrentCell(0, 0)
+    QTest.mouseClick(tab.remove_angle_button, QtCore.Qt.LeftButton)
+    assert tab.document.get("DBname") == ["b.dat", "c_fixed.dat"]
+
+    _resolve_now(tab)
+
+    # The removed angle does not come back, and the surviving edit stays put.
+    assert tab.document.get("DBname") == ["b.dat", "c_fixed.dat"]
+
+
+def test_a_session_edit_is_bound_by_copy_not_by_the_live_object():
+    """`SettingsDocument.get` hands back the live list.
+
+    Recording the attribute itself makes the override an alias of the document,
+    so anything mutating the document in place between the edit and the Resolve
+    silently rewrites what the scientist is recorded as having typed.
+    """
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    editor = tab.editors["data_x_range"]
+    editor.setText("60, 210")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+    assert tab.document.get("data_x_range") == [60, 210]
+
+    tab.document.get("data_x_range").append(999)
+
+    assert tab._pre_resolve_overrides()["data_x_range"] == [60, 210]
