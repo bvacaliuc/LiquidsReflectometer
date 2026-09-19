@@ -756,6 +756,15 @@ def test_a_typed_value_still_wins_over_the_experiment_file():
     assert tab.provenance["qmax"].source_layer == "b"
 
 
+def _recorded_fields(tab):
+    """The field names `_session_edits` is holding, whatever the key shape.
+
+    A per-angle edit is keyed `(name, row)` and a scalar by `name`; this test
+    is about which FIELD is remembered, not how the key is spelled.
+    """
+    return {key[0] if isinstance(key, tuple) else key for key in tab._session_edits}
+
+
 def test_per_angle_edits_do_not_follow_a_change_of_experiment():
     """Per-angle arrays index one experiment's runs."""
     tab = SettingsEditorTab()
@@ -764,10 +773,10 @@ def test_per_angle_edits_do_not_follow_a_change_of_experiment():
     tab.refresh_angles()
     column = fs.PER_ANGLE_NAMES.index("DBname")
     tab.angle_table.item(0, column).setText("typed.dat")
-    assert "DBname" in tab._session_edits
+    assert "DBname" in _recorded_fields(tab)
 
     tab.ipts_edit.setText("IPTS-2")
-    assert "DBname" not in tab._session_edits
+    assert "DBname" not in _recorded_fields(tab)
 
 
 # --------------------------------------------------------------------------

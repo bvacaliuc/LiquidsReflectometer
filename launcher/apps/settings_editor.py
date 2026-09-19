@@ -19,6 +19,7 @@ from the selected row instead of the acted-on row is a known reduction-GUI bug
 class, and this table is new code, so the trap would be introduced here.
 """
 
+import copy
 import functools
 import traceback
 from pathlib import Path
@@ -427,7 +428,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         item = self.angle_table.item(row, column)
         value = fs.get(name).coerce_element(item.text() if item is not None else "")
         self.document.set_angle_field(row, name, value)
-        self._record_edit(name)
+        self._record_edit(name, row=row)
         self.refresh_report()
 
     @guarded
@@ -453,16 +454,22 @@ class SettingsEditorTab(QtWidgets.QWidget):
             return
         self.document.remove_angle(row)
         self.refresh_angles()
-        self._record_structural_change()
+        self._record_structural_change(removed_row=row)
         self.refresh_report()
 
     # -- refresh -----------------------------------------------------------
 
     def _forget_per_angle_edits(self):
-        for name in fs.PER_ANGLE_NAMES:
-            self._session_edits.pop(name, None)
+        """Drop the per-angle snapshots — whole-column and per-cell alike."""
+        stale = [
+            key
+            for key in self._session_edits
+            if (key[0] if isinstance(key, tuple) else key) in fs.PER_ANGLE_NAMES
+        ]
+        for key in stale:
+            self._session_edits.pop(key, None)
 
-    def _record_structural_change(self):
+    def _record_structural_change(self, removed_row=None):
         """A row was added or removed: re-attribute the columns, grant nothing.
 
         The array is no longer the one the experiment file supplied, so leaving
@@ -472,22 +479,61 @@ class SettingsEditorTab(QtWidgets.QWidget):
         conjured from a click. The columns are marked as previous-run instead:
         truthful on screen, powerless in the walk.
         """
+        if removed_row is not None:
+            self._rebind_cells_after_removal(removed_row)
         for name in fs.PER_ANGLE_NAMES:
             self.provenance[name] = Resolved(
                 self.document.get(name), PREVIOUS_RUN_LAYER, "row count changed here"
             )
         self.refresh_badges()
 
-    def _record_edit(self, name):
+    def _rebind_cells_after_removal(self, removed_row):
+        """Move the per-cell edits past a removed row, dropping that row's own.
+
+        An "Add angle" appends, so every existing row keeps its index and there
+        is nothing to rebind. A removal shifts every later row down one. Leaving
+        the keys alone is what let a removed angle come back at Resolve wearing
+        layer (b)'s authority.
+        """
+        moved = {}
+        for key, value in self._session_edits.items():
+            if not isinstance(key, tuple):
+                moved[key] = value
+                continue
+            name, row = key
+            if row == removed_row:
+                continue
+            moved[(name, row - 1 if row > removed_row else row)] = value
+        self._session_edits = moved
+
+    def _record_edit(self, name, row=None):
         """Note that a person just set this field, and re-badge it.
 
         Provenance travels WITH the document. Without this the badge kept
         claiming the layer the value arrived from — so after editing a field the
         screen still named an experiment file as its source, and named the wrong
         file at that. An origin that stops tracking the value is worse than none.
+
+        A per-angle field is recorded one CELL at a time, keyed `(name, row)`.
+        Recording the whole array froze the OTHER angles too, so a Load or a
+        Remove between the edit and the Resolve replayed a stale column of the
+        wrong length over the experiment file's own angles — misaligned, and
+        badged as though the scientist had typed it. `SettingsDocument.get`
+        hands back the live list, so the value is copied, never aliased.
         """
-        self._session_edits[name] = self.document.get(name)
-        self.provenance[name] = Resolved(self.document.get(name), "b", "")
+        current = self.document.get(name)
+        if fs.get(name).per_angle:
+            if row is None:
+                # No row to attribute it to. Record every cell so one shape
+                # reaches `_pre_resolve_overrides` whatever the caller did.
+                if isinstance(current, (list, tuple)):
+                    for index, value in enumerate(current):
+                        self._session_edits[(name, index)] = copy.deepcopy(value)
+            elif isinstance(current, (list, tuple)) and 0 <= row < len(current):
+                self._session_edits[(name, row)] = copy.deepcopy(current[row])
+        else:
+            self._session_edits[name] = copy.deepcopy(current)
+        self.provenance[name] = Resolved(current, "b", "")
         self.refresh_badges()
 
     def refresh_badges(self):
@@ -605,12 +651,37 @@ class SettingsEditorTab(QtWidgets.QWidget):
         `shared/autoreduce` — outrank the experiment file **and** the measured
         geometry, with nobody typing anything. Authority is something a person
         does here, not something a file claims.
+
+        Per-angle edits are held per CELL and reassembled here against the
+        document as it stands NOW, so a row count that changed since the edit
+        cannot shift them: the cell the scientist typed goes back to the angle
+        they typed it on, and the other angles keep what the current document
+        holds. A cell whose row no longer exists is dropped.
         """
-        return {
-            name: value
-            for name, value in self._session_edits.items()
-            if name in fs.BY_NAME
-        }
+        overrides = {}
+        cells = {}
+        for key, value in self._session_edits.items():
+            if isinstance(key, tuple):
+                name, row = key
+                if name in fs.BY_NAME:
+                    cells.setdefault(name, {})[row] = value
+            elif key in fs.BY_NAME:
+                overrides[key] = value
+
+        n_angles = self.document.n_angles
+        for name, edited in cells.items():
+            current = self.document.get(name)
+            column = list(current) if isinstance(current, (list, tuple)) else []
+            if len(column) < n_angles:
+                column += [None] * (n_angles - len(column))
+            placed = False
+            for row, value in edited.items():
+                if 0 <= row < n_angles:
+                    column[row] = value
+                    placed = True
+            if placed:
+                overrides[name] = column
+        return overrides
 
     @guarded
     def resolve_for_experiment(self):
