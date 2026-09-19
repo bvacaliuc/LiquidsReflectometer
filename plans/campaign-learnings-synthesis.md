@@ -4,6 +4,15 @@
 this branch, the escalation record, and the 27 `todo-*.md` in the tasking
 register, organised by **recurring defect class** rather than slug.
 
+**v2 (2026-09-19).** Corrected after review `3098582`, which passed the citation
+audit (72 items sampled, zero dangling, 92 % semantic) and blocked on six
+accuracy findings. Four share one root cause worth naming at the top, because it
+is this document's own section E turned on itself: **a green commit's
+self-report is a claim, not a record.** v1 built section G and parts of A/C/F
+from the v6 commit body; v6 was rejected eight minutes after this file was
+committed, and two of its self-assessments were wrong independently of that.
+Every correction below is transcribed from `d5733af` and re-verified here.
+
 **Evidence rule (verify-prose).** Every lesson cites a checkable source:
 `<slug>-learning.md §N`, a `todo-*.md`, or a SHA. A lesson I could not cite was
 dropped rather than rounded up. Where a claim is about the *campaign* rather
@@ -14,8 +23,10 @@ ones a reviewer should attack first.
 
 ## A. Vacuous guards — a test that cannot fail
 
-The campaign's most frequent defect, and the only one to recur in every slug
-that wrote tests. At least eight distinct surfaces:
+The campaign's most frequent defect. The cited evidence covers 7 of the 13
+slugs, and `todo-mutate-once-gate.md` counts eight instances across five — v1
+claimed "every slug that wrote tests", which this document's own evidence rule
+does not support. At least nine distinct surfaces:
 
 | surface | citation |
 |---|---|
@@ -26,13 +37,20 @@ that wrote tests. At least eight distinct surfaces:
 | a test that resets the thing under test | `test-warning-filter-learning.md` §2 |
 | a test that writes the config it then reads | `harness-hardening-learning.md` §6 |
 | a shim exercising only the site you thought of | `settings-management-learning.md` §9 |
+| disarm the mechanism and watch the test go red | `harness-hardening-learning.md` §2 |
 | a guard matching a substring both answers share | `settings-editor-learning.md` §11 |
 
 **What closed it.** Charter **amendment 16** (mutate-once gate): enumerate sites
 from the code, one mutation per site, committed ledger, measured observations.
-`settings-editor-learning.md` §8 is the earliest statement of the rule; the v6
-ledger (`plans/settings-management-mutation-ledger.md` at feature tip `e1c0d63`)
-is its current form.
+
+The earliest statement is **`harness-hardening-learning.md` §2**, first
+committed `c6628ea` **2026-08-19** — *"disarm the mechanism once and watch the
+test go red. If it stays green, it is guarding nothing."* v1 credited
+`settings-editor-learning.md` §8, which is three weeks later (`f9d7347`,
+2026-09-09) and in fact a day *after* amendment 16 was adopted (2026-09-08); §8
+states the **diagnostic corollary** — when a mutation does not red, work out
+whether the test is vacuous or the mutation missed — not the gate. Evidence:
+`todo-mutate-once-gate.md`.
 
 **Residue.** Amendment 16 catches a mutation that *survives*; it does not catch
 one that **cannot be distinguished from correct code**. v6 row 5 is the worked
@@ -81,8 +99,9 @@ The copy is where the bug lives, and it is usually the public-facing one.
 - two normalisation points, one covering for the other — `settings-editor-learning.md` §14
 - a hand-maintained tuple beside an enumeration is fail-open — `settings-management-learning.md` §20
 
-**Two product defects reached `exp` through this class — the only class that can
-say that:**
+**Two product defects reached `exp` through this class** — on the reading
+"reached `exp` *through* this class"; v1's flat "the only class that can say
+that" is more than the evidence carries:
 
 1. `read_template` had a correct implementation and a divergent fork copy that
    raised `AttributeError` on every run —
@@ -129,13 +148,22 @@ hand-copy (`settings-editor-learning.md` §7).
 **What closed it.** Charter **amendment 18** — type enumeration in the plan; the
 v6 plan enumerates "13 per-angle arrays vs scalars, behaviour each".
 
-**Residue, and it recurred inside v6 itself.** The v6 work order's item 2
-prescribed renaming a test to `test_load_resolution_refuses_a_fifo_sidecar` —
-but that test passes the FIFO as the **settings file**, not the sidecar, so the
-prescribed name was itself inaccurate and would have swapped one wrong name for
-another. Caught by checking the prescription against the body (`e1c0d63`;
-transcript `D-41`). Amendment 18 enumerates *types*; it does not yet require the
-plan's **identifiers** to be checked against the artefacts they name.
+**Residue, and it recurred inside v6 itself.** The name
+`test_load_resolution_refuses_a_fifo_sidecar` was **suggested in the Analyst's
+plan** (`plans/settings-management-plan.md:953`, hedged *"rename to what it
+covers (**e.g.** …)"*) — not prescribed in a work order. That test passes the
+FIFO as the **settings file**, not the sidecar, so the suggested name would have
+swapped one wrong name for another; it was corrected at `e1c0d63` and the
+sidecar name went to the genuinely-sidecar test. Amendment 18 enumerates
+*types*; it does not yet require a plan's **identifiers** to be checked against
+the artefacts they name — which is the lesson, and it is unchanged.
+
+*Correcting v1:* v1 called this "the v6 work order's item 2 prescribed". Both of
+v1's own sources say *plan* (`e1c0d63` body; transcript `D-41`), `grep
+fifo_sidecar` finds nothing in `8c7dfbb:todo.md`, and "e.g." is a suggestion, not
+a prescription. The review notes it made the mirror-image error in the other
+direction; the misattribution is worth recording in both directions because the
+lesson only lands if it points at the artefact that actually carried the name.
 
 ---
 
@@ -185,41 +213,68 @@ Test outcomes depending on state outside the test.
 - `pytest-timeout`'s default `signal` method cannot interrupt native code — `launcher-test-harness-learning.md` §1
 
 **What closed it.** Per-slug fixes plus `--timeout-method=thread` as standard.
-v6 armed a timeout on the `test-reduction` task (`e1c0d63`), which had none —
-load-bearing, not hygiene: the sidecar-FIFO mutation reds *as a hang*, so
-without a timeout the battery wedges instead of reporting.
+v6 armed a timeout on the `test-reduction` task (`e1c0d63`), which had none.
+
+*Correcting v1:* v1 called that value "load-bearing, not hygiene", inheriting the
+v6 commit's own assessment. `d5733af` finds the **600 s** figure does not achieve
+its purpose inside the harness — it is per-test and sits at the harness's own
+600 s ceiling, so the wedge it is supposed to prevent is not prevented — and
+recommends 120 s. Arming a timeout is right; the value shipped is not, and
+calling it load-bearing was a self-report taken as a record.
 
 **Residue.** `amend_config` (class C) is the largest surviving instance.
 
 ---
 
-## G. The per-angle trap family — product-specific, three generations
+## G. The per-angle trap family — product-specific, FOUR generations
 
 The one class about *this instrument's data model* rather than engineering
-discipline, recurring three times in three forms:
+discipline, recurring four times in four forms:
 
 1. **active row as hidden input** — using `currentRow()` instead of the signal's
    row writes the edit to whichever row happens to be selected. Guarded in T2
    (`test_editing_a_cell_updates_the_row_that_was_edited_not_the_selected_one`).
 2. **`_equalise_angles` padding** — layers resolve independently, so a short
    array silently shifts every later angle by one; the resolver pads rather than
-   fails (`settings_resolver.py:392` at the feature tip).
+   fails (`settings_resolver._equalise_angles`; v1 cited line 392, which lands on
+   the enclosing `resolve_all`).
 3. **edit-time freeze** — recording the whole per-angle column rather than the
    cell, so a Load or Remove re-indexes it (`settings-management-learning.md`
-   §18; rejected at v5 `8c7dfbb`, fixed at v6 `e1c0d63`).
+   §18; rejected at v5 `8c7dfbb`, **attempted at v6 `e1c0d63` and rejected at
+   `d5733af`** — v6 did not fix generation 3, it exchanged it for generation 4).
+4. **absent-`None` as a real state** — clearing an `optional_list` cell makes
+   `set_angle_field` collapse the whole column back to `None`, the sanctioned
+   "derive it from the chopper ranges" state. v6's per-cell recorder then ran
+   with `current is None`, matched **neither** arm of its per-angle branch, and
+   so neither recorded nor removed — the deleted value came back at layer (b)
+   badged as the scientist's own, and a two-gesture variant reaches
+   `nr_reduction_calc.py:452` with `LambdaMinUse = None` and kills the
+   reduction. B1′, `d5733af`, confirmed 5× (`settings-management-learning.md`
+   §21).
 
-**[inference]** These are one defect wearing three costumes: *a per-angle
-value's identity is positional, and every part of the system that holds one must
-survive a change to the row count.* Basis: all three misplace a value by index
-rather than corrupting it, and all three are invisible to a test that never
-changes the row count between write and read. Offered as the unifying reading,
-not as a claim any single document makes.
+**The unifying reading, now stated rather than inferred.** `d5733af` supplies
+it from the rejection side and it is better than v1's guess: `_session_edits`
+must represent **three value-states — a value, a whole column, and
+absent-`None`** — and each attempt handled two of the three (v4→v5 missed
+whole-column; v5→v6 missed absent-`None`). Amendment 18 governs a value's
+*type*; `None`-as-a-real-value is a *state* the type does not distinguish, which
+is why it escaped three attempts and five sign-offs. v1 offered "positional
+identity" as an `[inference]`; that is a property of generations 1–3 only, and it
+does not explain generation 4.
 
-**Residue.** Layer (b) still carries the whole reassembled column after v6, so
-resolving against a *different* experiment than the one edited masks that file's
-other angles with the current document's values. Narrower than v5 (which also
-misaligned them) but not closed; cell-level layer authority is a resolver
-change.
+**Residue.** The whole layer-(b) pre-run override was **removed** by the
+amendment-20 decompose (Slug A, `157821f`) and deferred to Slug B
+(`plans/settings-ui-override-plan.md`), which owes it cell-level layer
+authority. So the residue is not a narrowed defect but an absent feature.
+
+*Correcting v1 here specifically:* v1 wrote that v6's masking was "narrower than
+v5 (which also misaligned them)", inheriting the v6 commit body's "v5 had the
+same masking plus the misalignment". `d5733af` makes correcting exactly that a
+mandatory record correction: the whole-column **shape** is the same, the
+**masking value is not**. At `8c7dfbb` the frozen column was the *edited*
+experiment's own, so foreign values never acquired layer-(b) authority; v6 minted
+it for values from **another experiment's file**. That is wider, not narrower.
+This was class E occurring inside the document that names class E.
 
 ---
 
@@ -252,10 +307,36 @@ part-way left a **truncated file**, so a failed save destroyed the previous
 settings. That is itself a small instance of class A — the todo reasoned about
 the exception and only running it showed the file damage.
 
-Mutations, 4 of 5 red; the survivor is recorded in the commit message and in
-class A's residue rather than papered over with a source-text assertion, which
-would be a guard matching a substring both answers share
-(`settings-editor-learning.md` §11).
+**Corrected in v2, and the corrections are themselves class C and class E:**
+
+- v1 said the fix left "one saver rather than two". It did not.
+  `example_nr_reduction.py:222` and `:292` held two more byte-identical copies,
+  **both still open-then-dump**, i.e. both still carrying the very truncation
+  defect the same commit announced finding. The weak-saver count went 3 → 3 and
+  only the broken fourth was repaired — leaving two copies of the divergent-copy
+  class inside the slug whose synthesis names that class. Both now delegate
+  (`0f35b83`); the count is 1.
+- v1 said "nothing drives the reduction entry point", which made the disclosed
+  mutation survivor sound harmless. `launcher/apps/file_batch.py:669` passes
+  `save_json=` from a user checkbox labelled "Save settings JSON" (`:145`).
+  "Exercised by no test" is true; "nothing drives it" is false — and that
+  unguarded delegation is **the only path by which a scientist produces this
+  JSON**, so the survivor's stakes are higher, not lower.
+- Two guards were weaker than the claims they backed. `make_json_safe` had no
+  mutation row and no guard, and the fixture set every override with `str()`, so
+  it was a no-op across the whole file and deleting it passed all six guards —
+  while the live GUI hands in a `PosixPath`. And the truncation guard asserted
+  only that a refused save creates no **new** file, in a `tmp_path` where none
+  existed, so an open-first-then-`unlink` implementation destroyed prior settings
+  and passed. Both closed in `0f35b83`, each proven by re-running the mutation
+  that had passed.
+
+Mutations, 4 of 5 red at v1; the survivor is recorded rather than papered over
+with a source-text assertion. v1 justified that by `settings-editor-learning.md`
+§11 (a guard matching a substring both answers share), which does not apply —
+the mutant genuinely fails such an assertion, and a count-based one would red it.
+The defensible reason is simpler: **a text assertion pins text, not behaviour**,
+and stays green if the delegation passes the wrong arguments.
 
 **Considered and declined.** `amend_config` is the larger defect and is
 explicitly out of scope: 14 tests lean on the leak, the fix needs a
@@ -268,8 +349,21 @@ engineer's. The remaining parked todos are cosmetic, latent, or already closed.
 
 ## What a reviewer should attack
 
-The two **[inference]** claims (B's "no systematic gate", G's "one defect in
-three costumes") are the least defensible statements here by construction: they
-are readings of the corpus rather than quotations from it. The table citations
-are all single-hop and checkable; if one does not check, treat that lesson as
-dropped rather than the table as approximately right.
+**v1 pointed here at the wrong two claims, and that is the most useful finding in
+the whole review.** It nominated its two `[inference]` readings as the weakest
+statements — and both checked out. All four content failures were **unhedged,
+non-`[inference]` claims**: the ones inherited from a green commit's self-report
+and never re-derived. The reviewer's summary is worth keeping verbatim: *the
+doc's self-audit looked where it had already been careful.*
+
+So the standing instruction is inverted. Attack the sentences this document
+states **flatly**, particularly any that describe the outcome of a slug —
+"fixed at", "narrower than", "load-bearing", "one saver rather than two". Each
+of those was true of what a commit *claimed* and false of what the tree
+*contained*. The hedged readings are comparatively safe precisely because
+hedging them forced the author to check them.
+
+The citation audit is the part that held: 72 items sampled across every style,
+zero dangling pointers, 92 % semantic hit rate, all three corpus counts exact.
+A pointer into nothing is not this document's failure mode; a pointer into a real
+artefact that does not say what the sentence claims is.
