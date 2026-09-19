@@ -997,3 +997,16 @@ rule) — do NOT extend the cap.**
 new correctness defect rides the PR body; a genuinely new correctness defect
 escalates to the human (amendment 20 decides decompose-vs-extend). Draft PR on pass;
 merging stays the human's deploy decision (charter §7).
+
+### v6 OUTCOME — REJECTED → DECOMPOSE (2026-09-19; `review/settings-management` @ `d5733af`)
+
+v6 gate green at `ddb3981` (210 launcher + 400 reduction, EXIT=0; ledger 12/12), but
+**rejected on B1′**: clearing a per-angle cell to `None` leaves a stale layer-(b)
+record (`set_angle_field` collapses the column to `None`; neither arm of `_record_edit`
+fires) → the deleted value returns badged "set for this run"; science impact ×2
+(`new_reduction_from_template` forces `lam_range`; `LAMBDA >= None` kills reduction),
+confirmed 5×, v4/v5 clean so v6 owns it. This is the **3rd fractal recurrence** in the
+same two functions (`_session_edits` must model **value / whole-column / absent-`None`**;
+each attempt handled two) → the `### amendment-20 criterion` fires: **DECOMPOSE, not v7.**
+Split ratification + full record: `plans/settings-management-escalate.md`
+(`review/settings-management-escalate` raised). processed-set advanced to `d5733af`.

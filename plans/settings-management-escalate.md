@@ -1,92 +1,96 @@
-# ESCALATION — `settings-management` (T3): extended cap reached (5 of N=5), Analyst decision required (3rd)
+# ESCALATION — `settings-management` (T3): v6 REJECTED → **DECOMPOSE** (amendment 20); ratify the split
 
-> **SUPERSEDED 2026-09-19 — the human approved a bounded v6 for B1 alone** on the
-> charter §9 amendment-20 footing (decompose-don't-extend if the same shape recurs at
-> a new level). v6 runs from the five-item scope in the plan's `### v6` entry;
-> `triage/settings-management-v6` dispatched, the `review/settings-management-escalate`
-> tag deleted. This file is kept as the record of the 3rd cap-reached moment.
+> **This file supersedes the v5 / N=5-exhausted cap-reached escalation** (which
+> recommended, and received, the bounded v6 for B1 on amendment-20 footing). Prior
+> versions — the v3/N=3, v4/N=4, and v5/N=5 records — are in
+> `git log -- plans/settings-management-escalate.md`.
 
-> This file supersedes the v4/N=4 cap-reached escalation (which recommended, and
-> received, the N=5 extension with the resolver invariant); prior versions are in
-> `git log -- plans/settings-management-escalate.md`. It now records the **v5 /
-> N=5-exhausted** escalation.
+**Terminal state (not a cap-count this time):** v6 was **rejected on a single
+finding, B1′**, which is the **same *demonstrate-the-case-you-thought-of* shape at a
+new level** — exactly the trigger the v6 `### amendment-20 criterion` names. Per that
+criterion **and** amendment 20 (charter §9): **do NOT extend the cap — decompose the
+slug into single-review-surface slugs (§4 sizing) and re-dispatch.** The
+decompose-vs-extend decision is therefore **already made by the charter**; what
+escalates to you (per the v6 final-gate bar: *"a genuinely new correctness defect
+escalates to the human"*) is **ratification of the split shape** — descoping what T3
+ships is a deploy-adjacent call you reserve (§7). Rejection tag
+`review/settings-management` @ `d5733af`; gate was green at `ddb3981` (210 launcher +
+400 reduction, EXIT=0; ledger audit clean, 12 rows / 12 mutations). **Code, not
+infrastructure.**
 
-**Terminal state:** attempt 5 of the **extended N=5** rejected on **ONE** finding
-→ third sanctioned escalation, per the v5 final-gate bar you set (*"a genuinely
-new correctness defect escalates to me — there is no N=6 without a decision from
-me"*). Rejection todo @ `8c7dfbb` (feature tip; gate green at `302116b`: **206
-launcher + 396 reduction, EXIT=0, `pixi.lock` byte-identical, ruff clean, clean
-fast-forward**). **Code, not infrastructure.**
+## The one finding: B1′ — clearing a per-angle cell to `None` leaves a stale record
 
-## The slug is converging — this is not a failing slug
+Clearing an `optional_list` per-angle cell (`LambdaMin`/`LambdaMax`) **leaves a stale
+cell record**, so the deleted value returns at layer (b) badged "set for this run" and
+redisplays in the table. `set_angle_field` deliberately collapses the column to `None`
+— the sanctioned *derive-from-chopper* state — and **neither arm of `_record_edit`'s
+per-angle branch fires**, so it neither records the clear nor removes the prior cell.
 
-Findings per attempt: **v3 = 8 blocking · v4 = 2 blocking · v5 = 1 blocking.**
-v5 landed everything you scoped — B1 (edit-time bind), B2 (worker teardown at the
-window), B3 (sidecar FIFO gate), **and the resolver invariant** — and **three of
-four domains found nothing blocking** (ui-aspects, security, test-reviewer all
-explicitly clear). The mutation ledger audited clean; all 17 mutations red. One
-domain (design) found one defect, reproduced independently.
+**Science impact, twice over:**
+- `new_reduction_from_template` forces `lam_range` from `LambdaMin`/`Max`, **overriding
+  the chopper-derived wavelength band** the clear was meant to restore;
+- a two-gesture variant reaches `LAMBDA >= None` and **kills the reduction**.
 
-## The one finding: B1 — item 1's edit-time bind freezes the per-angle row count
+**Confirmed five times independently** — design, ui-aspects, test-reviewer, security's
+family, and the Integrator's own reproduction. **Attributed by A/B at three revisions:
+v4 and v5 both handled this cell correctly, so v6 owns it** (a regression the per-cell
+rewrite introduced). **No test in the suite clears a per-angle cell.**
 
-**`_session_edits[name] = self.document.get(name)` captures the *whole array* for
-the 13 per-angle fields**, frozen at the row count as it stood at the keystroke.
-When the count later changes, `resolve_all → _equalise_angles` pads the short
-array and aligns every per-angle column to the **old** indices. Two triggers, no
-Add/Remove click needed for the first:
+## Why decompose — the fractal recurrence (amendment 20 fires exactly)
 
-- **Load** (the plan's own `edit → Load → Resolve`): a scientist with 2 angles
-  types a direct beam on their 2nd; the experiment file has 3. After Resolve the
-  file's three direct-beam references become one misplaced value + two `None`,
-  badged `[b]` "set for this run", **"No problems found."**
-- **Remove angle** (worse): resurrects a deleted run's array — wrong direct beam
-  per angle, or none — and `save_settings` writes it to the file autoreduction
-  reads; `json_to_config` accepts it. This is the exact hazard `_equalise_angles`'
-  docstring exists to prevent.
+This is the **third consecutive attempt where the fix for the previous blocker
+introduced the next**, always in the **same two functions** (`_record_edit` /
+`_record_structural_change`), always a **value-shape the previous framing missed**:
 
-**Failure path: wrong reduced data** (a reflectivity curve normalised by another
-angle's direct beam, or none), silent, badged as the scientist's own input.
+| step | the shape that escaped |
+|---|---|
+| v4 → v5 | the value may be a **whole column** (array, not scalar) |
+| v5 → v6 | the column may be **absent** — `None`-as-a-real-value |
 
-**Attributed, not inferred:** reverting **only** `_pre_resolve_overrides` to v4's
-read-back restores correct alignment. **v4 read the array at *resolve* time, so a
-structural change was reflected automatically; item 1 froze it at *edit* time and
-inverted that.** The trade was a scalar defect (v4) for an array defect (v5) — and
-the array one is worse: it discards the experiment file's per-angle references
-entirely rather than substituting one wrong scalar.
+`_session_edits` must represent **three states** — a **value**, a **whole column**, and
+an **absent/`None` column** — and **each attempt has handled two of the three.**
+Amendment 18 *worked* (the plan stated the type domain, which is why the array case was
+covered) — **but it asks for *types*, not for the *states* a value can occupy, and
+`None`-as-a-real-value is what keeps escaping.** A fractal recurrence at a new level is
+evidence the slug is **too large for the per-attempt review model**, not that another
+cycle converges. (Cross-slug context: the just-delivered
+`plans/campaign-learnings-synthesis.md` names this the **per-angle-trap / edit-time
+family**.)
 
-**Why the gate could not see it:** all 206 launcher tests pass with the defect
-present; the ledger's B1 rows exercise **scalars** (`qmax`) and the IPTS-change
-pop — **no row varies the row count between the edit and the Resolve.**
+## Proposed decomposition — two single-review-surface slugs (§4 sizing)
 
-## Provenance — shared, and I own my share
+**Slug A — `settings-management` ships the clean subset (drop the layer-(b) pre-run UI
+override path).** The Integrator's evidence that this is a **clean subtraction**, not a
+retreat:
+- the module already **declares layers it does not populate** — (d) by documented
+  design, (e) with **zero production assignments** — so shipping with (b) deferred
+  matches the existing pattern;
+- **no T3 commit is an ancestor of `exp`**, and `exp` has **no `_session_edits` at
+  all** — nothing regresses;
+- **everything else in T3 verified clean across v5 and v6.**
+  → a small **confirm-the-subtraction-and-ship** review surface (the resolver + layers
+  (a),(c),(d),(e),(f), provenance, the record corrections, the three advisories).
 
-The Integrator states it is theirs: their v4 work order prescribed *"bind the
-value at edit time — `_session_edits` becomes a dict `{name: value}`"* as
-*"converged across all three domains,"* with security's *"do not clear on Load"*
-caveat. **That prescription flowed through my v4 plan and my v5 plan transcription;
-you adopted it verbatim; the Developer implemented it faithfully; three review
-domains endorsed it.** For the 13 list-typed fields it meant something different
-than for scalars, and **"bind at edit time" + "never clear on Load" is precisely
-what freezes a stale row count.** Five parties — the Integrator, three domains,
-and me (the plan author) — signed off without separating the scalar and array
-cases. As the Analyst I should have flagged that a fix written for "a value" is
-not type-safe for per-angle arrays; I did not.
+**Slug B — pre-run UI override via *cell-level layer authority* (the real fix).** Two
+reviewers independently name **cell-level layer authority — a resolver change** — as
+the real fix, not another edit-recorder patch. This slug is framed around the **three
+value-states enumerated UP FRONT** (value / whole-column / absent-`None`), reviewed as
+a **resolver-authority** surface distinct from the UI-editor surface. `None`-as-a-real-
+value (derive-from-chopper) is a **first-class state**, not an error case.
 
-## The fix (design-verified)
+## Recommendation to you
 
-- **Robust form (the user's standard):** record per-angle (b) edits **per cell** —
-  `{(name, row): value}`, reassembled against the current row count — type-correct
-  for both scalars and arrays; cannot misalign.
-- **6-line subset** (verified, 206 pass): in `_record_structural_change` rebind
-  `for name in fs.PER_ANGLE_NAMES: if name in self._session_edits: self._session_edits[name] = self.document.get(name)`.
-  Fixes **Remove-angle only**; the **Load** trigger needs the same rebind (or a
-  pop) on the `set_document` path.
-- **Bind a copy, not the live list** (`list(...)`): `SettingsDocument.get` returns
-  the attribute itself — the hazard `_copy` exists for (test-reviewer A-10).
-- **Guard test must vary the row count between the edit and the Resolve** — nothing
-  in the suite does. (Caution: an `ipts_edit.setText()` *after* the edit fires
-  `_forget_per_angle_edits` and pops the snapshot — set the IPTS **first**, or the
-  probe wrongly reads "not reproduced.")
+1. **Ratify the split** — A ships the clean subset; B becomes a new §4 slug. On your
+   go, I author both plans (B with the three states stated up front) and re-dispatch
+   `triage/settings-management-*` (subset) and `triage/<B-slug>`. **I will not
+   re-dispatch until you ratify** — the final-gate bar routes this to you.
+2. **A doctrine gap worth an amendment (I will route it if you agree):** amendment 18
+   governs a value's **type**; this finding shows the escaping dimension is the **set
+   of states a value can occupy** (notably a sanctioned sentinel like `None`). Proposed
+   sibling: *a fix prescription must enumerate the **states** its value can take —
+   present, whole-collection, and any sanctioned sentinel/absent — not only its type;
+   a reviewer checks the prescription against that state set.* Born from this
+   escalation exactly as amendment 18 was born from the v5 one.
 
 ## Attempt synopsis
 
@@ -96,42 +100,9 @@ not type-safe for per-angle arrays; I did not.
 | v2 | `8abfdce` | 11 clusters — guards prove one site of many |
 | v3 | `ecc1e3b` | 8 clusters — C3/C4 born from v3's fixes → **N=3 → human extended to N=4** |
 | v4 | `ce591fc` | 2 blockers — ledger works; C3 abort + C4 3rd door → **N=4 → human extended to N=5 + invariant** |
-| v5 | `8c7dfbb` | **1 blocker** — invariant + B1/B2/B3 all landed, 3/4 domains clear; **item 1's edit-time bind is scalar-correct, array-wrong** → **N=5 exhausted** |
+| v5 | `8c7dfbb` | 1 blocker — invariant + B1/B2/B3 landed; edit-time bind scalar-correct/array-wrong → **N=5 exhausted → bounded v6** |
+| v6 | `ddb3981` | **1 blocker — B1′** (`None`-column state unhandled); **3rd fractal recurrence, same two functions** → **amendment 20: DECOMPOSE** |
 
-## Recommendation to the human
-
-**(a) A bounded v6 for B1 alone — my recommendation, with the Integrator.** This is
-the tightest possible final scope: one fully-diagnosed defect, a design-verified
-6-line minimum and a known-better robust form (per-cell recording), on a slug that
-has gone 8 → 2 → 1. The Integrator would fold, and I concur: the **mandatory
-record corrections** (rename an over-reaching test, fix two prose items, and
-**correct my v5 plan's ENXIO sentence** — item 3, flagged for factual review);
-**advisory 1** (a test) and **advisory 2** (`--timeout` on the reduction task) —
-the guards that would have caught this class; and **advisory 8** (the `LAYERS`
-table — the deferred per-run-geometry feature *is* a new layer and the extension
-is currently fail-open). Nothing else.
-
-**(b) Accept-and-merge — I argue against, with the Integrator.** B1 silently
-discards the experiment file's per-angle direct-beam references and badges the
-result "set for this run", reaching the file autoreduction reads — the same
-first-principle failure as v4's B1, one field-type over.
-
-**(c) Amend in place** — the Integrator cannot (no feature code); the Analyst
-writes plans, not code — so this means **you** apply the per-cell fix directly.
-
-## The real lesson (a doctrine gap, worth an amendment)
-
-The gate did its job at every level and still missed this: green suite, clean
-ledger, 17 mutations red, three of four domains clear. **What failed was the
-prescription** — correct for scalars, wrong for the 13 arrays it governed. **The
-review gate validates *implementations against prescriptions*; it has no step that
-validates a *prescription against the types it will act on.*** The Integrator has
-filed a doctrine amendment for this; I endorse it and will route it. For the
-Analyst specifically: a plan step that prescribes a fix for "a value" must state,
-and a reviewer must check, whether it is type-correct for **per-angle arrays** as
-well as scalars — the campaign's per-angle fields are a standing trap
-(active-row, equalise-angles, and now edit-time-freeze are the same family).
-
-Procedure if you extend: reply with the N=6 decision (and per-cell vs 6-line
-subset, though per-cell is the robust default); I author v6 from this scope,
-create `triage/settings-management-v6`, and the cycle resumes.
+Procedure on your ratification: reply with **go** (and any change to the split); I
+author Slug A + Slug B plans, push analysis, create `triage/settings-management-*` and
+`triage/<B-slug>`, and the cycle resumes as two right-sized surfaces.
