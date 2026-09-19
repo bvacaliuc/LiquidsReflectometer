@@ -111,6 +111,15 @@ class Layer(NamedTuple):
 #: test instead of silently resolving as unprotected.
 LAYERS = {
     "a": Layer("a", "user preference", "user"),
+    # Declared but NOT POPULATED in this build. The pre-run UI override was
+    # removed by the amendment-20 decompose (Slug A) and is deferred to its own
+    # slug, which owes it the cell-level layer authority B1' showed it needs —
+    # `_session_edits` had to model three value-states (a value, a whole column,
+    # and absent-`None`) and three successive attempts each handled two.
+    # (b) keeps its place in LAYER_ORDER and its "user" authority so the
+    # geometry invariant still covers it the moment a writer returns: the
+    # protection must not have to be re-derived by whoever adds one. `resolve()`
+    # honours it if a caller supplies `ui_overrides`, exactly as it honours (d).
     "b": Layer("b", "set for this run", "user"),
     "b*": Layer("b*", "set for a previous run (not applied)", "none"),
     "c": Layer("c", "experiment settings file", "experiment"),

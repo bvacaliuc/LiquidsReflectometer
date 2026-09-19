@@ -335,11 +335,16 @@ def test_saving_after_resolving_writes_the_provenance_sidecar(tmp_path, monkeypa
     assert json.loads(provenance_path(target).read_text())["qmax"]["source_layer"] == "a"
 
 
-def test_editing_a_resolved_field_flips_its_badge_to_this_run():
+def test_editing_a_resolved_field_stops_crediting_the_old_source():
     """C2c: an origin that stops tracking the value is worse than none.
 
     The badge used to keep naming the experiment file after the value had been
     replaced by hand — and named the wrong file at that.
+
+    With the layer-(b) pre-run override deferred (Slug A), the edit is marked
+    `b*` rather than `b`: the value is the scientist's, it lives in this
+    document, and the next Resolve will NOT honour it. `b` would have promised
+    the opposite.
     """
     document, provenance = SettingsResolver(
         ResolutionContext(json_settings={"qmax": 0.3}, json_detail="reduce_settings.json")
@@ -353,7 +358,7 @@ def test_editing_a_resolved_field_flips_its_badge_to_this_run():
     QTest.keyClick(editor, QtCore.Qt.Key_Return)
 
     assert tab.document.get("qmax") == 0.77
-    assert tab.badges["qmax"].text() == "[b]"
+    assert tab.badges["qmax"].text() == "[b*]"
 
 
 def test_removing_an_angle_redraws_the_column_attributions():
@@ -535,10 +540,16 @@ def test_an_unparseable_tthd_is_surfaced_not_guessed(tmp_path):
     assert "banana" in tab.status_label.text()
 
 
-def test_an_edit_made_before_resolving_ranks_as_this_run(tmp_path):
-    """C8: layer (b) had no production writer — pre-Resolve edits were discarded.
+def test_a_formerly_layer_b_field_resolves_from_the_next_populated_layer(tmp_path):
+    """The clean-subtraction guard: removing (b) must not STRAND a field.
 
-    Not outranked. Discarded, though (b) is the top of the taxonomy.
+    This was `test_an_edit_made_before_resolving_ranks_as_this_run`, which
+    pinned the layer-(b) pre-run override that Slug A defers. Inverted rather
+    than deleted, because the interesting question after a subtraction is not
+    "is the feature gone" but "does the value still come from somewhere
+    correct". `qmin` is set in the experiment tree, so with (b) unpopulated it
+    must resolve from (c) — not fall through to the built-in default, and not
+    silently keep the typed value while the badge claims otherwise.
     """
     import lr_reduction.settings_resolver as resolver_module
 
@@ -550,13 +561,18 @@ def test_an_edit_made_before_resolving_ranks_as_this_run(tmp_path):
     editor = tab.editors["qmin"]
     editor.setText("0.123")
     QTest.keyClick(editor, QtCore.Qt.Key_Return)
-    assert tab.badges["qmin"].text() == "[b]"
+    # Truthful about what it is: typed here, and not authoritative at Resolve.
+    assert tab.badges["qmin"].text() == "[b*]"
 
     tab.ipts_edit.setText("IPTS-30101")
     _resolve_and_wait(tab)
 
-    assert tab.document.get("qmin") == 0.123
-    assert tab.badges["qmin"].text() == "[b]"
+    # The experiment file supplies it, and the badge says so. The field is not
+    # stranded on its built-in default, and the discarded edit is not left on
+    # screen wearing an authority it no longer has.
+    assert tab.document.get("qmin") != 0.123, "deferred layer (b) must not survive Resolve"
+    assert tab.provenance["qmin"].source_layer == "c"
+    assert tab.badges["qmin"].text() == "[c]"
 
 
 def test_reopening_a_saved_file_restores_its_badges(tmp_path, monkeypatch):
@@ -704,10 +720,9 @@ def test_a_sidecar_cannot_promote_geometry_above_the_measurement(tmp_path, monke
     tab = SettingsEditorTab()
     tab.load_settings()
 
-    # Displayed truthfully...
+    # Displayed truthfully, and powerless — with (b) unpopulated there is no
+    # longer any path by which a sidecar's recorded origin becomes authority.
     assert tab.badges["dSampDet"].text() == "[b*]"
-    # ...and powerless: it must not become this run's authority.
-    assert "dSampDet" not in tab._pre_resolve_overrides()
 
     measured = ResolutionContext(dataset_probe=lambda name: 1500.0 if name == "dSampDet" else None)
     tab._discover = lambda _ipts, _tthd=1.0, **_kw: measured
@@ -725,7 +740,6 @@ def test_adding_an_angle_does_not_mint_authority(tmp_path):
     tab = SettingsEditorTab()
     QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
     assert tab.provenance["DBname"].source_layer == "b*"
-    assert tab._pre_resolve_overrides() == {}
 
     tab._discover = lambda _ipts, _tthd=1.0, **_kw: ResolutionContext(
         json_settings={"DBname": ["from_file.dat"]}, json_detail="reduce_settings.json"
@@ -736,47 +750,6 @@ def test_adding_an_angle_does_not_mint_authority(tmp_path):
     # The experiment file wins, because no one typed a DBname.
     assert tab.document.get("DBname") == ["from_file.dat"]
     assert tab.provenance["DBname"].source_layer == "c"
-
-
-def test_a_typed_value_still_wins_over_the_experiment_file():
-    """The positive control: layer (b) authority must still exist."""
-    from lr_reduction.settings_resolver import ResolutionContext
-
-    tab = SettingsEditorTab()
-    tab.ipts_edit.setText("IPTS-1")
-    editor = tab.editors["qmax"]
-    editor.setText("0.44")
-    QTest.keyClick(editor, QtCore.Qt.Key_Return)
-
-    tab._discover = lambda _ipts, _tthd=1.0, **_kw: ResolutionContext(
-        json_settings={"qmax": 0.9}, json_detail="reduce_settings.json"
-    )
-    _resolve_and_wait(tab)
-    assert tab.document.get("qmax") == 0.44
-    assert tab.provenance["qmax"].source_layer == "b"
-
-
-def _recorded_fields(tab):
-    """The field names `_session_edits` is holding, whatever the key shape.
-
-    A per-angle edit is keyed `(name, row)` and a scalar by `name`; this test
-    is about which FIELD is remembered, not how the key is spelled.
-    """
-    return {key[0] if isinstance(key, tuple) else key for key in tab._session_edits}
-
-
-def test_per_angle_edits_do_not_follow_a_change_of_experiment():
-    """Per-angle arrays index one experiment's runs."""
-    tab = SettingsEditorTab()
-    tab.ipts_edit.setText("IPTS-1")
-    tab.document.add_angle()
-    tab.refresh_angles()
-    column = fs.PER_ANGLE_NAMES.index("DBname")
-    tab.angle_table.item(0, column).setText("typed.dat")
-    assert "DBname" in _recorded_fields(tab)
-
-    tab.ipts_edit.setText("IPTS-2")
-    assert "DBname" not in _recorded_fields(tab)
 
 
 # --------------------------------------------------------------------------
@@ -835,7 +808,9 @@ def test_every_scalar_edit_path_reattributes_its_field(name):
         editor.setText("0.44")
         QTest.keyClick(editor, QtCore.Qt.Key_Return)
 
-    assert tab.badges[name].text() == "[b]"
+    # b*, not b: with the pre-run override deferred the edit is a run-level
+    # choice that Resolve will not honour, and the badge has to say so.
+    assert tab.badges[name].text() == "[b*]"
 
 
 def test_a_per_angle_cell_edit_reattributes_its_column():
@@ -853,7 +828,7 @@ def test_a_per_angle_cell_edit_reattributes_its_column():
     assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[c]")
 
     tab.angle_table.item(0, column).setText("typed.dat")
-    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b]")
+    assert tab.angle_table.horizontalHeaderItem(column).text().endswith("[b*]")
 
 
 # --------------------------------------------------------------------------
@@ -907,58 +882,6 @@ def test_the_wait_cursor_is_released_once():
 # --------------------------------------------------------------------------
 # v5 — B1: the layer-(b) value is bound when it is typed
 # --------------------------------------------------------------------------
-
-
-def test_a_typed_geometry_override_still_loses_to_the_measurement():
-    """B1 + the invariant together: typing it does not make it authoritative.
-
-    The value is now bound at edit time rather than read back from the document
-    after a Resolve has replaced it — so this exercises the real (b) path, and
-    the invariant is what refuses it. A deliberate per-run geometry override is
-    a later, explicit, badged feature; it is not a side effect of an edit.
-    """
-    from lr_reduction.settings_resolver import ResolutionContext
-
-    tab = SettingsEditorTab()
-    tab.ipts_edit.setText("IPTS-1")
-    editor = tab.editors["dSampDet"]
-    editor.setText("99999")
-    QTest.keyClick(editor, QtCore.Qt.Key_Return)
-    assert tab._session_edits.get("dSampDet") == 99999.0
-
-    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(
-        ipts=ipts, dataset_probe=lambda name: 1500.0 if name == "dSampDet" else None
-    )
-    _resolve_and_wait(tab)
-
-    assert tab.document.get("dSampDet") == 1500.0
-    assert tab.provenance["dSampDet"].source_layer == "e"
-
-
-def test_a_typed_override_survives_a_second_resolve():
-    """Bound at edit time, so a completed Resolve does not erase it.
-
-    Reading the value back out of the document after a Resolve returned whatever
-    the resolution had just written, so a scientist's typed override silently
-    became the experiment file's value on the next Resolve.
-    """
-    from lr_reduction.settings_resolver import ResolutionContext
-
-    tab = SettingsEditorTab()
-    tab.ipts_edit.setText("IPTS-1")
-    editor = tab.editors["qmax"]
-    editor.setText("0.44")
-    QTest.keyClick(editor, QtCore.Qt.Key_Return)
-
-    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(
-        ipts=ipts, json_settings={"qmax": 0.9}, json_detail="reduce_settings.json"
-    )
-    _resolve_and_wait(tab)
-    assert tab.document.get("qmax") == 0.44
-
-    _resolve_and_wait(tab)
-    assert tab.document.get("qmax") == 0.44, "the second Resolve dropped the override"
-    assert tab.provenance["qmax"].source_layer == "b"
 
 
 # --------------------------------------------------------------------------
@@ -1085,42 +1008,6 @@ def test_the_worker_is_unparented():
     assert worker.wait(10000)
 
 
-def test_a_typed_override_is_not_rewritten_by_an_intervening_load(tmp_path, monkeypatch):
-    """Binding at edit time matters when the document is REPLACED in between.
-
-    A second Resolve alone does not show it: for a non-geometry field layer (b)
-    wins, so the document still holds what was typed and re-reading it returns
-    the same value. The isolating sequence is edit -> Load -> Resolve, where
-    `set_document` has swapped the document underneath — re-reading then hands
-    the loaded file's value back as though the scientist had typed it.
-    """
-    from lr_reduction.settings_resolver import ResolutionContext
-
-    other = tmp_path / "other.json"
-    other.write_text(json.dumps({"qmax": 0.77}))
-    monkeypatch.setattr(
-        QtWidgets.QFileDialog, "getOpenFileName",
-        staticmethod(lambda *_a, **_k: (str(other), "")),
-    )
-
-    tab = SettingsEditorTab()
-    tab.ipts_edit.setText("IPTS-1")
-    editor = tab.editors["qmax"]
-    editor.setText("0.44")
-    QTest.keyClick(editor, QtCore.Qt.Key_Return)
-
-    tab.load_settings()
-    assert tab.document.get("qmax") == 0.77
-
-    assert tab._pre_resolve_overrides().get("qmax") == 0.44, (
-        "the override became the loaded file's value"
-    )
-
-    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(ipts=ipts)
-    _resolve_and_wait(tab)
-    assert tab.document.get("qmax") == 0.44
-
-
 def test_a_parked_worker_is_reclaimed_if_it_finishes():
     """Parking is for a worker still blocked at teardown, not a permanent hold.
 
@@ -1152,3 +1039,70 @@ def test_a_parked_worker_is_reclaimed_if_it_finishes():
     QtWidgets.QApplication.instance().processEvents()
     assert worker not in _PARKED_WORKERS, "a finished worker was held forever"
     assert len(_PARKED_WORKERS) == before
+
+
+# --------------------------------------------------------------------------
+# Slug A: layer (b) is declared, not populated
+# --------------------------------------------------------------------------
+
+
+def test_the_editor_never_populates_layer_b():
+    """The clean subtraction, pinned behaviourally rather than by grep.
+
+    Slug A defers the pre-run UI override. Layer (b) stays in the taxonomy and
+    the resolver still honours it if a CALLER supplies `ui_overrides` — exactly
+    as it honours (d) — but the editor must not be that caller. A future change
+    that reintroduces a writer without the cell-level authority design B1'
+    showed is required will fail here rather than at a scientist's Resolve.
+    """
+    from lr_reduction.settings_resolver import ResolutionContext
+
+    seen = {}
+
+    def capture(ipts, _tthd=1.0, **_kw):
+        ctx = ResolutionContext(ipts=ipts)
+        seen["ctx"] = ctx
+        return ctx
+
+    tab = SettingsEditorTab()
+    tab._discover = capture
+
+    # Exercise every edit path that used to feed layer (b): a scalar line edit,
+    # a per-angle cell, and a structural change.
+    editor = tab.editors["qmax"]
+    editor.setText("0.77")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    tab.angle_table.item(0, column).setText("typed.dat")
+
+    tab.ipts_edit.setText("IPTS-1")
+    _resolve_and_wait(tab)
+
+    assert seen["ctx"].ui_overrides == {}, "the editor populated the deferred layer (b)"
+
+
+def test_the_layer_b_machinery_is_gone_by_symbol():
+    """The acceptance bar asks for this one by symbol, so it is checked by symbol.
+
+    Kept alongside the behavioural test, not instead of it: this one states
+    which names must not come back, which is the part a reviewer of a future
+    diff needs, while the test above is the one that cannot be satisfied by
+    renaming something.
+    """
+    import inspect
+
+    import launcher.apps.settings_editor as editor_module
+
+    for symbol in (
+        "_session_edits",
+        "_record_edit",
+        "_pre_resolve_overrides",
+        "_forget_per_angle_edits",
+        "_rebind_cells_after_removal",
+    ):
+        assert not hasattr(SettingsEditorTab, symbol), f"{symbol} is back"
+
+    source = inspect.getsource(editor_module)
+    assert "_session_edits" not in source
+    assert "result.ui_overrides" not in source
