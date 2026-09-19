@@ -76,9 +76,11 @@ def guarded(method):
 #: followed by `abort()`. Measured: exit -6 on the stalled-mount teardown.
 #:
 #: To leak on purpose the object has to be *held*. A stalled worker is parked
-#: here, where nothing will collect it, and the process exits with the thread
-#: still blocked in its read — which is the outcome we chose: a leak ends with
-#: the process; an abort takes every other tab's unsaved state with it.
+#: here and the process exits with the thread still blocked in its read — the
+#: outcome we chose: a leak ends with the process; an abort takes every other
+#: tab's unsaved state with it. Parking is not permanent by intent, only in
+#: effect: `_reclaim_parked` takes a worker off this list if it turns out to
+#: finish after all, so only the genuinely stuck ones are held to the end.
 _PARKED_WORKERS = []
 
 
@@ -712,12 +714,19 @@ class SettingsEditorTab(QtWidgets.QWidget):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
 
         # Unparented, deliberately. A QThread destroyed while running aborts the
-        # process (exit 134), and the launcher used to do that on EVERY teardown
-        # with a resolve in flight — the very stalled-mount case the worker was
-        # added for, trading v2's freeze for a crash. Holding the only reference
-        # here and deleting on `finished` means a stalled worker **leaks one
-        # thread** instead, which is the right trade: a leak ends with the
-        # process, an abort takes the other tabs' unsaved state with it.
+        # process (SIGABRT; measured exit -6), and the launcher used to do that
+        # on EVERY teardown with a resolve in flight — the very stalled-mount
+        # case the worker was added for, trading v2's freeze for a crash.
+        #
+        # Holding the only reference here means a worker that COMPLETES is
+        # released by `_forget_worker` when it reports `finished`. Nothing calls
+        # deleteLater: releasing the last reference to an unparented QThread is
+        # itself what deletes it, which is safe only once it has stopped. A
+        # worker still running at teardown never reports `finished`, so
+        # `shutdown` parks it in `_PARKED_WORKERS` instead — for that one,
+        # releasing the reference is the abort, not the cure. It **leaks one
+        # thread**, which is the right trade: a leak ends with the process, an
+        # abort takes the other tabs' unsaved state with it.
         worker = _DiscoveryWorker(ipts, tthd, self._discover)
         worker.finished_with.connect(self._discovery_finished)
         worker.finished.connect(self._forget_worker)

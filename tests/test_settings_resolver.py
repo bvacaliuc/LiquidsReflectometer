@@ -21,7 +21,12 @@ from lr_reduction import field_spec as fs
 from lr_reduction.settings_resolver import (
     DISCOVERY_LAYERS,
     GLOBAL_WHITELIST,
+    LAYER_AUTHORITIES,
+    LAYER_LABELS,
     LAYER_ORDER,
+    LAYERS,
+    PREVIOUS_RUN_LAYER,
+    USER_AUTHORITY_LAYERS,
     NotWhitelistedError,
     ResolutionContext,
     Resolved,
@@ -1160,12 +1165,43 @@ def test_a_directory_is_refused(tmp_path):
         _read_json(tmp_path)
 
 
-def test_the_open_path_reads_through_the_same_gate(tmp_path):
-    """`load_resolution` was the unhardened twin, on a file a user picks."""
+def test_load_resolution_refuses_a_fifo_settings_file(tmp_path):
+    """`load_resolution` was the unhardened twin, on a file a user picks.
+
+    Named for what it covers. It was `test_the_open_path_reads_through_the_same
+    _gate`, which claimed the Open path — but it calls `load_resolution`
+    directly and never goes through `load_settings`, so the name promised
+    coverage the body did not have.
+    """
     fifo = tmp_path / "picked.json"
     os.mkfifo(fifo)
     with pytest.raises(ValueError, match="not a regular file"):
         load_resolution(fifo)
+
+
+def test_load_resolution_refuses_a_fifo_sidecar(tmp_path):
+    """`_read_json`'s SECOND call site, which nothing pinned.
+
+    The settings-file read was guarded and tested; the sidecar read on the next
+    line takes a path derived from it and was never exercised against a
+    non-regular file. A FIFO there hangs the GUI on Open just as surely.
+
+    This test must also FINISH: a writer-less FIFO opened blocking waits for
+    ever, so a regression in the `O_NONBLOCK` gate shows up here as a hang, not
+    a failure — which is what the `--timeout` on the reduction task is for.
+    """
+    target = tmp_path / "picked.json"
+    document, provenance = SettingsResolver(
+        ResolutionContext(global_settings={"qmax": 0.42})
+    ).resolve_all()
+    save_resolution(target, document, provenance)
+
+    sidecar = provenance_path(target)
+    sidecar.unlink()
+    os.mkfifo(sidecar)
+
+    with pytest.raises(ValueError, match="not a regular file"):
+        load_resolution(target)
 
 
 def test_a_regular_settings_file_still_reads(tmp_path):
@@ -1201,3 +1237,37 @@ def test_the_invariant_refuses_layer_a_even_if_the_whitelist_admits_it(monkeypat
     resolved = SettingsResolver(ctx).resolve(name)
     assert resolved.source_layer == "e"
     assert resolved.value == 1500.0
+
+
+# -- the layer table is the single source for a layer's identity -------------
+
+
+def test_every_layer_in_the_order_declares_an_authority():
+    """Adding a layer must be fail-CLOSED.
+
+    `USER_AUTHORITY_LAYERS` was a tuple hand-maintained beside `LAYER_ORDER`,
+    and the geometry invariant is expressed against it. A new layer — the
+    deferred per-run badged override is exactly one — would simply not appear
+    in that tuple, so the rule that stops a preference overriding a measurement
+    would not extend to it, and nothing compared the two to say so.
+    """
+    for layer in LAYER_ORDER:
+        assert layer in LAYERS, f"layer {layer!r} is in LAYER_ORDER but not in LAYERS"
+        assert LAYERS[layer].authority in LAYER_AUTHORITIES, (
+            f"layer {layer!r} declares authority {LAYERS[layer].authority!r}, "
+            f"which is not one of {LAYER_AUTHORITIES}"
+        )
+
+
+def test_the_derived_layer_tuples_are_projections_of_the_table():
+    """Derived, not a second copy — the two drifting is why the table exists."""
+    assert USER_AUTHORITY_LAYERS == ("a", "b")
+    assert LAYER_LABELS == {key: layer.label for key, layer in LAYERS.items()}
+    assert set(LAYER_LABELS) == set(LAYERS)
+
+
+def test_the_previous_run_layer_carries_no_authority():
+    """`b*` is displayed and never applied, so it must not classify as user."""
+    assert LAYERS[PREVIOUS_RUN_LAYER].authority == "none"
+    assert PREVIOUS_RUN_LAYER not in USER_AUTHORITY_LAYERS
+    assert PREVIOUS_RUN_LAYER not in LAYER_ORDER

@@ -541,3 +541,30 @@ def test_a_session_edit_is_bound_by_copy_not_by_the_live_object():
     tab.document.get("data_x_range").append(999)
 
     assert tab._pre_resolve_overrides()["data_x_range"] == [60, 210]
+
+
+def test_a_removed_angles_edit_does_not_reappear_on_a_new_angle():
+    """Removing the LAST edited row: nothing shifts into its slot.
+
+    The Remove-angle guard above cannot see this one. There, dropping the
+    removed row's own cell and shifting the later rows down produce the same
+    dict — the shift overwrites the stale key by luck — so a rebind that forgot
+    to drop it still passed. Here the removed row is the last, nothing shifts
+    over it, and adding an angle back brings the row index into range again:
+    the deleted angle's value reappears on the scientist's fresh blank angle.
+    """
+    tab = SettingsEditorTab()
+    tab.ipts_edit.setText("IPTS-1")
+    column = fs.PER_ANGLE_NAMES.index("DBname")
+    for name in ("a.dat", "b.dat", "c.dat"):
+        QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+        tab.angle_table.item(tab.angle_table.rowCount() - 1, column).setText(name)
+
+    tab.angle_table.setCurrentCell(2, 0)
+    QTest.mouseClick(tab.remove_angle_button, QtCore.Qt.LeftButton)
+    QTest.mouseClick(tab.add_angle_button, QtCore.Qt.LeftButton)
+    assert tab.document.get("DBname") == ["a.dat", "b.dat", None]
+
+    _resolve_now(tab)
+
+    assert tab.document.get("DBname") == ["a.dat", "b.dat", None]

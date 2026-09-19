@@ -161,7 +161,8 @@ than claimed as pinned.
 | 14 | `O_NOFOLLOW` removed | **1 failed** `test_a_symlinked_settings_file_is_not_read_through` |
 | 15 | size cap removed | **1 failed** `test_discovery_refuses_an_oversized_settings_file` |
 | 16 | not-an-object check removed | **1 failed** `test_a_settings_file_that_is_not_an_object_is_reported` |
-| 17 | Open path bypasses `_read_json` | **HUNG** (`timeout 75`) `test_the_open_path_reads_through_the_same_gate` |
+| 17 | Open path (**settings file**) bypasses `_read_json` | **HUNG** (`timeout 75`) `test_load_resolution_refuses_a_fifo_settings_file` (renamed in v6; was `test_the_open_path_reads_through_the_same_gate`, a name that claimed the Open path the body never takes) |
+| 17b | Open path (**sidecar**) bypasses `_read_json` | **NOT MUTATED IN v5** — this row bundled two call sites under one number, so the sidecar read was never pinned. Split out and measured as v6 row 12. |
 
 ## Item 5
 
@@ -178,3 +179,75 @@ behaviour they named was unobservable as written:
 1. invariant (a) arm — hidden behind the whitelist; isolating guard added.
 2. B1 re-read — invisible without an intervening Load; sequence-specific guard added.
 3. `aboutToQuit` — wired in `main()`, which no test calls; wiring factored out so a test can install it.
+
+
+# v6
+
+Bounded B1-alone on the amendment-20 footing. **12 sites, 12 rows**, one per
+call site of every helper the v6 diff introduces or re-points, each measured by
+running the mutation — not predicted.
+
+## Site counts, as counted
+
+```
+_record_edit call sites            3   grep -c 'self\._record_edit(' launcher/apps/settings_editor.py
+_record_structural_change sites    2   grep -c 'self\._record_structural_change(' launcher/apps/settings_editor.py
+_rebind_cells_after_removal        1   introduced by v6
+_pre_resolve_overrides reassembly  1   re-pointed by v6
+_forget_per_angle_edits            1   re-pointed by v6 (tuple keys)
+LAYERS projections                 3   USER_AUTHORITY_LAYERS, LAYER_LABELS, the fail-closed check
+_read_json sidecar call site       1   the unpinned half of v5 row 17
+```
+
+## The rows
+
+| # | mutation | observed |
+|---|---|---|
+| 1 | `_record_edit` records the whole column again (per-angle branch) | **2 failed** |
+| 2 | `_record_edit` binds the live object (no copy) | **1 failed** `..._bound_by_copy_not_by_the_live_object` |
+| 3 | `_pre_resolve_overrides` drops the reassembly (v5 read-back) | **2 failed** |
+| 4 | `_record_structural_change` ignores `removed_row` (no rebind) | **2 failed** |
+| 5 | `_rebind_cells_after_removal` keeps the removed row's own edit | **1 failed** — see below; survived the first pass |
+| 6 | `_on_cell_changed` stops passing the row (call site) | **1 failed** |
+| 7 | `remove_selected_angle` stops passing `removed_row` (call site) | **2 failed** |
+| 8 | `_forget_per_angle_edits` blind to tuple keys | **1 failed** `test_per_angle_edits_do_not_follow_a_change_of_experiment` |
+| 9 | `USER_AUTHORITY_LAYERS` stops deriving from `LAYERS` | **9 failed** |
+| 10 | `LAYER_LABELS` stops deriving from `LAYERS` | **1 failed** |
+| 11 | a `LAYER_ORDER` member loses its `LAYERS` entry | **1 failed** `test_every_layer_in_the_order_declares_an_authority` |
+| 12 | the **sidecar** read bypasses `_read_json` (v5 row 17's unpinned half) | **HUNG** (harness `timeout`) `test_load_resolution_refuses_a_fifo_sidecar` |
+
+The battery is committed: `plans/scripts/settings_management_v6_mutations.py`.
+It restores from memory in a `finally`, compares sha256 against the pre-run
+state after every mutation, and aborts on a mismatch — the v5 battery twice hit
+the Bash ceiling mid-mutation and left mutated source on disk
+(`todo-mutation-harness-restore-safety.md`).
+
+## One that did not red on the first pass
+
+**Row 5.** Dropping the removed row's own cell and shifting the later rows down
+produce the *same dict* when the removed row is not the last: the next row's
+shift overwrites the stale key by luck, so a rebind that forgot to drop it
+still passed the Remove-angle guard.
+
+```
+edits {0:'a', 1:'b', 2:'c'}, remove row 0
+  CORRECT -> {0:'b', 1:'c'}
+  MUTANT  -> {0:'b', 1:'c'}      # identical: row 1 overwrote the kept key
+```
+
+Killed by `test_a_removed_angles_edit_does_not_reappear_on_a_new_angle`, which
+removes the **last** edited row — nothing shifts over its slot — and then adds
+an angle back, bringing the stale index into range so the deleted angle's value
+reappears on the scientist's fresh blank angle.
+
+This is the mutate-once rule paying for itself: the guard I wrote for the
+Remove-angle case could not observe the behaviour it was named for, and only
+running the mutation showed it.
+
+## Row 12 reds as a HANG, not a failure
+
+Bypassing `_read_json` for the sidecar means a blocking `open()` on a
+writer-less FIFO waits for ever. Without a `--timeout` the battery wedges
+instead of reporting, which is why v6 item 4 arms one on the `test-reduction`
+pixi task (`test-launcher` already had 120 s). The timeout is load-bearing for
+this row, not hygiene.

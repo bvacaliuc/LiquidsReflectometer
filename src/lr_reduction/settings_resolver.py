@@ -47,7 +47,7 @@ import stat
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, NamedTuple, Optional, Tuple
 
 from lr_reduction import field_spec as fs
 from lr_reduction.autoreduce_paths import select_by_geometry
@@ -82,11 +82,51 @@ LAYER_ORDER = ("b", "c", "d", "a", "e", "f")
 #: Layers a *person* set deliberately, as opposed to inherited or derived.
 HUMAN_LAYERS = ("a", "b")
 
+#: The authority classifications a layer may declare.
+#:
+#: * ``"user"`` — a person, or a file that person controls, supplied it;
+#: * ``"experiment"`` — this experiment's own records supplied it;
+#: * ``"derived"`` — the instrument or the built-in defaults supplied it;
+#: * ``"none"`` — displayed, never applied (see ``PREVIOUS_RUN_LAYER``).
+LAYER_AUTHORITIES = ("user", "experiment", "derived", "none")
+
+
+class Layer(NamedTuple):
+    """One layer's declared identity: what to call it, and who speaks through it."""
+
+    key: str
+    label: str
+    authority: str
+
+
+#: **The** layer table. Label and authority are declared together here so that
+#: adding a layer is fail-CLOSED.
+#:
+#: `USER_AUTHORITY_LAYERS` used to be a tuple hand-maintained beside
+#: `LAYER_ORDER`, and the geometry invariant is expressed against it. A new
+#: layer — the deferred per-run badged override is exactly one — would simply
+#: not appear in that tuple, so the protection that stops a preference
+#: overriding a measurement would not extend to it, and nothing would say so.
+#: The extension was fail-open; a layer that omits its authority now fails a
+#: test instead of silently resolving as unprotected.
+LAYERS = {
+    "a": Layer("a", "user preference", "user"),
+    "b": Layer("b", "set for this run", "user"),
+    "b*": Layer("b*", "set for a previous run (not applied)", "none"),
+    "c": Layer("c", "experiment settings file", "experiment"),
+    "d": Layer("d", "experiment template", "experiment"),
+    "e": Layer("e", "measured from the data", "derived"),
+    "f": Layer("f", "built-in default", "derived"),
+}
+
 #: Layers whose value a *person or a file they control* supplied, as opposed to
 #: the instrument or the built-in defaults. The invariant below is expressed
 #: against this set, so a future user-authority layer inherits the protection
-#: instead of needing its own door closed.
-USER_AUTHORITY_LAYERS = ("a", "b")
+#: instead of needing its own door closed. **Derived from `LAYERS`** — declaring
+#: a layer `"user"` is what puts it here.
+USER_AUTHORITY_LAYERS = tuple(
+    sorted(key for key, layer in LAYERS.items() if layer.authority == "user")
+)
 
 
 #: A value that was recorded as someone's run-level choice but is **not
@@ -112,16 +152,10 @@ PREVIOUS_RUN_LAYER = "b*"
 #: a badge never shows [d] from discovery, and a test pins that.
 DISCOVERY_LAYERS = ("c",)
 
-#: What to call each layer in a provenance badge or a report.
-LAYER_LABELS = {
-    "a": "user preference",
-    "b": "set for this run",
-    "b*": "set for a previous run (not applied)",
-    "c": "experiment settings file",
-    "d": "experiment template",
-    "e": "measured from the data",
-    "f": "built-in default",
-}
+#: What to call each layer in a provenance badge or a report. A projection of
+#: `LAYERS`, not a second copy of it — the two drifting is the whole reason the
+#: table exists.
+LAYER_LABELS = {key: layer.label for key, layer in LAYERS.items()}
 
 #: Groups whose scalar fields a user may set as a personal default.
 #:
