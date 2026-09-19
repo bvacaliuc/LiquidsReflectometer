@@ -1010,3 +1010,56 @@ same two functions (`_session_edits` must model **value / whole-column / absent-
 each attempt handled two) → the `### amendment-20 criterion` fires: **DECOMPOSE, not v7.**
 Split ratification + full record: `plans/settings-management-escalate.md`
 (`review/settings-management-escalate` raised). processed-set advanced to `d5733af`.
+
+## Revision history — v7 (DESCOPED clean subset — the amendment-20 decompose; 2026-09-19; human-ratified)
+
+**This is Slug A of the decompose — NOT a 4th attempt at B1.** The human ratified the
+split (2026-09-19): `settings-management` ships the **clean subset**; the layer-(b)
+pre-run UI-override path is **removed from scope and deferred** to a subsequent campaign
+(Slug B, plan parked at `plans/settings-ui-override-plan.md`). B1′ lives entirely in the
+removed path, so this subset **cannot carry it**. Expected to pass as a **clean
+subtraction** — every non-(b) part was verified clean across v5 and v6.
+
+**Base:** `feature/settings-management` @ `ddb3981` (the v6 gate-green tip). **Slug A =
+v6 minus layer (b).**
+
+### item 1 (the subtraction) — remove the layer-(b) `_session_edits` UI-override machinery
+
+Remove from `settings_editor.py`: `_session_edits` and its wiring —
+`_record_edit`, `_record_structural_change`, `_pre_resolve_overrides`,
+`_forget_per_angle_edits`, and the pre-run "set for this run" badge population that
+feeds layer (b). The resolver's layer (b) becomes **declared-but-unpopulated**, exactly
+as (d) and (e) already are (design §5.4). **Clean-subtraction evidence (Integrator, 5×
+confirmed):** no T3 commit is an ancestor of `exp`; `exp` has **no `_session_edits` at
+all**; the module already declares layers it does not populate. So the removal returns
+that path to a known-good shape while keeping the resolver and all other layers.
+
+**Fields formerly settable via (b) resolve from the remaining layers** (a global → c
+IPTS json → d template → e guessed → f default) — the resolver ordering already handles
+an empty (b), so no field loses its value; it simply loses the *pre-run UI* as a source.
+
+### item 2 — keep everything else T3 verified
+
+**Keep intact:** `settings_resolver.py` (the resolver, Qt-free), `settings_document.py`
+/ `field_spec.py` / `reduction_domains.py`, the layer taxonomy (a,c,d,e,f) + provenance
+badges/origins (NFR-8), the v6 **record corrections** (the `test_the_open_path…` rename,
+the two prose fixes, the ENXIO correction), and the **three advisories** promoted in v6:
+adv-1 sidecar-FIFO test, adv-2 `--timeout` on the `test-reduction` pixi task, adv-8 the
+`LAYERS` table + the "every `LAYER_ORDER` member carries an authority classification"
+test (which now documents (b) as **declared, deferred to Slug B**).
+
+### guard / acceptance (clean-subtraction bar)
+
+- **Grep-clean:** no `_session_edits` reference remains in `src/` or `tests/`; the
+  removed helpers are gone (verify by symbol).
+- **Green:** `pixi run test-launcher` + `test-reduction` both EXIT=0; `pixi.lock`
+  byte-identical (a pure subtraction needs no dependency change).
+- **Resolver intact:** a test asserts a formerly-(b) field resolves correctly from the
+  next populated layer (proves the subtraction did not strand the field).
+- **Provenance intact:** origins still render for the remaining layers; the `LAYERS`
+  authority test passes with (b) classified as deferred.
+- **PASS → draft PR** (the T3 deliverable, layer-(b) deferred). Merging stays the
+  human's deploy decision (§7). **This unblocks T1-A1 (roi-selector), which consumes the
+  resolver core, not layer (b).**
+
+Dispatched as `triage/settings-management-v7`.
