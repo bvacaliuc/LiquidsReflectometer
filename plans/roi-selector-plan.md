@@ -146,4 +146,28 @@ settings-builder tab the maintainer coded independently — **workflow-rich, mod
    campaign re-seats #197 on the `SettingsDocument` model itself. Flag at phase-2 dispatch.
 
 Phase 2 is **staged** — dispatched only after A1 and Slug A land (see
-`tasking/plan/away-period-plan.md`, the staging queue).
+`tasking/plan/campaign-dispatch-queue.md`, the staging queue).
+
+## roi-vs-197-review — pinned scope (#197 @ `ab22307`; F-findings re-verified 2026-09-20)
+
+The comparison slug's criteria, fixed **before** T1 is built (Advisor §2.2), pinned to the
+**current** #197 head `ab22307` (the pre-analysis used `f5513c7`; the file grew 1394→1502 lines,
+line refs shifted, the findings persist):
+
+**Re-verified at `ab22307`:**
+- **F1 CONFIRMED** — `PER_RUN_KEYS` (`json_settings_builder.py:86`) models **8** per-run arrays;
+  `tof_min`/`tof_max`/`LambdaMin`/`LambdaMax` are unmodelled and `RBnum` is handled separately
+  (`:1289`,`:1330`), so add-row grows 8 while the rest stay at n and the reducer's positional
+  index (`nr_reduction_calc.py:103-106`) reads a shifted TOF cut on the last angle. Breaks FR-11.
+- **F5 CONFIRMED** — private field tables cover ~**28 of 55** (`GLOBAL_FIELDS`=20 + 8 per-run);
+  the rest ride `extra_keys` with label-only help — a second opinion beside `FIELD_SPEC`.
+- **F3 CONFIRMED** — `CHOPPER_BANDWIDTH = 3.5` (`:80`) vs library `get_lam_range(scaled_width=3.4)`:
+  the clean ~3% discrepancy; audit the parameter, do not re-derive (numerical-diagnostics).
+
+**Comparison artefact (the slug's acceptance):** score **both** artefacts (campaign T1 vs #197
+`ab22307`) on — **checklist:** T1's **R1–R14** + #197's **F1–F6**, each `pass/fail/n.a.` for both;
+**same data:** the IPTS run series + the synthetic `.nxs.h5` fixture the T1 plan §8 names; **five
+axes** (`feature-spectrum.md` §3: workflow fidelity, written-file correctness, facility-boundary
+safety, ROI capability, maintainability); **reviewer ≠ implementer** (an Integrator gate,
+ui-aspects + design, its own `review/` surface, one slug). Output = the fold-in list for
+`settings-builder-on-document`.
