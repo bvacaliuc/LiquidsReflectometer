@@ -1063,3 +1063,41 @@ test (which now documents (b) as **declared, deferred to Slug B**).
   resolver core, not layer (b).**
 
 Dispatched as `triage/settings-management-v7`.
+
+## Revision history — v8 (after v7's I-40 review; 2026-09-20; review todo @ `90fd351`; human-scoped)
+
+v7 (the descoped clean subtraction) **passed on substance** — all domains + the Integrator agree
+the subtraction is clean: gate green (203 launcher + 400 reduction, EXIT=0), coverage reconciles
+exactly (210→203 = 11 deleted − 4 added), B1′ and its whole family gone at the root. **REJECTED
+NARROWLY on ~8 lines** (I-40): two blockers, both about the *guard/record*, not the code. **Human-
+scoped 2026-09-20: the two I-40 fixes only — no rename**; the nine advisories ride the PR body. (Per
+the amendment-20 fold this cycle continues the `settings-management` name at the human's direction
+rather than renaming mid-flight; the fold governs *future* decomposes.)
+
+### item 1 (BLOCKING) — the layer-(b) guard must actually guard (resolver-side + docstring)
+`test_the_editor_never_populates_layer_b` asserts on the context the **discover stub returned**, and
+the source guard only matches the literal text `result.ui_overrides`. But `ResolutionContext` is a
+dataclass passed INTO `SettingsResolver`, so a `dataclasses.replace` writer that reintroduces layer
+(b) never touches what the guard inspects — injecting one gives 203 passed, all green. **The guard's
+single job is the safe handoff to Slug B** (this slug defers layer (b) *for later reintroduction*),
+so its docstring's claim *"a future change that reintroduces a writer will fail here"* is false, and
+a guard believed to guard is worse than none. **Fix (3 lines, already written + verified RED on all
+four spellings, I-40):** assert on the **resolver-side** value (what `SettingsResolver` receives),
+not the stub's returned-context text; **correct the docstring** to what it actually checks. (The
+"lying prose" shape + the v6 mandatory-record-correction rule — verify-prose / amendment 21.)
+
+### item 2 (BLOCKING) — delete the 5-line stale ipts-forget comment; its knowledge routed to Slug B
+The ipts-forget rationale comment survived the removal of its connection and now asserts that
+**scalar choices survive a Resolve** — which `test_global_settings.py:573` asserts they must NOT.
+Delete the stale 5 lines. **The half that actually loses knowledge is routed to the Analyst (done):**
+`plans/settings-ui-override-plan.md` (Slug B) had zero mention of why per-angle edits are experiment-
+bound; that rationale is now recorded there, so deleting the comment strands nothing.
+
+### guard / acceptance (v8)
+- Item 1's guard reds on all four writer spellings (the I-40 remedy); its docstring matches the check.
+- Item 2's stale comment gone; `test_global_settings.py:573` still green; the experiment-bound
+  rationale preserved in Slug B's plan.
+- `pixi run test-launcher` + `test-reduction` green (203 + 400, EXIT=0); `pixi.lock` untouched.
+- **No rename** (human, 2026-09-20). Nine advisories → PR body, not the diff. Draft PR on pass.
+
+Dispatched as `triage/settings-management-v8`.

@@ -1,5 +1,12 @@
 # ESCALATION — `settings-management` (T3): v6 REJECTED → **DECOMPOSE** (amendment 20); ratify the split
 
+> **✔ APPROVED by the human 2026-09-19 (acted 2026-09-19, marker added 2026-09-20).** The
+> decompose was ratified: **Slug A** (ship the clean subset) dispatched — passed on substance at
+> v7, narrowly rejected on ~8 lines of guard/record (I-40) → **v8** (the two fixes only, no
+> rename); **Slug B** (`plans/settings-ui-override-plan.md`) **deferred to a subsequent campaign**.
+> This marker closes the record gap the Integrator flagged in I-40 — a decompose's escalate file
+> must carry the human's approval (charter §9 amendment-20 fold).
+
 > **This file supersedes the v5 / N=5-exhausted cap-reached escalation** (which
 > recommended, and received, the bounded v6 for B1 on amendment-20 footing). Prior
 > versions — the v3/N=3, v4/N=4, and v5/N=5 records — are in

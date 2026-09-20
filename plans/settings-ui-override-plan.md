@@ -33,6 +33,20 @@ every prior attempt handled only two of them:
 necessary but insufficient: it governs the value's **type**, not the **set of states**
 it can occupy. See `tasking/plan/todo-prescription-not-validated-against-types.md`.
 
+### Why per-angle edits are experiment-bound (routed here from the v7 stale comment, I-40)
+
+A layer-(b) per-angle edit is **bound to the experiment (IPTS) it was typed against**, unlike a
+scalar override. Changing the IPTS/experiment (`ipts_edit.setText(...)`) fires
+`_forget_per_angle_edits`, dropping the per-angle snapshot — because a per-angle value is only
+meaningful for *that experiment's* angle set; carrying it onto a different experiment's angles would
+misalign (the same `_equalise_angles` hazard the whole slug exists to prevent). **Scalars survive a
+Resolve; per-angle edits do not survive an experiment change** — `test_global_settings.py:573` pins
+the scalar half. v7's item-2 comment stated this rationale but had drifted to the opposite claim
+after its connection was removed; it was deleted in v8, and the correct statement lives here so Slug
+B reintroduces the mechanism with the reason intact. **Slug B's tri-state authority must preserve
+this:** a cleared/`None` cell and an experiment change are different transitions, and only the
+scalar layer is Resolve-durable.
+
 ## Required design (the robust form)
 
 Represent layer-(b) authority **per cell**, resolved at **resolve time** against the
