@@ -491,3 +491,43 @@ the thing being removed, and check whether any test pins that separately — a
 test that keeps passing is not evidence, since you are about to delete it too.
 Where the two are genuinely entangled, say so in the commit and give the
 reviewer the one-line revert, rather than making the call silently.
+
+
+## 23. Assert on the handoff, not on a stand-in you happen to hold
+
+**Rule.** A guard that checks "X is not populated" must read X **where the
+consumer receives it**. Holding an object you believe will be the one passed on
+is a guess about the call path, and the guess is what a future writer breaks.
+
+**Why.** Slug A's guard against layer (b) coming back captured the
+`ResolutionContext` returned by the discovery stub and asserted its
+`ui_overrides` was empty. But the editor passes `result` into
+`SettingsResolver(result)`, and a writer spelled `dataclasses.replace` —
+the natural spelling for a frozen-ish dataclass — produces a **different
+object**, leaving the captured one untouched. Measured across four writer
+spellings against the original guard:
+
+```
+W1 dataclasses.replace        -> passed   (vacuous)
+W2 attribute assignment       -> failed
+W3 mutate the dict in place   -> failed
+W4 fresh context at the call  -> passed   (vacuous)
+```
+
+It caught exactly the two spellings that mutate the instance already held, i.e.
+the writer the author had pictured, and missed the two that do not. The
+accompanying source-text assertion (`"result.ui_overrides" not in source`) was
+worse than nothing: it made the coverage look doubled while matching only one
+literal spelling. The guard's single job was the safe handoff to a later slug
+that will reintroduce the layer deliberately — so "a future change will fail
+here" being false is the whole failure.
+
+**How to apply.** Capture at the boundary: wrap or subclass the consumer and
+record what it is actually constructed with or called with. Then enumerate the
+spellings a future writer could plausibly use — in-place mutation, attribute
+assignment, `replace`, constructing a fresh instance at the call — and require
+the guard to red on **all** of them before believing it. This is the
+`_guarded_step` lesson (§8: guard every site and prove each separately) applied
+to a single site with several ways in, and the shim lesson (§9: a shim tests the
+site you already thought about) applied to the object graph rather than the code
+path.
