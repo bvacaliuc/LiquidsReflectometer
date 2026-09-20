@@ -1046,26 +1046,37 @@ def test_a_parked_worker_is_reclaimed_if_it_finishes():
 # --------------------------------------------------------------------------
 
 
-def test_the_editor_never_populates_layer_b():
-    """The clean subtraction, pinned behaviourally rather than by grep.
+def test_the_editor_never_populates_layer_b(monkeypatch):
+    """The clean subtraction, pinned at the handoff the resolver actually sees.
 
     Slug A defers the pre-run UI override. Layer (b) stays in the taxonomy and
     the resolver still honours it if a CALLER supplies `ui_overrides` — exactly
-    as it honours (d) — but the editor must not be that caller. A future change
-    that reintroduces a writer without the cell-level authority design B1'
-    showed is required will fail here rather than at a scientist's Resolve.
+    as it honours (d) — but the editor must not be that caller. This guard's
+    single job is the safe handoff to Slug B, which will reintroduce layer (b)
+    deliberately; it has to fail for any writer, not just the one I pictured.
+
+    It therefore asserts on the context `SettingsResolver` **receives**, not on
+    the one the discover stub returned. Those are different objects the moment a
+    writer uses `dataclasses.replace` — the natural spelling — or builds a fresh
+    context at the call. Measured: the earlier form of this guard, which held the
+    stub's object, passed against both of those while catching only in-place
+    mutation of the same instance. A guard believed to guard is worse than none.
     """
+    import launcher.apps.settings_editor as editor_module
     from lr_reduction.settings_resolver import ResolutionContext
 
     seen = {}
+    real_resolver = editor_module.SettingsResolver
 
-    def capture(ipts, _tthd=1.0, **_kw):
-        ctx = ResolutionContext(ipts=ipts)
-        seen["ctx"] = ctx
-        return ctx
+    class CapturingResolver(real_resolver):
+        def __init__(self, context=None):
+            seen["ctx"] = context
+            super().__init__(context)
+
+    monkeypatch.setattr(editor_module, "SettingsResolver", CapturingResolver)
 
     tab = SettingsEditorTab()
-    tab._discover = capture
+    tab._discover = lambda ipts, _tthd=1.0, **_kw: ResolutionContext(ipts=ipts)
 
     # Exercise every edit path that used to feed layer (b): a scalar line edit,
     # a per-angle cell, and a structural change.
@@ -1079,16 +1090,18 @@ def test_the_editor_never_populates_layer_b():
     tab.ipts_edit.setText("IPTS-1")
     _resolve_and_wait(tab)
 
+    assert seen["ctx"] is not None, "the resolver was never constructed"
     assert seen["ctx"].ui_overrides == {}, "the editor populated the deferred layer (b)"
 
 
 def test_the_layer_b_machinery_is_gone_by_symbol():
     """The acceptance bar asks for this one by symbol, so it is checked by symbol.
 
-    Kept alongside the behavioural test, not instead of it: this one states
-    which names must not come back, which is the part a reviewer of a future
-    diff needs, while the test above is the one that cannot be satisfied by
-    renaming something.
+    Narrow by design, and NOT the guard against a future writer — the test above
+    is. This one only states which removed names must not come back. Its earlier
+    docstring implied more: a text match on `result.ui_overrides` says nothing
+    about a writer spelled `dataclasses.replace`, which is why the literal
+    assertion is gone from it.
     """
     import inspect
 
@@ -1105,4 +1118,3 @@ def test_the_layer_b_machinery_is_gone_by_symbol():
 
     source = inspect.getsource(editor_module)
     assert "_session_edits" not in source
-    assert "result.ui_overrides" not in source

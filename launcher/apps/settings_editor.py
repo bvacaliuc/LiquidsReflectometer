@@ -178,11 +178,6 @@ class SettingsEditorTab(QtWidgets.QWidget):
         # mechanism.
         row.addWidget(QtWidgets.QLabel("IPTS"))
         self.ipts_edit = QtWidgets.QLineEdit()
-        # Per-angle edits belong to the experiment they were typed for — the
-        # arrays index THAT experiment's runs, so carrying them into another
-        # IPTS would apply one experiment's per-angle settings to a different
-        # set of measurements. Scalar choices ("for this run, use qmax=0.4") are
-        # not experiment-bound and survive.
         self.ipts_edit.setPlaceholderText("IPTS-30101")
         self.ipts_edit.setToolTip(
             "Experiment to resolve settings for. Reads shared/autoreduce read-only."
