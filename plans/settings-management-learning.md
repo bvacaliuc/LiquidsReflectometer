@@ -531,3 +531,58 @@ the guard to red on **all** of them before believing it. This is the
 to a single site with several ways in, and the shim lesson (§9: a shim tests the
 site you already thought about) applied to the object graph rather than the code
 path.
+
+## 24. Do not strengthen a guard's claim past what you measured
+
+**Rule.** When you improve a guard, state the spellings you probed and name what
+is **out** of coverage. A guard with a stated boundary is trustworthy; a guard
+with an unstated one is a claim the next reader will rely on and not re-check.
+
+**Why.** This slug produced the same failure three times, and each time the
+*guard* genuinely improved while the *claim* outran the measurement:
+
+| round | guard held | claimed | silent for |
+|---|---|---|---|
+| v7 | the context the discover stub RETURNED | "any writer" | `replace()`, fresh context at the call |
+| v8 | the CONSTRUCTOR argument | "any writer", plus *"a guard believed to guard is worse than none"* | `resolve_all(dirty)`, assigning `.context` |
+| v9 | `_layer_sources`, the funnel the walk reads | nine spellings, boundary named | — |
+
+v7 measured one spelling and claimed all. v8 measured four and claimed all —
+and made the claim *harder*, adding a sentence that instructs a future reader to
+stop checking, which is the part that does the damage. Both held a **stand-in**
+for the object the layer walk actually reads: the stub's return value, then the
+constructor argument, which `resolve_all` need not use because it falls back to
+`self.context`. The fix each time was one level further in; the lesson is that
+the *claim* is what should have moved, not just the code.
+
+**How to apply.** Write the docstring as a list of what you probed, not as a
+universal. Before claiming "any X", enumerate the ways X can be spelled — for an
+object handed through a call chain that means every point it can be substituted:
+before construction, at construction, at the call, and by mutation afterwards —
+and capture at the **funnel** all of them pass through rather than at a point
+you happen to hold. Then say what is still outside. See also §19 (a mutation the
+correct code cannot be distinguished from) and §23 (assert on the handoff): this
+is the claim-side counterpart of both.
+
+## 25. When a fix adds N anchors, mutate against each one independently
+
+**Rule.** Aggregate redness proves that **at least one** anchor works. It is not
+evidence that any particular one does.
+
+**Why.** A fixture was strengthened with two anchors — a `PosixPath` and a numpy
+scalar — to pin a serialisation helper that had no guard. The mutation "drop the
+helper" went red, and that was reported as both anchors functioning. It was not:
+`np.float64` **subclasses Python `float`**, so `json.dumps` serialises it
+natively and the numpy anchor pinned nothing. Measured on numpy 2.1.3 —
+`float64` `isinstance(float)=True` and dumps fine, while `float32`, `int64` and
+`bool_` all raise `TypeError`. The entire redness rested on the single `Path`
+line, one edit from vacuity, and the in-test comment asserting that "neither is
+JSON-serializable" was false for half of what it described.
+
+**How to apply.** Mutate each anchor with the *others neutralised* — here,
+dropping the helper while reverting the `Path` to `str` — and require each to
+red alone. This is amendment 16's one-row-per-independently-removable-clause
+rule applied to **fixtures** rather than to production code, and the same class
+as a guard that covers one spelling while being believed to cover all (§24).
+Beware types whose JSON-nativeness comes from a subclass relationship: they look
+like a conversion test and are not one.

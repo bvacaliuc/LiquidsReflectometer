@@ -13,6 +13,20 @@ from the v6 commit body; v6 was rejected eight minutes after this file was
 committed, and two of its self-assessments were wrong independently of that.
 Every correction below is transcribed from `d5733af` and re-verified here.
 
+**v3 (2026-09-20).** Three further findings, each verified against the tree
+before acting. One of them is v2's own: correcting *"fixed at v6 `e1c0d63`"* to
+*"attempted at v6"*, v2 changed the verb and carried the **old SHA across**.
+`e1c0d63` is "items 2-5 — record corrections, sidecar pin, --timeout, LAYERS
+table" and its diff to `settings_editor.py` contains **zero** references to
+`_record_edit` or `_session_edits`; the generation-3 attempt is `3d71164`
+("record a per-angle edit per CELL, not per column", 18 such references).
+Corrected below. A reader following the old pointer to check "was generation 3
+attempted here?" would have found a real commit that does not say so — this
+document's own failure mode, in the section the correction rebuilt, and the
+reason the closer below tells you to attack flat assertions rather than hedged
+ones. The other `e1c0d63` citations (D's rename, E's prose, F's timeout) are
+correct: those genuinely are items 2-5.
+
 **Evidence rule (verify-prose).** Every lesson cites a checkable source:
 `<slug>-learning.md §N`, a `todo-*.md`, or a SHA. A lesson I could not cite was
 dropped rather than rounded up. Where a claim is about the *campaign* rather
@@ -240,7 +254,7 @@ discipline, recurring four times in four forms:
    the enclosing `resolve_all`).
 3. **edit-time freeze** — recording the whole per-angle column rather than the
    cell, so a Load or Remove re-indexes it (`settings-management-learning.md`
-   §18; rejected at v5 `8c7dfbb`, **attempted at v6 `e1c0d63` and rejected at
+   §18; rejected at v5 `8c7dfbb`, **attempted at v6 `3d71164` and rejected at
    `d5733af`** — v6 did not fix generation 3, it exchanged it for generation 4).
 4. **absent-`None` as a real state** — clearing an `optional_list` cell makes
    `set_angle_field` collapse the whole column back to `None`, the sanctioned
