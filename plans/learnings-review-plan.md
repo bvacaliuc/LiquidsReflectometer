@@ -101,3 +101,31 @@ landed (12:12:49 vs 12:21:27) — the two staleness blockers are transcription, 
 - Draft PR on pass (synthesis + the standing save-config-json fix). Merging is the human's (§7).
 
 Dispatched as `triage/learnings-review-v2`.
+
+## Revision history — v3 (after v2's review; 2026-09-20; review todo @ `2ce6597`)
+
+v2 REJECTED NARROWLY — "two tokens and four lines" (Integrator); v2's corrections all landed
+accurately. Three narrow blockers, each with a finder-verified remedy:
+
+- **B1 (one token):** the B1 correction re-attached `e1c0d63`, whose diff has ZERO
+  `_record_edit`/`_session_edits` references — the generation-3→4 attempt is **`3d71164`**. v2
+  appended the wrong SHA (from the sentence it replaced) under a "re-verified here" header. Fix the
+  SHA `e1c0d63` → `3d71164`.
+- **B2 (one token):** `np.float64` is a `float` subclass and JSON-native, so the numpy half of the
+  fixture pins nothing (drop `make_json_safe` + revert the one Path anchor to `str` → 9 passed). Use
+  a **non-JSON-native numpy type (`np.float32`)** so the fixture actually pins `make_json_safe`.
+  (Amendment 16 applied to fixtures: each anchor must red **independently**, not just the aggregate
+  — the Integrator records its own v2 verification missed this.)
+- **B3 (four lines):** all three bad params raise `AttributeError` on `config.__dict__` **before**
+  `json.dumps`, so the parametrisation pins "rejected before open," not the serialise-before-open
+  clause. A mutation keeping the gate + removing only that clause → 9 passed while truncating a
+  29-byte prior file to 546 bytes. Fix the test: a param that **passes the gate and reaches
+  `json.dumps`**, asserting the prior file survives (amendment-21 state axis: failed-write-over-
+  existing-file).
+
+### acceptance (v3)
+- B1 SHA corrected; B2 fixture pins `make_json_safe` (each anchor reds independently); B3 test
+  exercises serialise-before-open (prior file survives). `pixi run test-launcher` + `test-reduction`
+  green; `pixi.lock` untouched. Draft PR on pass.
+
+Dispatched as `triage/learnings-review-v3`.

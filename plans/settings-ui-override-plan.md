@@ -39,13 +39,14 @@ A layer-(b) per-angle edit is **bound to the experiment (IPTS) it was typed agai
 scalar override. Changing the IPTS/experiment (`ipts_edit.setText(...)`) fires
 `_forget_per_angle_edits`, dropping the per-angle snapshot — because a per-angle value is only
 meaningful for *that experiment's* angle set; carrying it onto a different experiment's angles would
-misalign (the same `_equalise_angles` hazard the whole slug exists to prevent). **Scalars survive a
-Resolve; per-angle edits do not survive an experiment change** — `test_global_settings.py:573` pins
-the scalar half. v7's item-2 comment stated this rationale but had drifted to the opposite claim
-after its connection was removed; it was deleted in v8, and the correct statement lives here so Slug
-B reintroduces the mechanism with the reason intact. **Slug B's tri-state authority must preserve
-this:** a cleared/`None` cell and an experiment change are different transitions, and only the
-scalar layer is Resolve-durable.
+misalign (the same `_equalise_angles` hazard the whole slug exists to prevent). This is the
+knowledge the v7 comment held. **Correction (v9, from the v8 review):** the v7 comment had drifted
+to the *inverted* claim that **scalar choices survive a Resolve** — they must **not**
+(`test_global_settings.py:573`), and v8 deleted the drifted comment; an earlier version of this
+section reproduced that inverted claim and is fixed here. The two clearings are **distinct
+transitions** — an **experiment change** forgets per-angle edits (`_forget_per_angle_edits`); a
+**Resolve** re-resolves scalars — and Slug B's tri-state authority must keep them distinct (do not
+assert either value is Resolve-durable).
 
 ## Required design (the robust form)
 

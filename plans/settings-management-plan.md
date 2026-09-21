@@ -1101,3 +1101,43 @@ bound; that rationale is now recorded there, so deleting the comment strands not
 - **No rename** (human, 2026-09-20). Nine advisories → PR body, not the diff. Draft PR on pass.
 
 Dispatched as `triage/settings-management-v8`.
+
+## Revision history — v9 (after v8's review; 2026-09-20; review todo @ `12ee01c`)
+
+v8 fixed **both** I-40 blockers (the author out-measured the reviewer — probed four writer spellings,
+found a fifth vacuous one). **REJECTED on ~2 lines**: the guard improved but its *claim* inflated
+past the measurement. One blocker + one Analyst record-correction.
+
+### item 1 (BLOCKING) — the guard must cover what its docstring claims (2-line funnel capture)
+v8 captures in `SettingsResolver.__init__`, but `resolve_all(context=None)` does
+`ctx = context if context is not None else self.context` — so two spellings still pass (reproduced:
+`SettingsResolver(result).resolve_all(dirty)` → 203 passed with a live layer-(b) writer). Same
+species as v7 one level in (v7 held the stub's return; v8 holds the ctor arg; both are stand-ins for
+what the walk reads). **Exposure is nil today** (one production construction; no caller passes a
+context to `resolve_all`) — so the defect is the *claim*, not the coverage. **Fix (Integrator work
+order, preferred — design-verified to red all nine spellings):** the **2-line funnel capture** at
+the point `resolve_all` actually reads the context (where `ctx` is chosen), so the guard covers every
+spelling and the docstring's "any writer" claim becomes true. (Narrowing the sentence to what was
+measured is the accepted minimum; the funnel capture is preferred — the guard's whole job is the safe
+Slug-B handoff.)
+
+### item 2 (Analyst record-correction — routed from the v8 review)
+My v8 routing of the experiment-bound rationale into `plans/settings-ui-override-plan.md`
+**reproduced the inverted claim v8 correctly deleted** ("scalar choices survive a Resolve" — they
+must NOT, `test_global_settings.py:573`). **Corrected this cycle** in that plan: the section now
+states only the per-angle experiment-bound rationale and flags the inverted claim as the drift to
+avoid. (The routing itself worked — ipts 2 / forget 1 / experiment 6 in Slug B's plan vs 0/0/0 in
+the code; the deletion lost nothing.)
+
+### the rule this taught three times (→ finding inbox): don't strengthen a claim past its measurement
+When you strengthen a guard, its docstring may claim **only what a red test demonstrates**. v8
+measured four spellings and claimed all of them. Sibling of verify-prose / amendment 21; filed as
+`tasking/plan/todo-guard-claim-past-measurement.md`.
+
+### guard / acceptance (v9)
+- The funnel-capture guard reds all nine writer spellings (design-verified); the docstring claims
+  exactly that. `pixi run test-launcher` + `test-reduction` green (203 + 400, EXIT=0);
+  `pixi.lock` untouched.
+- Slug B plan's routed rationale corrected (item 2). Eight advisories → PR body. Draft PR on pass.
+
+Dispatched as `triage/settings-management-v9`.
