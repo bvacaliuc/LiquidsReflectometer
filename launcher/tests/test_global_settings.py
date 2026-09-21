@@ -1055,12 +1055,28 @@ def test_the_editor_never_populates_layer_b(monkeypatch):
     single job is the safe handoff to Slug B, which will reintroduce layer (b)
     deliberately; it has to fail for any writer, not just the one I pictured.
 
-    It therefore asserts on the context `SettingsResolver` **receives**, not on
-    the one the discover stub returned. Those are different objects the moment a
-    writer uses `dataclasses.replace` — the natural spelling — or builds a fresh
-    context at the call. Measured: the earlier form of this guard, which held the
-    stub's object, passed against both of those while catching only in-place
-    mutation of the same instance. A guard believed to guard is worse than none.
+    It captures at `_layer_sources`, the funnel every walk passes through, and
+    therefore sees the context the layer walk **actually reads**. Two earlier
+    forms each held a *stand-in* for that object and were vacuous against the
+    spelling that bypassed the stand-in:
+
+    * v7 held the context the discover stub RETURNED — silent for
+      `dataclasses.replace(result, ...)` and for a fresh context built at the
+      call, because both produce a different object;
+    * v8 held the constructor argument — silent for
+      `SettingsResolver(result).resolve_all(dirty)` and for assigning
+      `r.context` after construction, because `resolve_all` does
+      `ctx = context if context is not None else self.context`, so the ctor
+      argument need not be what the walk reads.
+
+    **Measured, nine spellings, all red at the funnel:** `replace` at the call;
+    attribute assignment before construction; in-place dict mutation before
+    construction; a fresh context at the call; `resolve_all(dirty)`; assigning
+    `.context` post-construction; mutating the same object after construction;
+    and two import-alias forms. The boundary, stated rather than left implicit:
+    this asserts about `SettingsResolver`; a writer that bypasses the resolver
+    entirely is out of coverage, as is any future second walk that does not go
+    through `_layer_sources`.
     """
     import launcher.apps.settings_editor as editor_module
     from lr_reduction.settings_resolver import ResolutionContext
@@ -1069,9 +1085,12 @@ def test_the_editor_never_populates_layer_b(monkeypatch):
     real_resolver = editor_module.SettingsResolver
 
     class CapturingResolver(real_resolver):
-        def __init__(self, context=None):
-            seen["ctx"] = context
-            super().__init__(context)
+        def _layer_sources(self, ctx):
+            # The funnel, not the constructor: `resolve()` computes the
+            # effective context before calling this, so this is the object the
+            # layer walk reads however it was supplied.
+            seen["ctx"] = ctx
+            return super()._layer_sources(ctx)
 
     monkeypatch.setattr(editor_module, "SettingsResolver", CapturingResolver)
 
@@ -1090,7 +1109,7 @@ def test_the_editor_never_populates_layer_b(monkeypatch):
     tab.ipts_edit.setText("IPTS-1")
     _resolve_and_wait(tab)
 
-    assert seen["ctx"] is not None, "the resolver was never constructed"
+    assert seen["ctx"] is not None, "the resolver never walked the layers"
     assert seen["ctx"].ui_overrides == {}, "the editor populated the deferred layer (b)"
 
 
