@@ -101,6 +101,10 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
                 # FIX: merge lists, preserve order, remove duplicates
                 used_theta_vals = {k: list(dict.fromkeys(angle_logs[k] + logs_out[k])) for k in angle_logs.keys() | logs_out.keys() }
 
+                # NB: due to the de-duplication above we have some values that are removed if they do not change
+                indices = max([len(used_theta_vals[k]) for k in used_theta_vals.keys()])
+                _ = [used_theta_vals[k].append(used_theta_vals[k][-1]) for k in used_theta_vals.keys() for i in range(len(used_theta_vals[k]),indices)]
+
                 # save files
                 # non-concatenated
                 # TODO: this is resaving them. Think this is the best option.
