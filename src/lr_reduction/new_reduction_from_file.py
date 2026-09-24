@@ -97,7 +97,10 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
 
                 # TODO: Need to read in the used_theta_vals
                 #used_theta_vals = {"thi":[], "ths":[], "ThCen":[], "title": []}
-                used_theta_vals = {k: angle_logs.get(k, []) + logs_out.get(k, []) for k in angle_logs.keys() | logs_out.keys()}
+                #used_theta_vals = {k: angle_logs.get(k, []) + logs_out.get(k, []) for k in angle_logs.keys() | logs_out.keys()}
+                # FIX: merge lists, preserve order, remove duplicates
+                used_theta_vals = {k: list(dict.fromkeys(angle_logs[k] + logs_out[k])) for k in angle_logs.keys() | logs_out.keys() }
+
                 # save files
                 # non-concatenated
                 # TODO: this is resaving them. Think this is the best option.
@@ -109,6 +112,7 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
                 new_plot = plot_reflectivity(dict_output, RQ4=False, show_fig=plot)
                 figures_out.append(new_plot)
                 output_figures.append(new_plot)
+
                 # concatenated
                 try:
                     save_fn.save_results(combine_results, config_final, used_theta_vals, full=True, sname=f"{config_final.Sname}_combined{config_final.subname}")
@@ -284,9 +288,7 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
         loaded_run_nums.append(initial_run_nums[val])
 
     # Load, sort data order
-    angle_logs_thi = []
-    angle_logs_ths = []
-    angle_logs_thcen = []
+    angle_logs = { "THS":[], "THI":[], "ThCen":[] }
     title_log = []
     prior_data = []
     prior_seq_nums = []
@@ -294,6 +296,8 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
 
     for item in matched_files:
         filepath = Path(updated_config.Spath) / item[0]
+        title_out = { "title":[item[0]] }
+        angles_out = { "THS":[], "THI":[], "ThCen":[] }
         with open(filepath, "r") as f:
             for line in f:
                 if line.startswith("# Angles: "):
@@ -301,12 +305,10 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
                 elif line.startswith("# Run Title:"):
                     title_out = json.loads(line[len("# Run Title: "):])
 
-        if angles_out:
-            angle_logs_ths.append(angles_out["THS"])
-            angle_logs_thi.append(angles_out["THI"])
-            angle_logs_thcen.append(angles_out["ThCen"])
-        if title_out:
-            title_log.append(title_out["title"])
+        # merge lists, preserve order, remove duplicates
+        for k in angle_logs:
+            angle_logs[k] = list(dict.fromkeys(angle_logs[k] + angles_out[k]))
+        title_log = list(dict.fromkeys(title_log + title_out["title"]))
         data = np.loadtxt(filepath, unpack=True)
         prior_data.append(data)
         prior_seq_nums.append(item[1])
@@ -314,7 +316,7 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
 
     # Join the two together based on seq num (ignore None values)
     highest_seq_num = max((x for x in loaded_seq_nums + prior_seq_nums if x is not None), default=0)
-    print(highest_seq_num)
+    print(f'highest_seq_num={highest_seq_num}')
     combined_data = [None] * highest_seq_num
     combined_seq_nums = [None] * highest_seq_num
     combined_run_nums = [None] * highest_seq_num
@@ -335,12 +337,13 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
     sorted_data = [combined_data[i] for i in indices]
     sorted_seq_num = [combined_seq_nums[i] for i in indices]
     sorted_run_num = [combined_run_nums[i] for i in indices]
-    angle_logs_thcen = max(angle_logs_thcen, key=len) # THis is weird and messy and needs a fix but because it adds on in prior cycles...!!
-    angle_logs_ths = max(angle_logs_ths, key=len)
-    angle_logs_thi = max(angle_logs_thi, key=len)
-    title_log = max(title_log, key=len)
+    #angle_logs_thcen = max(angle_logs_thcen, key=len) # THis is weird and messy and needs a fix but because it adds on in prior cycles...!!
+    #angle_logs_ths = max(angle_logs_ths, key=len)
+    #angle_logs_thi = max(angle_logs_thi, key=len)
+    #title_log = max(title_log, key=len)
 
-    angle_logs = {"ths": angle_logs_ths, "thi": angle_logs_thi, "ThCen": angle_logs_thcen, "title": title_log}
+    # TODO: deal with irregular capitalization of keys in reduced data file vs. this code
+    angle_logs = {"ths": angle_logs["THS"], "thi": angle_logs["THI"], "ThCen": angle_logs["ThCen"], "title": title_log}
 
     return sorted_data, sorted_seq_num, sorted_run_num, angle_logs
 
