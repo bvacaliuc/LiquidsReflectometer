@@ -342,6 +342,14 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
     #angle_logs_thi = max(angle_logs_thi, key=len)
     #title_log = max(title_log, key=len)
 
+    # NB: due to the de-duplication above we have some values that are removed if they do not change
+    # i.e. THI being 0.0 in all angles
+    incomplete = [ len(angle_logs[k]) < len(indices) for k in angle_logs.keys() ]
+    if any(incomplete):
+        which = [f'{k}={angle_logs[k]}' if incomplete[i] else '' for i,k in enumerate(angle_logs.keys())]
+        print(f'expanding {which} to make all len={len(indices)}')
+        _ = [angle_logs[k].append(angle_logs[k][-1]) for k in angle_logs.keys() for i in range(len(angle_logs[k]),len(indices))]
+
     # TODO: deal with irregular capitalization of keys in reduced data file vs. this code
     angle_logs = {"ths": angle_logs["THS"], "thi": angle_logs["THI"], "ThCen": angle_logs["ThCen"], "title": title_log}
 
