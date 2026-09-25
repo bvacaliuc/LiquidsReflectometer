@@ -311,6 +311,16 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
         prior_seq_nums.append(seq_num)
         prior_run_nums.append(run_num)
 
+    # Report positions with files of more than one run (a re-measured step, or files misnamed by the
+    # pre-fix Q-order naming): only one of them is used
+    position_runs = {}
+    for seq_num, run_num in zip(loaded_seq_nums + prior_seq_nums, loaded_run_nums + prior_run_nums):
+        position_runs.setdefault(seq_num, []).append(run_num)
+    for seq_num, run_nums in sorted(position_runs.items()):
+        if len(set(run_nums)) > 1:
+            print(f"Warning: sequence position {seq_num} has files for runs {sorted(set(run_nums))}; "
+                  f"using run {run_nums[0]}")
+
     # Join the two together based on seq num (ignore None values)
     highest_seq_num = max((x for x in loaded_seq_nums + prior_seq_nums if x is not None), default=0)
     print(highest_seq_num)
@@ -376,17 +386,22 @@ def own_logs_from_header(header, seq_num, run_num):
     or None when the header cannot vouch for them.
 
     Header format 2 lists are indexed by sequence position. Older headers ("legacy") hold lists
-    appended in reduction order; there the file's entry is known only when a single-run call wrote
-    it (NR_runs has one run, at the file's position): that call appended its own entry last, to a
-    list as long as its position.
+    appended in reduction order, and NR_runs holds the runs of the call that wrote them. There the
+    file's entry is known only when that call reduced this run alone (NR_runs has one run, at the
+    file's position): it appended its own entry last, to the longest list among the other files
+    (or to nothing, when there were none).
     """
     runs = header["NR_runs"]
     lists = [header[k] for k in LOG_KEYS]
-    if not isinstance(runs, list) or any(not isinstance(values, list) or len(values) != len(runs) for values in lists):
+    if not isinstance(runs, list) or not all(isinstance(values, list) and values for values in lists):
         return None
-    if len(runs) < seq_num or runs[seq_num - 1] != run_num:
+    if len({len(values) for values in lists}) != 1 or len(runs) < seq_num or runs[seq_num - 1] != run_num:
         return None
-    if header["format"] is None and [r for r in runs if r is not None] != [run_num]:
+    if header["format"] is None:
+        if [r for r in runs if r is not None] != [run_num]:
+            return None
+        return {k: header[k][-1] for k in LOG_KEYS}
+    if len(lists[0]) != len(runs):
         return None
     return {k: header[k][seq_num - 1] for k in LOG_KEYS}
 
@@ -448,7 +463,7 @@ def find_combine_priors(updated_config, run_nums, results, group_output_sorted, 
                 scale = scaling_factors_out[0]
 
                 if not np.isfinite(scale):
-                    print(f"Unable to find scaling factor for {run}")
+                    print(f"Unable to find scaling factor for run {sorted_run_num[run]}")
                     scale = 1
 
                 result[1, :] *= scale
