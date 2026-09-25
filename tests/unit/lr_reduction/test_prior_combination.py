@@ -6,8 +6,10 @@ run; each call merges the new run with the files already in the output folder
 ``# Angles:`` and ``NR_runs`` headers are lists indexed by sequence position
 (``seq_num - 1``), padded with ``null`` up to the highest position present, and
 each position's entry comes from the same source as that position's data -- so
-any number of reductions, in any order, gives the same headers (and data) as
-reducing the sequence once.
+any number of reductions, in any order, gives the same per-run log headers
+(``NR_runs``, ``Run Title``, ``Angles``) and data as reducing the sequence once.
+(``Scaling factors`` and ``Lambda Range`` still describe only the last call:
+tasking finding F17, not covered here.)
 
 The inputs here are **synthetic**: ``NR_Reduction._reduce_single_run`` (the
 physics) is replaced by a stub returning a made-up R(Q) = 1e-6 Q^-4 -- not a
@@ -16,6 +18,7 @@ logs (tiny HDF5 files written per test), ``NR_Reduction.reduce()`` bookkeeping,
 prior discovery and merge, and header writing.
 """
 
+import ast
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -64,10 +67,13 @@ def write_nexus(nexus_dir, run):
 
 
 def synthetic_curve(position, reverse_q):
-    """Overlapping Q bands, one per sequence position (reversed: position 1 has the highest Q)."""
+    """Overlapping Q bands, one per sequence position (reversed: position 1 has the highest Q).
+
+    Each position is off by its own factor, so autoscaling has real work to do.
+    """
     band = (2 - position) if reverse_q else position
     q = np.geomspace(0.008, 0.03, N_POINTS) * 1.8**band
-    r = 1e-6 * q**-4
+    r = 1e-6 * q**-4 * 1.5**position
     return q, r, 0.05 * r, 0.02 * q
 
 
@@ -103,6 +109,7 @@ def env(tmp_path, monkeypatch):
         assert i == seq - 1, "reduce() must pass the run's sequence position"
         q, r, dr, dq = synthetic_curve(i, state.reverse_q)
         zeros = np.zeros_like(q)
+        # reduce() takes the title from self.log_values and the angles from the returned log_vals
         self.log_values = {"title": title(rb_num), "ths": ths(rb_num), "thi": THI, "ThCen": ths(rb_num) + THCEN_OFFSET}
         result = {"q": q, "r": r, "dr": dr, "dq": dq, "t": zeros, "l": zeros, "dt": zeros, "dl": zeros}
         return result, self.config, self.log_values
@@ -130,7 +137,7 @@ def read_outputs(out):
                     break
                 line = line[1:].strip()
                 if line.startswith("NR_runs = "):
-                    header["NR_runs"] = eval(line[len("NR_runs = "):])  # noqa: S307 -- test-local, written by save_results
+                    header["NR_runs"] = ast.literal_eval(line[len("NR_runs = "):])
                 elif line.startswith("Run Title: "):
                     header["title"] = json.loads(line[len("Run Title: "):])["title"]
                 elif line.startswith("Angles: "):
@@ -215,7 +222,7 @@ def test_rereduction_reproduces_single_pass(env, canonical, runs):
     assert set(outputs) == set(canonical)
     assert headers_only(outputs) == headers_only(canonical)
     for name, (_, data) in outputs.items():
-        np.testing.assert_allclose(data, canonical[name][1], rtol=1e-12, err_msg=name)
+        np.testing.assert_allclose(data, canonical[name][1], rtol=1e-9, err_msg=name)
 
 
 def test_batch_of_the_whole_sequence_matches_single_pass(env, canonical):
@@ -223,7 +230,10 @@ def test_batch_of_the_whole_sequence_matches_single_pass(env, canonical):
     nrff.reduce_from_file([R1, R2, R3], env.settings, EXPERIMENT, datapath=env.nexus, plot=False,
                           override_params={"Spath": env.out, "subname": "autoreduction"},
                           check_for_prior=True)
-    assert headers_only(read_outputs(env.out)) == headers_only(canonical)
+    outputs = read_outputs(env.out)
+    assert headers_only(outputs) == headers_only(canonical)
+    for name, (_, data) in outputs.items():
+        np.testing.assert_allclose(data, canonical[name][1], rtol=1e-9, err_msg=name)
 
 
 def test_gap_pads_with_null_and_does_not_crash(env):
@@ -242,10 +252,58 @@ def test_later_position_reduced_first_is_padded(env):
         assert header == expected_header([R3]), name
 
 
-def test_file_names_follow_sequence_not_q_order(env):
+def test_file_names_and_headers_follow_sequence_not_q_order(env):
     env.reverse_q = True  # position 1 has the highest Q
     reduce_runs(env, [R1, R2, R3, R2])
-    assert {p.name for p in env.out.glob("*.dat")} == canonical_names()
+    outputs = read_outputs(env.out)
+    assert set(outputs) == canonical_names()
+    for name, header in headers_only(outputs).items():
+        assert header == expected_header(RUNS), name
+
+
+@pytest.mark.parametrize("runs", [[R1, R2, R3], [R3, R1, R2, R1]], ids=["in order", "out of order"])
+def test_eight_column_files_carry_the_same_headers(env, runs):
+    for run in runs:
+        nrff.reduce_from_file([run], env.settings, EXPERIMENT, datapath=env.nexus, plot=False,
+                              override_params={"Spath": env.out, "subname": "autoreduction", "save8col": True},
+                              check_for_prior=True)
+    outputs = read_outputs(env.out)
+    assert {name for name in outputs if name.endswith("_8col.dat")} == {
+        name.replace(".dat", "_8col.dat") for name in canonical_names()}
+    for name, header in headers_only(outputs).items():
+        assert header == expected_header(RUNS), name
+
+
+R2B = 221475  # a second run at sequence position 2: the step was measured again
+
+
+@pytest.fixture
+def remeasured(env, monkeypatch):
+    monkeypatch.setitem(RUNS, R2B, (2, -1.3, "Si Ir Air-221472-2. again"))
+    write_nexus(env.nexus, R2B)
+    return env
+
+
+def test_current_run_wins_at_its_position(remeasured):
+    reduce_runs(remeasured, [R1, R2, R3, R2B])
+    header = read_outputs(remeasured.out)[f"REFL_{SEQ_ID}_combined_autoreduction.dat"][0]
+    assert header["NR_runs"] == [R1, R2B, R3]
+    assert header["THS"][1] == ths(R2B)
+
+
+def test_two_runs_at_one_position_are_reported(remeasured, capsys):
+    reduce_runs(remeasured, [R1, R2, R3, R2B])
+    capsys.readouterr()
+    reduce_runs(remeasured, [R1])
+    assert f"sequence position 2 has files for runs [{R2}, {R2B}]" in capsys.readouterr().out
+
+
+@pytest.mark.xfail(strict=True, reason="pre-existing: which run wins a re-measured position is undecided "
+                                       "(tasking plan M1, residual); the first prior file in name order is used")
+def test_remeasured_position_survives_rereduction_of_another_run(remeasured):
+    reduce_runs(remeasured, [R1, R2, R3, R2B, R1])
+    header = read_outputs(remeasured.out)[f"REFL_{SEQ_ID}_combined_autoreduction.dat"][0]
+    assert header["NR_runs"] == [R1, R2B, R3]
 
 
 # ---------------------------------------------------------------------------
@@ -273,14 +331,17 @@ def own(run):
     pytest.param(header([R1, None, R3], [R1, None, R3], True), 3, R3, own(R3), id="marked, with a gap"),
     pytest.param(header([R1, R2, R3], [R1, R2, R3], True), 2, R3, None, id="marked, wrong run at position"),
     pytest.param(header([R1, R2], [R1, R2, R3], True), 2, R2, None, id="marked, length mismatch"),
-    # legacy: written by a single-run call, own entry appended last into a list of its position's length
+    # legacy: written by a single-run call, which appended its own entry last
     pytest.param(header([None, R2], [R1, R2], False), 2, R2, own(R2), id="legacy single-run, in order"),
     pytest.param(header([None, R2], [R3, R2], False), 2, R2, own(R2), id="legacy single-run, out of order"),
     pytest.param(header([R1], [R1], False), 1, R1, own(R1), id="legacy, first run"),
+    pytest.param(header([None, None, R3], [R3], False), 3, R3, own(R3), id="legacy, first run at position 3"),
+    pytest.param(header([None, None, R3], [R1, R2, R3] * 2, False), 3, R3, own(R3), id="legacy, duplicated"),
     # legacy files that cannot vouch for their own entry
-    pytest.param(header([None, None, R3], [R1, R2, R3] * 2, False), 3, R3, None, id="legacy, duplicated"),
     pytest.param(header([None, None, R3], [R1, R2, R3], False), 1, R1, None, id="legacy, rewritten by another run"),
     pytest.param(header([R1, None, R3], [R2, R1, R3], False), 1, R1, None, id="legacy multi-run batch"),
+    pytest.param(header([None, R2], [R1, R2], False) | {"ths": [ths(R2)]}, 2, R2, None,
+                 id="legacy, lists of different lengths"),
     pytest.param({"format": None, "NR_runs": None, "title": None, "ths": None, "thi": None, "ThCen": None},
                  1, R1, None, id="no header"),
 ])
@@ -311,16 +372,45 @@ def write_legacy_file(out, run, nr_runs, entries):
                header=head, delimiter="\t")
 
 
+def assert_headers_after_fallback(out, thcen_known):
+    """Every header is the canonical one, except ThCen is null where it could not be recovered."""
+    expected = expected_header(RUNS)
+    expected["ThCen"] = [thcen(r) if r in thcen_known else None for r in (R1, R2, R3)]
+    for name, header in headers_only(read_outputs(out)).items():
+        assert header == expected, name
+
+
+# The legacy folders below are what the pre-fix code (exp 9aaaefa) leaves behind: its merge
+# rewrote every file of the sequence with the header of the call that reduced the last run.
+
+def test_legacy_in_order_pass_then_rereduce(env, canonical):
+    # pre-fix, in order: all three files carry the header written while reducing R3
+    for run in (R1, R2, R3):
+        write_legacy_file(env.out, run, [None, None, R3], [R1, R2, R3])
+
+    reduce_runs(env, [R1])  # R3's file vouches for its own entry; R2's does not (falls back to NeXus)
+    assert_headers_after_fallback(env.out, thcen_known={R1, R3})
+
+    reduce_runs(env, [R2])
+    assert headers_only(read_outputs(env.out)) == headers_only(canonical)
+
+
+def test_legacy_multi_run_batch_is_not_trusted(env):
+    # pre-fix: R2 alone, then a batch of R1 and R3 -> [t2] + [t1, t3] under NR_runs [R1, None, R3]
+    for run in (R1, R2, R3):
+        write_legacy_file(env.out, run, [R1, None, R3], [R2, R1, R3])
+
+    reduce_runs(env, [R2])  # position 1 must not take t2, the first list entry
+    assert_headers_after_fallback(env.out, thcen_known={R2})
+
+
 def test_corrupted_legacy_priors_fall_back_to_nexus_then_heal(env, canonical):
     # a folder left by the pre-fix code after two passes: every list doubled
     for run in (R1, R3):
         write_legacy_file(env.out, run, [None, None, R3], [R1, R2, R3] * 2)
 
-    reduce_runs(env, [R2])
-    fallback = expected_header(RUNS)
-    fallback["ThCen"] = [None, thcen(R2), None]  # ThCen is a reduction product: not re-derived from NeXus
-    for name, header in headers_only(read_outputs(env.out)).items():
-        assert header == fallback, name
+    reduce_runs(env, [R2])  # R3's file wrote its own entry last; R1's file was written by R3's call
+    assert_headers_after_fallback(env.out, thcen_known={R2, R3})
 
-    reduce_runs(env, [R1, R3])  # re-reducing the stale positions heals the sequence
+    reduce_runs(env, [R1])  # re-reducing the stale position heals the sequence
     assert headers_only(read_outputs(env.out)) == headers_only(canonical)
