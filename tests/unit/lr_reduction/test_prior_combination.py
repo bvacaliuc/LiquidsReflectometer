@@ -218,6 +218,14 @@ def test_rereduction_reproduces_single_pass(env, canonical, runs):
         np.testing.assert_allclose(data, canonical[name][1], rtol=1e-12, err_msg=name)
 
 
+def test_batch_of_the_whole_sequence_matches_single_pass(env, canonical):
+    # the GUI batch path: one call for all runs, so no priors are involved
+    nrff.reduce_from_file([R1, R2, R3], env.settings, EXPERIMENT, datapath=env.nexus, plot=False,
+                          override_params={"Spath": env.out, "subname": "autoreduction"},
+                          check_for_prior=True)
+    assert headers_only(read_outputs(env.out)) == headers_only(canonical)
+
+
 def test_gap_pads_with_null_and_does_not_crash(env):
     reduce_runs(env, [R1, R3])
     outputs = read_outputs(env.out)
