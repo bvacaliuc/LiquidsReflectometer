@@ -59,7 +59,31 @@ library function by spying on it rather than by re-asserting its arithmetic:
 both check "did the value come from where it must", which is the actual
 requirement whenever the point of the code is single-sourcing.
 
-## 4. An unreachable guard reads as protection and provides none
+## 4. An unreachable guard reads as protection and provides none — **CORRECTED, my diagnosis was wrong**
+
+> **v2 correction (2026-09-27).** The conclusion below is right in general and
+> **wrong about this instance**, and the instance is what made it persuasive.
+> The clamps I deleted were **not** dead. `default_bkg_roi`'s two branches check
+> **one end each**; each clamp covered the end its own branch did not. They were
+> unreachable only under an unstated precondition — that `peak_range` is on the
+> detector — which the function never validated and my sweep
+> (`range(0, N_Y-1, 7)`) never violated. Measured after removal:
+> `default_bkg_roi((400,410), n_y=304)` → `(385, 394)`, and `((-50,-40))` →
+> `(-34, -25)`, both off the detector, which is verbatim the failure the
+> docstring claims to prevent. So **mutation row 8 survived for a different
+> reason than this file records.**
+>
+> The fix is not to restore the clamps — clamping `(400, 410)` yields a band
+> from the wrong *end*, silently. It is to validate `peak_range` against `n_y`
+> and refuse. Exposure is real: `RB_Ymin`/`RB_Ymax` reach the resolver from
+> layer (c) as unvalidated file input.
+>
+> **The transferable lesson is the one I got wrong, not the one I wrote:** before
+> concluding a guard is unreachable, state the precondition that makes it so and
+> check that something enforces it. "No branch can reach this" and "no branch
+> can reach this *given an assumption nobody checks*" look identical in the
+> code and differ completely in consequence. Keep §4 below for the general
+> point; it stands. Do not cite this instance as its evidence.
 
 **Rule.** A clamp inside a branch whose condition already excludes the
 out-of-range case is dead code. Delete it; do not keep it as reassurance.
@@ -76,3 +100,28 @@ guard is *reachable* before strengthening the test. If it is not, the finding is
 dead code, and the test should be retargeted at whatever does the real work —
 here the fit check — plus a sweep that exercises every branch rather than the
 one input the author happened to pick.
+
+
+## 5. Two guards on one path pin each other, and neither is pinned
+
+**Rule.** When a hazard is defended at two points, a test that composes them
+pins **neither** — remove either guard and the survivor still raises, so both
+mutations pass.
+
+**Why.** A zero proton charge is refused twice: at source in `counts_vs_y`, and
+downstream in `estimate_peak_range` when the profile arrives non-finite. My
+first test drove the whole path, and **battery rows 12 and 13 both survived**.
+Splitting it — one test for the source refusal, one handing the estimator a
+non-finite profile directly — reds both.
+
+Fixing that exposed a second-order defect: the all-NaN profile hit the
+**no-counts** guard first and was reported as *"no counts on the detector"*,
+naming the wrong cause and making the non-finite guard untestable in isolation.
+Ordering the more specific diagnosis first fixed both the message and the pin.
+
+**How to apply.** This is learning 25's *mutate each anchor independently*
+applied to defence-in-depth rather than to a fixture, and
+`settings-editor-learning.md` §14 ("two normalisation points, one covering for
+the other") is the same shape a third time. When you add a guard to a path that
+already has one, the new test must reach the new guard **directly**, not through
+the old one.
