@@ -92,3 +92,30 @@ not blockers.
 - **Chopper 22.9% divergence** stays out (→ scientists), correctly left out of this additive slug.
 
 Dispatched as `triage/roi-estimate-v2`.
+
+## Revision history — v3 (after v2's review; 2026-09-27; review todo @ `8ebdec1`; → PR #31)
+
+v2 closed **9 of 12** v1 findings, all mutation-verified (the demonstrated-harm fixes landed).
+**REJECTED on ONE line — a CWD-relative path makes the gate RED** (1 failed, REDUCTION_EXIT=1). A
+real gate-red (`FileNotFoundError`), not a marginal finding — so it blocks; one-line fix,
+Integrator-verified.
+
+### item 1 (BLOCKING — gate RED) — the mutation-battery test uses a CWD-relative path
+`test_the_mutation_battery_refuses_a_dirty_baseline` loads the battery via the CWD-relative
+`"plans/scripts/roi_estimate_mutations.py"`. The gate runs `cd tests/ && pytest`, so it resolves
+under `tests/` → `FileNotFoundError` → gate RED (also red on CI). It passed for the Developer only
+because their harness invoked pytest with `cwd=REPO` — a CWD-dependent test is exactly what a harness
+whose CWD differs from the gate cannot see. **Fix (Integrator-verified from the gate's own CWD):**
+`Path(__file__).parents[3]` (the idiom at `tests/.../test_settings_document.py:330`), not a
+CWD-relative literal. One line.
+
+### Advisories → PR body (termination rule; do NOT re-open)
+D2's default + C2's tof_band block both survive mutation (weak guards, 26 passed each — strengthen if
+cheap, else name them); ledger rows 2/4/7/8 are listed but no longer executed (reconcile the table);
+the review-domain fan-out was not run this cycle.
+
+### Acceptance (v3)
+- The CWD-path fix; `pixi run test-reduction` + `test-launcher` **green (EXIT=0) from the gate's own
+  CWD**; `pixi.lock` untouched. **Draft PR #31 on pass** — the last product dispatch, hard stop after.
+
+Dispatched as `triage/roi-estimate-v3`.
