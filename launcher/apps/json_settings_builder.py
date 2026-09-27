@@ -20,6 +20,7 @@ background ROIs from the events.
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -64,6 +65,64 @@ try:
         from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 except ImportError:  # the interface works without the ROI plots
     Figure = None
+
+def is_shared_autoreduce_path(path):
+    """True when `path` is inside an experiment's shared/autoreduce directory.
+
+    Writing there changes what autoreduction does for the whole experiment, so
+    it earns a confirmation. Matched on the directory pair rather than the file
+    name: the hazard is the location, not what the file is called.
+    """
+    parts = Path(path).resolve().parts
+    return any(
+        parts[i] == "shared" and parts[i + 1] == "autoreduce"
+        for i in range(len(parts) - 1)
+    )
+
+
+def atomic_write_settings(path, payload):
+    """Write settings so a failure cannot destroy what is already there.
+
+    The builder defaults its target to `<IPTS>/shared/autoreduce/reduce_settings
+    .json` — the live file autoreduction reads — and this was
+    `open(path, "w")` + `json.dump`, which truncates at open. Any failure after
+    that point (a non-serialisable value, a full disk, a crash) left the file
+    destroyed rather than unchanged.
+
+    Three steps, in this order:
+
+    1. **Serialise first.** Nothing touches the filesystem until the payload is
+       known to be representable, so the common failure cannot reach the file.
+    2. **Write a temp file in the same directory** — same directory because
+       `os.replace` is only atomic within a filesystem.
+    3. **`os.replace`**, which is atomic on POSIX: a reader sees either the old
+       file or the new one, never a half-written one. Autoreduction may read
+       this file at any moment, so that property is the point.
+
+    The temp file is removed if anything fails, so an interrupted save does not
+    litter a shared directory.
+    """
+    path = Path(path)
+    text = json.dumps(payload, indent=2)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    fd, tmp = tempfile.mkstemp(
+        prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent)
+    )
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, str(path))
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return path
+
 
 from launcher.apps.file_batch import parse_run_list
 from lr_reduction import nr_tools as tools
@@ -390,7 +449,14 @@ class ROISelectionDialog(QDialog):
         layout.addWidget(self._build_controls(row, x_range))
 
         title = row.title or ""
-        self.y_axis.set_title(f"{title} (sequence {row.seq})" if row.seq else title)
+        # parse_math=False: `title` is the NeXus run title, arbitrary text from
+        # the file. matplotlib parses `$...$` as math, so a title carrying a
+        # literal `$` reaches the mathtext parser — and a symbol no font
+        # provides sends `_mathtext._get_glyph` into its fallback chain. Plot
+        # text built from data should never be parsed as markup.
+        self.y_axis.set_title(
+            f"{title} (sequence {row.seq})" if row.seq else title, parse_math=False
+        )
         self.y_axis.set_xlabel("y pixel (reflectivity direction)")
         self.x_axis.set_xlabel("x pixel (low resolution direction)")
         for axis in (self.y_axis, self.tof_axis, self.x_axis):
@@ -1401,11 +1467,26 @@ class JSONSettingsBuilderTab(QWidget):
             if answer != QMessageBox.Yes:
                 return
 
+        if is_shared_autoreduce_path(file_path):
+            # Writing here changes what autoreduction does for the whole
+            # experiment, not just this session's plots.
+            answer = QMessageBox.question(
+                self,
+                "Write to shared/autoreduce?",
+                f"{file_path}\n\nThis is the experiment's live autoreduction "
+                f"settings file. Overwrite it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+
         try:
-            Path(file_path).parent.mkdir(parents=True, exist_ok=True)
-            with open(file_path, "w") as handle:
-                json.dump(self.to_settings(), handle, indent=2)
-        except OSError as error:
+            atomic_write_settings(file_path, self.to_settings())
+        except (OSError, TypeError, ValueError) as error:
+            # Catch the serialisation errors too, not just OSError: a
+            # non-serialisable value used to escape this handler entirely, and
+            # an unhandled exception in a Qt slot calls qFatal().
             QMessageBox.critical(self, "Save error", f"Could not write {file_path}:\n{error}")
             return
         self._write_user_settings()

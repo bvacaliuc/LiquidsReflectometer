@@ -85,6 +85,27 @@ def classify_file(path):
     return "unknown"
 
 
+def _plain_legend(ax):
+    """Draw the legend with its entries exempt from mathtext parsing.
+
+    The legend labels here are `os.path.basename(fname)` — filenames, which are
+    user data. A file named `D2O_$5_layer.dat` puts a `$` into a legend entry,
+    matplotlib parses it as math, and a symbol no font provides sends
+    `_mathtext._get_glyph` into its fallback chain. `parse_math` is a property of
+    the Text artist, and `plot(label=...)` has no way to pass it, so it is set on
+    the legend's Texts after the fact.
+
+    Not named in the work order — the order listed the axis labels here, which
+    are static literals from `_axis_labels`. The filenames are the user data on
+    this surface.
+    """
+    legend = ax.legend()
+    if legend is not None:
+        for text in legend.get_texts():
+            text.set_parse_math(False)
+    return legend
+
+
 def _axis_labels(mode, transform):
     """Return (xlabel, ylabel) for a resolved selection mode."""
     if mode == "reflectivity":
@@ -607,7 +628,7 @@ class Overplot(QWidget):
             else:
                 ax.set_xscale('linear')
 
-            ax.legend()
+            _plain_legend(ax)
             ax.set_xlabel(xlabel)
             ax.set_ylabel(ylabel)
             self.figure.tight_layout()
@@ -651,7 +672,7 @@ class Overplot(QWidget):
             else:
                 ax.set_xscale('linear')
 
-            ax.legend()
+            _plain_legend(ax)
             ax.set_xlabel(xlabel)
             ax.set_ylabel(ylabel)
             plt.tight_layout()
