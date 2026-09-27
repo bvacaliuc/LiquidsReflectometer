@@ -42,6 +42,52 @@ from lr_reduction.save_reduced_data import make_json_safe
 MAX_REPORTED_PROBLEMS = 200
 
 
+def atomic_write_json(path, payload):
+    """Write JSON so an interrupted write cannot destroy the previous file.
+
+    Temp file in the target directory, fsync, ``os.replace``. A plain
+    ``open(path, "w")`` truncates before a single byte is produced, so anything
+    that interrupts the dump — a full IPTS quota, a stalled ``/SNS`` mount, the
+    process dying — leaves the previous good settings gone and a partial file in
+    their place. The temp file shares the target's directory so the rename is
+    atomic on that filesystem, and the fsync is not redundant: on NFS and FUSE
+    ``close()`` does not imply durability.
+
+    Refuses to write through a symbolic link — a save dialog's overwrite
+    confirmation names the link, not the file that would be destroyed.
+
+    A module function, not a method, because the settings file is not the only
+    thing written this way. When this lived inside ``SettingsDocument.save`` the
+    next writer that needed it grew its own copy, without the symlink refusal.
+    """
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(
+            f"{path} is a symbolic link to {os.path.realpath(path)}; "
+            f"refusing to write through it — save to the target directly if that is the intent"
+        )
+    body = json.dumps(payload, indent=2)
+    handle_fd, temporary = tempfile.mkstemp(
+        dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(handle_fd, "w") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Explicit, not umask: a settings file is meant to be readable by
+        # collaborators on a shared IPTS directory. Deliberately not 0600.
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+    return path
+
+
 class SettingsDocument:
     """One editable reduction configuration."""
 
@@ -147,14 +193,34 @@ class SettingsDocument:
         length and ``validate()`` reports the angles still lacking a value.
         """
         n = self.n_angles
+        # Computed in full, then committed. Writing field-by-field meant a bad
+        # value part-way through left a HALF-GROWN document: some columns longer
+        # than others, the new angle invisible, and — because the raise escaped
+        # before the panel refreshed — a "settings unchanged" message over a
+        # document that had in fact changed, which could then be saved.
+        grown = {}
         for name in fs.PER_ANGLE_NAMES:
             current = self.get(name)
             if current is None:
                 if name not in values:
                     continue
-                self.set(name, [None] * n + [values[name]])
-            else:
-                self.set(name, list(current) + [values.get(name)])
+                grown[name] = [None] * n + [values[name]]
+                continue
+            if not isinstance(current, (list, tuple)):
+                # The same guard set_angle_field carries, for the same reason:
+                # a scalar where a per-angle list belongs has a length (or does
+                # not) and list() of it is either an explosion into characters
+                # or a TypeError. Loading such a file and clicking Add angle is
+                # two clicks from a real file shape.
+                raise TypeError(
+                    f"{fs.get(name).label} ({name}) holds "
+                    f"{type(current).__name__} {current!r}, not a list of values "
+                    f"per angle — fix it before adding an angle"
+                )
+            grown[name] = list(current) + [values.get(name)]
+
+        for name, value in grown.items():
+            self.set(name, value)
 
     def remove_angle(self, index):
         """Remove one angle from every per-angle field."""
@@ -308,48 +374,8 @@ class SettingsDocument:
         The whole document, not ``normalize()``: this is the scientist's file
         and round-tripping it must not quietly drop fields. Use ``normalize()``
         when handing settings to a reduction.
-
-        Written to a temporary file in the same directory, fsynced, then
-        ``os.replace``d over the target. A plain ``open(path, "w")`` truncates
-        before a single byte is produced, so anything that interrupts the dump —
-        a full IPTS quota, a stalled ``/SNS`` mount, the process dying — leaves
-        the previous good settings destroyed and a partial file in their place.
-        The temp file shares the target's directory so the rename is atomic on
-        that filesystem, and the fsync is not redundant: on NFS and FUSE mounts
-        ``close()`` does not imply durability.
-
-        Refuses to write through a symbolic link. The save dialog's overwrite
-        confirmation names the link, not its target, so following one would
-        overwrite a file the user never saw named.
         """
-        path = Path(path)
-        if path.is_symlink():
-            raise ValueError(
-                f"{path} is a symbolic link to {os.path.realpath(path)}; "
-                f"refusing to write through it — save to the target directly if that is the intent"
-            )
-        payload = json.dumps(make_json_safe(self.to_dict()), indent=2)
-        # mkstemp opens O_CREAT|O_EXCL on a fresh name, so there is no link to
-        # follow and no pre-existing file to clobber.
-        handle_fd, temporary = tempfile.mkstemp(
-            dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
-        )
-        try:
-            with os.fdopen(handle_fd, "w") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            # Explicit, not umask: a settings file is meant to be readable by
-            # collaborators on a shared IPTS directory. Deliberately not 0600.
-            os.chmod(temporary, 0o644)
-            os.replace(temporary, path)
-        except BaseException:
-            try:
-                os.unlink(temporary)
-            except OSError:
-                pass
-            raise
-        return path
+        return atomic_write_json(path, make_json_safe(self.to_dict()))
 
     def overrides(self):
         """The fields that differ from a fresh config — what this layer contributes.
@@ -365,6 +391,17 @@ class SettingsDocument:
             for key, value in current.items()
             if key not in defaults or value != defaults[key]
         }
+
+    def reseed(self):
+        """Treat the current contents as the baseline.
+
+        A resolved document is built by setting every field, so without this
+        `changed_vs_seed()` reports the whole resolution as user edits — the
+        experiment file's own values shown as though a person had typed them,
+        which is precisely the confusion the provenance work exists to remove.
+        """
+        self._seed = copy.deepcopy(self._config.__dict__)
+        return self
 
     def changed_vs_seed(self):
         """``{name: (seed_value, current_value)}`` for every field that moved."""

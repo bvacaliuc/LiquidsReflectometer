@@ -26,8 +26,19 @@ from pathlib import Path
 from qtpy import QtCore, QtGui, QtWidgets
 
 from launcher.app_identity import ensure_identity
+from launcher.apps.combo_display import show_in_combo
+from launcher.apps.global_settings import load_global_settings
 from lr_reduction import field_spec as fs
 from lr_reduction.settings_document import SettingsDocument
+from lr_reduction.settings_resolver import (
+    PREVIOUS_RUN_LAYER,
+    Resolved,
+    SettingsResolver,
+    discover_ipts_settings,
+    load_resolution,
+    provenance_path,
+    save_resolution,
+)
 
 #: Above this, populating the table freezes the GUI thread for seconds and
 #: costs ~1100x the file size in memory. A settings file with more angles than
@@ -55,6 +66,63 @@ def guarded(method):
     return wrapper
 
 
+#: Workers deliberately kept alive past teardown.
+#:
+#: "Leak rather than abort" is not achieved by dropping the reference — that is
+#: what *causes* the abort. An unparented QThread is owned by Python, so
+#: releasing the last reference deletes the C++ object, and deleting a running
+#: QThread is precisely `QThread: Destroyed while thread is still running`
+#: followed by `abort()`. Measured: exit -6 on the stalled-mount teardown.
+#:
+#: To leak on purpose the object has to be *held*. A stalled worker is parked
+#: here and the process exits with the thread still blocked in its read — the
+#: outcome we chose: a leak ends with the process; an abort takes every other
+#: tab's unsaved state with it. Parking is not permanent by intent, only in
+#: effect: `_reclaim_parked` takes a worker off this list if it turns out to
+#: finish after all, so only the genuinely stuck ones are held to the end.
+_PARKED_WORKERS = []
+
+
+def _reclaim_parked(worker):
+    """Release a parked worker that turned out to finish after all.
+
+    Parking is for a worker still blocked when the window goes away. Most of
+    those are stalled forever, but a merely-slow one completes a moment later
+    and there is no reason to hold it for the life of the process. Without this
+    the removal below was unreachable — `shutdown` disconnected `finished`
+    before parking, so nothing could ever take a worker off the list.
+    """
+    if worker in _PARKED_WORKERS:
+        _PARKED_WORKERS.remove(worker)
+
+
+class _DiscoveryWorker(QtCore.QThread):
+    """Runs `discover_ipts_settings` off the GUI thread.
+
+    Not defensive tidiness. `/SNS` is an sshfs/FUSE mount, and a stalled one
+    blocks in D-state — it does **not** raise, so `except OSError` and the slot
+    guard are both irrelevant to it. Measured on the synchronous version with a
+    2 s stub: the GUI thread blocked for the full 2.00 s and delivered zero
+    timer ticks. This is the first place a button press reaches the facility
+    filesystem, so the blocking axis is time, not breadth.
+    """
+
+    finished_with = QtCore.Signal(object)
+
+    def __init__(self, ipts, tthd, discover, parent=None):
+        super().__init__(parent)
+        self._ipts = ipts
+        self._tthd = tthd
+        self._discover = discover
+
+    def run(self):
+        try:
+            result = self._discover(self._ipts, tthd=self._tthd)
+        except BaseException as exc:  # noqa: BLE001 -- carried to the GUI thread
+            result = exc
+        self.finished_with.emit(result)
+
+
 class SettingsEditorTab(QtWidgets.QWidget):
     """Editor for one :class:`SettingsDocument`."""
 
@@ -69,9 +137,16 @@ class SettingsEditorTab(QtWidgets.QWidget):
         self.document = document if document is not None else SettingsDocument()
         self.settings = QtCore.QSettings()
         self.editors = {}
+        self.badges = {}
+        self.provenance = {}
         # Guards the table's cellChanged signal while the view writes into it,
         # so repopulating from the document does not echo back as user edits.
         self._populating = False
+        # Injectable so a test can redirect the facility root without patching a
+        # module global out from under a running worker.
+        self._discover = discover_ipts_settings
+        self._discovery_worker = None
+        self._busy = False
         self._rows_hidden = 0
         self._last_error = None
 
@@ -96,6 +171,35 @@ class SettingsEditorTab(QtWidgets.QWidget):
         bar = QtWidgets.QWidget()
         row = QtWidgets.QHBoxLayout()
         bar.setLayout(row)
+
+        # The production entry point for the resolver. Without this the whole
+        # layer machinery had no caller: every badge rendered empty and the
+        # muddle T3 exists to replace was untouched beside a second unreached
+        # mechanism.
+        row.addWidget(QtWidgets.QLabel("IPTS"))
+        self.ipts_edit = QtWidgets.QLineEdit()
+        self.ipts_edit.setPlaceholderText("IPTS-30101")
+        self.ipts_edit.setToolTip(
+            "Experiment to resolve settings for. Reads shared/autoreduce read-only."
+        )
+        self.ipts_edit.setMaximumWidth(140)
+        row.addWidget(self.ipts_edit)
+
+        row.addWidget(QtWidgets.QLabel("tthd"))
+        self.tthd_edit = QtWidgets.QLineEdit("1.0")
+        self.tthd_edit.setValidator(QtGui.QDoubleValidator())
+        self.tthd_edit.setToolTip(
+            "Detector two-theta. Its sign selects the up/down settings file."
+        )
+        self.tthd_edit.setMaximumWidth(70)
+        row.addWidget(self.tthd_edit)
+
+        self.resolve_button = QtWidgets.QPushButton("Resolve from experiment")
+        self.resolve_button.setToolTip(
+            "Resolve every setting from its layers and show where each one came from"
+        )
+        self.resolve_button.clicked.connect(lambda _checked=False: self.resolve_for_experiment())
+        row.addWidget(self.resolve_button)
 
         self.load_button = QtWidgets.QPushButton("Load settings...")
         self.load_button.setToolTip(
@@ -160,7 +264,16 @@ class SettingsEditorTab(QtWidgets.QWidget):
                 editor = self._build_editor(field)
                 editor.setToolTip(f"{field.name} — {field.help}")
                 self.editors[field.name] = editor
-                grid.addRow(field.label, editor)
+                badge = QtWidgets.QLabel("")
+                badge.setEnabled(False)
+                self.badges[field.name] = badge
+                row = QtWidgets.QWidget()
+                row_layout = QtWidgets.QHBoxLayout()
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row.setLayout(row_layout)
+                row_layout.addWidget(editor, 1)
+                row_layout.addWidget(badge)
+                grid.addRow(field.label, row)
             column.addWidget(box)
 
         column.addStretch(1)
@@ -245,35 +358,23 @@ class SettingsEditorTab(QtWidgets.QWidget):
 
     @staticmethod
     def _show_in_combo(editor, field, value):
-        """Display `value`, even when it is not one of the offered choices.
-
-        A combo asked to show an unknown value silently displays its first item
-        instead, so a file holding an out-of-set value would look like a valid
-        one — and saving would then write the substituted value back. Adding the
-        stray value as an entry keeps what is shown equal to what is held;
-        validate() is what reports it as a problem.
-        """
-        if value is None or value is False or value == "":
-            editor.setCurrentIndex(0 if field.falsy_means_off else -1)
-            return
-        text = str(value)
-        if editor.findText(text) < 0:
-            editor.addItem(text)
-        editor.setCurrentText(text)
+        """Thin alias; the logic is shared (launcher.apps.combo_display)."""
+        show_in_combo(editor, field, value)
 
     @staticmethod
     def _as_text(value):
-        """Render a stored value for a single-line editor."""
-        if value is None:
-            return ""
-        if isinstance(value, (list, tuple)):
-            return ", ".join("" if v is None else str(v) for v in value)
-        return str(value)
+        """Thin alias; the rendering itself is shared (field_spec.render_value)."""
+        return fs.render_value(value)
 
     def _build_report_panel(self):
         panel = QtWidgets.QGroupBox("Validation and changes")
         box = QtWidgets.QVBoxLayout()
         panel.setLayout(box)
+        self.status_label = QtWidgets.QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        box.addWidget(self.status_label)
+
         self.report = QtWidgets.QPlainTextEdit()
         self.report.setReadOnly(True)
         box.addWidget(self.report)
@@ -285,6 +386,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         """Store a scalar and refresh the panel, reporting rather than aborting."""
         try:
             self.document.set(name, value)
+            self._reattribute(name)
             self.refresh_report()
         except Exception as exc:  # noqa: BLE001
             self.report_problem(exc)
@@ -292,6 +394,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
     @guarded
     def _on_scalar_edited(self, name, widget):
         self.document.set(name, fs.get(name).coerce(widget.text()))
+        self._reattribute(name)
         self.refresh_report()
 
     @guarded
@@ -313,12 +416,18 @@ class SettingsEditorTab(QtWidgets.QWidget):
         item = self.angle_table.item(row, column)
         value = fs.get(name).coerce_element(item.text() if item is not None else "")
         self.document.set_angle_field(row, name, value)
+        self._reattribute(name)
         self.refresh_report()
 
     @guarded
     def add_angle(self):
         self.document.add_angle()
         self.refresh_angles()
+        # A row change makes every per-angle column this run's doing: the array
+        # the experiment file supplied is not the array we now hold. Re-drawing
+        # the old attribution would have the header still naming
+        # reduce_settings_up.json for a column the scientist just changed.
+        self._record_structural_change()
         self.refresh_report()
 
     @guarded
@@ -333,20 +442,101 @@ class SettingsEditorTab(QtWidgets.QWidget):
             return
         self.document.remove_angle(row)
         self.refresh_angles()
+        self._record_structural_change()
         self.refresh_report()
 
     # -- refresh -----------------------------------------------------------
 
+    def _reattribute(self, name):
+        """A person just changed this value here: stop crediting the old source.
+
+        Marked `PREVIOUS_RUN_LAYER`, never `"b"`. With the layer-(b) pre-run
+        override deferred to its own slug, an edit made here is exactly what
+        that label means — *a run-level choice that is not authoritative now*:
+        it lives in this document, and the next Resolve will not honour it.
+        Saying so on the badge is the honest reading, and it warns the scientist
+        that Resolve will discard the value, which `"b"` would have implied the
+        opposite of.
+
+        Not a survivor of `_record_edit`: it records nothing, grants nothing,
+        and touches no `ui_overrides`. What it keeps is the property
+        `_record_edit`'s own docstring named — "an origin that stops tracking
+        the value is worse than none" — which the acceptance bar's "provenance
+        intact" requires and which four tests pin.
+        """
+        self.provenance[name] = Resolved(
+            self.document.get(name), PREVIOUS_RUN_LAYER, "changed in this session"
+        )
+        self.refresh_badges()
+
+    def _record_structural_change(self):
+        """A row was added or removed: re-attribute the columns, grant nothing.
+
+        The array is no longer the one the experiment file supplied, so leaving
+        the old attribution would have the header naming a file that never said
+        this. But nobody typed a value — an "Add angle" click used to mint
+        `Resolved(..., "b")` for **all 13** per-angle fields, which is authority
+        conjured from a click. The columns are marked as previous-run instead:
+        truthful on screen, powerless in the walk.
+
+        This survived the layer-(b) removal deliberately. `PREVIOUS_RUN_LAYER`
+        is not layer (b): it is not in `LAYER_ORDER`, it never enters
+        `ui_overrides`, and its whole purpose is to keep a badge honest WITHOUT
+        granting authority. Dropping it would leave the header still naming an
+        experiment file for a column the scientist has just changed — a
+        regression in the provenance this slug keeps.
+        """
+        for name in fs.PER_ANGLE_NAMES:
+            self.provenance[name] = Resolved(
+                self.document.get(name), PREVIOUS_RUN_LAYER, "row count changed here"
+            )
+        self.refresh_badges()
+
+    def refresh_badges(self):
+        """Show where each value came from, reading the resolver's own record.
+
+        Never a re-derivation: the badge reports the `Resolved` the document was
+        built from, so it cannot claim a different origin than the one that won.
+        """
+        # Per-angle fields resolve as a whole array from one layer, so their
+        # provenance belongs on the column header, not on each cell. Inventing a
+        # per-cell origin would be a re-derivation of something the resolver
+        # never produced.
+        for column, name in enumerate(fs.PER_ANGLE_NAMES):
+            header = self.angle_table.horizontalHeaderItem(column)
+            if header is None:
+                continue
+            field = fs.get(name)
+            resolved = self.provenance.get(name)
+            if resolved is None:
+                header.setText(field.label)
+                header.setToolTip(field.help)
+            else:
+                header.setText(f"{field.label} [{resolved.source_layer}]")
+                header.setToolTip(f"{field.help}\n\nValue came from: {resolved.label}")
+
+        for name, badge in self.badges.items():
+            resolved = self.provenance.get(name)
+            if resolved is None:
+                badge.setText("")
+                badge.setToolTip("")
+                continue
+            badge.setText(f"[{resolved.source_layer}]")
+            badge.setToolTip(f"Value came from: {resolved.label}")
+
     @guarded
-    def set_document(self, document):
+    def set_document(self, document, provenance=None):
         """Adopt a document and render all of it.
 
         The single entry point a resolution layer uses: replacing the document
         without the three refreshes leaves the view showing the previous one.
         """
         self.document = document
+        # Provenance arrives with the document it describes, never separately.
+        self.provenance = dict(provenance) if provenance is not None else {}
         self.refresh_angles()
         self.refresh_scalars()
+        self.refresh_badges()
         self.refresh_report()
 
     def report_problem(self, exc):
@@ -408,6 +598,143 @@ class SettingsEditorTab(QtWidgets.QWidget):
     # -- files -------------------------------------------------------------
 
     @guarded
+    def resolve_for_experiment(self):
+        """Start resolving for the IPTS in the toolbar.
+
+        Returns immediately; discovery runs on a worker and
+        `_discovery_finished` completes the resolution.
+        """
+        ipts = self.ipts_edit.text().strip()
+        if not ipts:
+            self.set_status("Enter an IPTS to resolve settings for it.")
+            return
+
+        text = self.tthd_edit.text().strip()
+        try:
+            tthd = float(text)
+        except ValueError:
+            # Not silently 1.0: the sign of tthd chooses the up or down settings
+            # file, so guessing it would resolve a scientist's run from the
+            # wrong geometry without saying so.
+            self.set_status(f"tthd {text!r} is not a number — enter the detector two-theta.")
+            return
+
+        self.resolve_button.setEnabled(False)
+        self.set_status(f"Resolving {ipts}...")
+        self._busy = True
+        QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
+
+        # Unparented, deliberately. A QThread destroyed while running aborts the
+        # process (SIGABRT; measured exit -6), and the launcher used to do that
+        # on EVERY teardown with a resolve in flight — the very stalled-mount
+        # case the worker was added for, trading v2's freeze for a crash.
+        #
+        # Holding the only reference here means a worker that COMPLETES is
+        # released by `_forget_worker` when it reports `finished`. Nothing calls
+        # deleteLater: releasing the last reference to an unparented QThread is
+        # itself what deletes it, which is safe only once it has stopped. A
+        # worker still running at teardown never reports `finished`, so
+        # `shutdown` parks it in `_PARKED_WORKERS` instead — for that one,
+        # releasing the reference is the abort, not the cure. It **leaks one
+        # thread**, which is the right trade: a leak ends with the process, an
+        # abort takes the other tabs' unsaved state with it.
+        worker = _DiscoveryWorker(ipts, tthd, self._discover)
+        worker.finished_with.connect(self._discovery_finished)
+        worker.finished.connect(self._forget_worker)
+        self._discovery_worker = worker
+        worker.start()
+
+    @guarded
+    def _discovery_finished(self, result):
+        """Finish resolving on the GUI thread, or report why we could not."""
+        self._release_busy()
+
+        if isinstance(result, BaseException):
+            self.report_problem(result)
+            return
+
+        result.global_settings = load_global_settings()
+        # Layer (b) is declared but not populated — the pre-run UI override was
+        # removed with the amendment-20 decompose and is deferred to its own
+        # slug. `ui_overrides` stays empty here exactly as `xml_settings` (d)
+        # does: the resolver honours the layer if a caller supplies it, and
+        # nothing supplies it yet.
+        document, provenance = SettingsResolver(result).resolve_all()
+        self.set_document(document, provenance)
+
+        found = bool(result.json_settings) or bool(result.global_settings)
+        headline = (
+            f"Resolved {result.ipts}."
+            if found
+            else f"Nothing found for {result.ipts} — every value is a built-in default."
+        )
+        self.set_status(f"{headline}\n\nDiscovery: {result.discovery_status}")
+
+    def _release_busy(self):
+        """Undo the busy state exactly once.
+
+        `restoreOverrideCursor` is unreachable if the worker never returns, and
+        an override cursor that is never restored is application-wide and lasts
+        the life of the process.
+        """
+        if self._busy:
+            self._busy = False
+            QtWidgets.QApplication.restoreOverrideCursor()
+        self.resolve_button.setEnabled(True)
+
+    def _forget_worker(self):
+        """Release a worker that has finished."""
+        self._discovery_worker = None
+
+    def shutdown(self):
+        """Let go of a running worker without destroying it. Safe to call twice.
+
+        **Called from the window**, because this tab's own `closeEvent` does not
+        fire on the path that actually quits the application — a tab inside a
+        QTabWidget inside a QMainWindow is torn down without one, which is why
+        the guard added in v4 never ran where it mattered.
+
+        Disconnect first, so a late result cannot touch a widget that is going
+        away. Then *park* a still-running worker rather than dropping it: see
+        `_PARKED_WORKERS` — releasing the reference is what aborts.
+        """
+        worker = self._discovery_worker
+        if worker is not None:
+            for signal, slot in (
+                (worker.finished_with, self._discovery_finished),
+                (worker.finished, self._forget_worker),
+            ):
+                try:
+                    signal.disconnect(slot)
+                except (TypeError, RuntimeError):
+                    # Already disconnected, or the C++ object is gone.
+                    pass
+            try:
+                still_running = worker.isRunning()
+            except RuntimeError:
+                still_running = False
+            if still_running and worker not in _PARKED_WORKERS:
+                _PARKED_WORKERS.append(worker)
+                # Reclaim it if it ever finishes; see _reclaim_parked.
+                worker.finished.connect(lambda w=worker: _reclaim_parked(w))
+            self._discovery_worker = None
+        self._release_busy()
+
+    def closeEvent(self, event):
+        """Defensive: the real teardown comes through `shutdown` from the window."""
+        self.shutdown()
+        super().closeEvent(event)
+
+    def set_status(self, text):
+        """Show discovery status in its own persistent field.
+
+        Kept out of the validation report: that is rebuilt on every edit, so the
+        status of the resolution — which file the values came from — used to
+        vanish the moment anyone typed.
+        """
+        self.status_label.setText(text)
+
+    @guarded
     def load_settings(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
             self,
@@ -422,7 +749,25 @@ class SettingsEditorTab(QtWidgets.QWidget):
         # a sequence ({"tof_min": 5}) raised TypeError out of the slot and
         # aborted the launcher.
         try:
-            self.set_document(SettingsDocument.from_file(path))
+            document = SettingsDocument.from_file(path)
+            # Read the sidecar if one is beside the file. Without this a
+            # Resolve -> Save -> reopen cycle showed blank badges for settings
+            # whose origins had just been written next to them: a persisted
+            # round-trip wired on the write side only.
+            provenance = None
+            if provenance_path(path).exists():
+                _, provenance = load_resolution(path)
+                # A "b" in a file on disk was set for a PREVIOUS run. Displayed,
+                # never authoritative — see PREVIOUS_RUN_LAYER.
+                provenance = {
+                    name: (
+                        Resolved(r.value, PREVIOUS_RUN_LAYER, r.source_detail)
+                        if r.source_layer == "b"
+                        else r
+                    )
+                    for name, r in provenance.items()
+                }
+            self.set_document(document, provenance)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.warning(self, "Could not load settings", str(exc))
             self.report_problem(exc)
@@ -445,8 +790,22 @@ class SettingsEditorTab(QtWidgets.QWidget):
         # which is not a suffix anyone meant.
         if Path(path).suffix.lower() not in (".json", ".dat"):
             path = path + ".json"
+        problems = fs.refusals(self.document.to_dict())
+        if problems:
+            # The same gate the preference dialog uses. This file can land in
+            # shared/autoreduce, where autoreduction reads it.
+            QtWidgets.QMessageBox.warning(
+                self, "Cannot save", "\n".join(problems[:10])
+            )
+            self.set_status("Not saved — fix the problems listed in the report.")
+            return
         try:
-            self.document.save(path)
+            # save_resolution writes the WHOLE document (to_dict, not
+            # normalize) plus a provenance sidecar beside it. One policy, stated
+            # once: a settings file the scientist saves keeps every field they
+            # can see — normalize() dropped RBnum, which has an editable column
+            # whose values were silently discarded on save.
+            save_resolution(path, self.document, self.provenance)
         except Exception as exc:  # noqa: BLE001
             QtWidgets.QMessageBox.warning(self, "Could not save settings", str(exc))
             return

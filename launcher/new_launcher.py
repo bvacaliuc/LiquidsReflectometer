@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 import sys
 
-from qtpy.QtWidgets import QApplication, QGridLayout, QTabWidget, QWidget
+from qtpy.QtWidgets import QApplication, QGridLayout, QMainWindow, QTabWidget, QWidget
 
 from launcher.app_identity import ensure_identity, migrate_legacy_settings
 from launcher.apps.direct_beam import DirectBeamTab
 from launcher.apps.file_batch import FileBatchTab
+from launcher.apps.global_settings import GlobalSettingsDialog
 from launcher.apps.overplot import Overplot
 from launcher.apps.settings_editor import SettingsEditorTab
 from launcher.apps.sld_calculator import SLD
@@ -65,6 +66,62 @@ class ReductionInterface(QTabWidget):
         #self.addTab(self.template_batch_tab, "Batch template")
         #self.setTabText(tab_id, "Batch template")
 
+class LauncherWindow(QMainWindow):
+    """Menu bar around the tab widget.
+
+    ReductionInterface stays a QTabWidget: it is what the tests construct, and
+    turning it into a QMainWindow to hang one menu off would change the shape
+    every existing caller depends on. The shell is additive instead.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("New Reflectometry Launcher")
+        self.tabs = ReductionInterface()
+        self.setCentralWidget(self.tabs)
+
+        settings_menu = self.menuBar().addMenu("&Settings")
+        self.global_settings_action = settings_menu.addAction("&Global reduction settings...")
+        self.global_settings_action.setStatusTip(
+            "Your personal defaults, applied to every experiment unless something more specific overrides them"
+        )
+        self.global_settings_action.triggered.connect(self.open_global_settings)
+
+    def closeEvent(self, event):
+        """Release the settings tab's worker before Qt tears the tree down.
+
+        The tab's own `closeEvent` does not fire on this path — closing the main
+        window destroys the tab widget's children without one — so a guard that
+        lived only on the tab never ran when the application actually quit,
+        which is exactly when a resolve is most likely to still be in flight.
+        """
+        self.tabs.settings_editor_tab.shutdown()
+        super().closeEvent(event)
+
+    def open_global_settings(self):
+        """Open the dialog, and dispose of it.
+
+        Without the deleteLater a dialog and its several hundred widgets are
+        retained for the life of the process, once per invocation.
+        """
+        dialog = GlobalSettingsDialog(self)
+        try:
+            dialog.exec_()
+        finally:
+            dialog.deleteLater()
+
+
+def install_shutdown_hooks(app, window):
+    """Release the discovery worker on every path that ends the process.
+
+    `closeEvent` covers the window's close button. `aboutToQuit` covers
+    everything else — a signal, the session manager, a File->Quit action — which
+    bypasses `closeEvent` entirely. A factored function rather than two lines in
+    `main()` so a test can install the same wiring it ships.
+    """
+    app.aboutToQuit.connect(window.tabs.settings_editor_tab.shutdown)
+
+
 # referenced by pyproject.toml, part of the GUI system
 def main():
     # One QSettings identity for every layer of the launcher, established
@@ -73,7 +130,8 @@ def main():
     ensure_identity()
     migrate_legacy_settings()
     app = QApplication([])
-    window = ReductionInterface()
+    window = LauncherWindow()
+    install_shutdown_hooks(app, window)
     window.show()
     sys.exit(app.exec_())
 
