@@ -449,7 +449,14 @@ class ROISelectionDialog(QDialog):
         layout.addWidget(self._build_controls(row, x_range))
 
         title = row.title or ""
-        self.y_axis.set_title(f"{title} (sequence {row.seq})" if row.seq else title)
+        # parse_math=False: `title` is the NeXus run title, arbitrary text from
+        # the file. matplotlib parses `$...$` as math, so a title carrying a
+        # literal `$` reaches the mathtext parser — and a symbol no font
+        # provides sends `_mathtext._get_glyph` into its fallback chain. Plot
+        # text built from data should never be parsed as markup.
+        self.y_axis.set_title(
+            f"{title} (sequence {row.seq})" if row.seq else title, parse_math=False
+        )
         self.y_axis.set_xlabel("y pixel (reflectivity direction)")
         self.x_axis.set_xlabel("x pixel (low resolution direction)")
         for axis in (self.y_axis, self.tof_axis, self.x_axis):
