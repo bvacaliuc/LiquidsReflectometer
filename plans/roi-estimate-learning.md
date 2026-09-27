@@ -125,3 +125,29 @@ applied to defence-in-depth rather than to a fixture, and
 the other") is the same shape a third time. When you add a guard to a path that
 already has one, the new test must reach the new guard **directly**, not through
 the old one.
+
+## 6. Verify with the gate command, not with an approximation of it
+
+**Rule.** "Green" means the command the gate runs returned zero. Running the
+same tests a different way is not the same claim, and the difference is exactly
+where CWD-, env- and path-dependent defects live.
+
+**Why.** v2 shipped a battery-loader test using a CWD-relative
+`"plans/scripts/roi_estimate_mutations.py"`. I verified with
+`pytest tests/unit/...` from the repo root, where that resolves. The gate is
+`pixi run test-reduction`, which is `cd tests/ && python -m pytest` — so it
+resolved to `<repo>/tests/plans/...`, raised `FileNotFoundError`, and the gate
+went **red** on a slug I had declared green three times over.
+
+The campaign already knew this: `scaling-factor-path-anchor-learning.md` §1 is
+*"a gate command that changes directory hides every cwd-dependent defect behind
+it."* I had read that file — I cited it in this slug's own synthesis — and still
+walked into it, because knowing the lesson and running the command are different
+acts.
+
+**How to apply.** Before declaring a gate green, run the literal gate command
+from `pyproject.toml`, once, at the end. Anchor test-time paths to
+`Path(__file__)` rather than the CWD, since a test that only passes from one
+directory is a defect regardless of which directory the gate happens to use. And
+treat "I ran the tests" and "I ran the gate" as different sentences — the second
+is the one a reviewer is owed.
