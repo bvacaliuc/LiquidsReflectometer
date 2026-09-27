@@ -52,3 +52,43 @@ makes the later reconciliation worse, not better. Geometry from the time-indexed
 
 Dispatched as `triage/roi-estimate-v1`. (Replaces `triage/roi-selector-v1`, withdrawn 2026-09-19
 per the Advisor reconciliation — A1 is D-1, deferred to the human.)
+
+## Revision history — v2 (after v1's review; 2026-09-27; review todo @ `e7908aa`; the campaign's last product dispatch → PR #31)
+
+v1 gate green (145 launcher + 257 reduction, EXIT=0); the module ran clean on all 63 real REF_L
+files; the bandwidth audit + delegation test + amendment-21 were applied correctly. REJECTED on 11
+findings. **Under the termination rule (adopted 2026-09-27), v2's declared scope is the
+demonstrated-reachable-harm subset; the fixture/pin items ride the PR body as advisories and do NOT
+re-open the slug.**
+
+### Declared scope — the demonstrated-harm fixes (BLOCKING)
+1. **Contrast guard can't refuse its worst inputs.** `baseline==0` → `inf`, and `inf < min_contrast`
+   is False for every threshold — the guard never fires on the **5 of 63** low-flux files it exists
+   for. Fix: refuse `baseline<=0` explicitly (do not let `inf` pass); guard reds by mutating the
+   refusal, not by mutating `inf`.
+2. **`pcharge==0` walks every guard → returns `(0,0)`.** Refuse/handle a zero proton-charge
+   normaliser. (Sibling of `todo-get-y-tof-pcharge-shape-trap`.)
+3. **`default_bkg_roi` returns off-detector + negative bands** — the clamps removed as "dead code"
+   covered the end the branch did not check. Restore the clamp; pin both ends against the detector
+   bounds.
+4. **`chopper_tof_window` unit mismatch** — returns Ångström while `tof_band` is documented in
+   microseconds, so the natural composition blames the run for a unit error. Fix the unit (or the
+   contract) and **pin `hi<=lo`** (the silently-inverted-histogram refusal that has no test).
+5. **The mutation battery is dishonest** — it adopts a dirty tree as its clean baseline and prints
+   `restored: OK` with a leftover in place (zero git/signal refs; the exact
+   `todo-mutation-harness-restore-safety` failure). Since this is the campaign's **reference**
+   battery, fix it: restore-first, verify-by-symbol, real baseline. (In scope because a lying test
+   harness is demonstrated harm to every future slug.)
+
+### Advisories → PR body (termination rule; do NOT re-open)
+Fixture peak 4× too wide (a realism pin), `load_event_pixels` re-derives `get_y_tof` with no
+callers/tests, the layer-(e) probe's missing `try/except` across 55 fields. Named for the reviewer;
+not blockers.
+
+### Acceptance (v2)
+- The five harm fixes each with a mutate-once guard that reds on the real reproduction; the four
+  advisories in the PR body. `pixi run test-launcher` + `test-reduction` green; `pixi.lock`
+  untouched. **Draft PR #31 on pass** — the campaign's last product dispatch (hard stop after #31).
+- **Chopper 22.9% divergence** stays out (→ scientists), correctly left out of this additive slug.
+
+Dispatched as `triage/roi-estimate-v2`.
