@@ -549,18 +549,23 @@ def test_two_runs_of_one_position_in_one_call(remeasured, capsys, runs):
     assert partial_name(2, R2B) in outputs
     assert partial_name(2, R2) not in outputs
     assert outputs[COMBINED][0]["NR_runs"] == [None, R2B, R3]
-    assert f"sequence position 2; reducing run {R2B} only" in out
-    assert str(R2) in out
+    # The whole report line: the run left out must be named in it. A bare `str(R2) in out` matched
+    # the call's own "Beginning run set [...]" echo, so it held whatever the report said (review 4617053).
+    assert f"this call names runs [{R2}, {R2B}] at sequence position 2; reducing run {R2B} only" in out
 
 
 R2C = 221476  # a third run at sequence position 2
 
 
-def test_three_runs_at_one_position(remeasured, monkeypatch):
+def test_three_runs_at_one_position(remeasured, monkeypatch, capsys):
     monkeypatch.setitem(RUNS, R2C, (2, -1.25, "Si Ir Air-221472-2. third"))
     write_nexus(remeasured.nexus, R2C)
-    reduce_runs(remeasured, [R1, R2C, R2, R2B, R3])
+    reduce_runs(remeasured, [R1, R2C, R2, R2B])
+    capsys.readouterr()
+    reduce_runs(remeasured, [R3])  # position 2 is then three prior files, none of them this call's
     assert combined_header(remeasured.out)["NR_runs"] == [R1, R2C, R3]
+    assert (f"sequence position 2 has files for runs [{R2}, {R2B}, {R2C}]; using run {R2C}"
+            in capsys.readouterr().out)
 
 
 def test_run_numbers_compare_as_integers(env, monkeypatch):
