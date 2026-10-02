@@ -1,7 +1,7 @@
 # Plan: `rereduction-headers-land` — land M1 (re-reduction headers by sequence position) and D-5 (highest run number wins a re-measured position)
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `rereduction-headers-land` → `triage/rereduction-headers-land`,
-`feature/rereduction-headers-land`, `qa/rereduction-headers-land` · **Status:** READY (v1)
+`feature/rereduction-headers-land`, `qa/rereduction-headers-land` · **Status:** v2 (retry 1 of N = 3; v1 rejected at `review/rereduction-headers-land` @ `4617053` — test-only, see Revision history)
 **Base:** `agentic/exp-review` @ `7b6d6b9` · **PR target:** `exp-review` on the fork, **draft**
 **Depends on:** — (file-disjoint from every `editor-*` / `roi-*` slug) · **Kind:** reduction-path
 **Review domains:** numerical-diagnostics, test (block) · **Retry cap:** N = 3
@@ -172,6 +172,7 @@ symbol. A row that leaves the suite green is a missing guard — add the test fi
 | 8 | run numbers compared as text | `test_run_numbers_compare_as_integers` |
 | 9 | rule skipped when `eight_col` | `test_eight_column_set_follows_the_same_rule` |
 | 10 | report prints the first run, not the winner | `test_shared_position_report_names_the_run_used` |
+| 10b | **(v2)** the in-call report (`sort_runs`) names only the winner, not the run it leaves out | `test_two_runs_of_one_position_in_one_call`, both argument orders |
 | 11 | superseded file removed | `test_superseded_file_is_left_in_place` |
 
 **Frame.** A helper introduced for "which run wins" gets one row per call site (`load_prior_data`; `sort_runs`
@@ -244,4 +245,39 @@ No mutation above can hang; `--timeout=120` still applies to every battery run. 
 
 ## Revision history
 
-v1 — this document (Analyst, 2026-10-02).
+v1 — this document as dispatched at `triage/rereduction-headers-land` @ `c3d61ca` (Analyst, 2026-10-02).
+
+### v2 — 2026-10-02 (retry 1; the work order for `triage/rereduction-headers-land-v2`)
+
+**Rejection.** `review/rereduction-headers-land` @ `4617053` — `todo.md` at that commit: one blocking finding,
+test domain, one line. Not infrastructure. B3 says `sort_runs` "reports the run it leaves out"; the only assertion
+on that half is `assert str(R2) in out` (`tests/unit/lr_reduction/test_prior_combination.py:553` @ `30f5a7a`), and
+`reduce_from_file` always prints `Beginning run set […]` with every run of the call
+(`new_reduction_from_file.py:53`), so the line passes whatever the report says. Verified by the Analyst at
+`30f5a7a`: the line, the unconditional print, and the report text at `:195-196`. **The gap was also this plan's:**
+§6 asked for "the other run reported" without saying what output could tell a report from the call's own echo,
+and §7 had no row for a report that omits the left-out run (row 10b now).
+
+**What stands (do not redo; `todo.md` "What passed").** Everything under `src/` — v2 changes **no** production
+line (`git diff 30f5a7a..<v2 tip> -- src/` must be empty, which lets the Integrator reuse this cycle's harness and
+numerical evidence); the M1 merge; all twenty recorded mutation rows.
+
+**What changes (tests and battery only).**
+
+| # | Change | RED / proof it can fail |
+|---|---|---|
+| W1 | In `test_two_runs_of_one_position_in_one_call`, replace the vacuous line with an assertion on the **whole report line** — the sorted runs of the position and the run reduced — for both argument orders. The Integrator's checked form: `assert f"this call names runs [{R2}, {R2B}] at sequence position 2; reducing run {R2B} only" in out`. | under mutation 10b (the report names only the winner): **2 failed**; unmutated: the file's 50 pass (the Integrator's measurement — reproduce it and record yours) |
+| W2 | Battery: add row 10b; its recorded count goes in the commit body. | — |
+| W3 (recommended, same class) | `test_three_runs_at_one_position` asserts nothing about the shared-position report. Assert that it names all three runs, sorted, and the run used (B4's wording, whatever the code prints at `30f5a7a` — read it, do not assume this plan's sentence). A mutation that drops one run from that report must red it; record the row. | record RED under that mutation |
+
+**Types and states the changed assertions act on** (amendment 18 — the prescription is a string): the report
+prints a Python list of integers, so the asserted text depends on the run numbers being `int` and on the sort
+being numeric — both pinned already (`test_run_numbers_compare_as_integers`); two runs (W1) and three runs (W3);
+both argument orders (W1). An assertion that matches any substring also present in `Beginning run set […]`, or in
+a file name, is the same defect again: each new assertion is shown to fail under its mutation before it is trusted.
+
+**Acceptance (v2).** The gate from the repository root; `todo.md` removed from the feature branch in its own
+commit before `qa/`; no change under `src/`; W1–W2 (and W3 if taken) with their mutation counts in the commit
+body. The PR body carries the advisories of `todo.md` verbatim (A-1 the unguarded `max(chosen, default=0)`; A-2;
+A-3 the reverse directions of rows 3a/3b; A-4; A-5; the numerical reviewer's four notes, including the corrected
+sentence "B2 adds no NeXus read for unshared positions") — none is in this revision's scope.
