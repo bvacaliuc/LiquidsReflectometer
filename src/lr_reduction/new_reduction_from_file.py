@@ -1,3 +1,4 @@
+import ast
 import json
 import os
 import re
@@ -13,6 +14,9 @@ import lr_reduction.save_reduced_data as save_fn
 #import template
 from lr_reduction.nr_reduction_calc import NR_Reduction  # TODO: Fix names of files!!
 from lr_reduction.nr_reduction_config import NRReductionConfig
+
+# Per-run logs recorded in the output headers ("Run Title" and "Angles")
+LOG_KEYS = ("title", "ths", "thi", "ThCen")
 
 
 def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = None, override_params: dict = None, plot=True,
@@ -83,28 +87,28 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
 
         config_final = results["config"]
         figures_out = results["figures"]
-        logs_out = results["used_log_vals"]
         output_figures.extend([results["figures"][-1]]) # Choose to output only the overlapped plot of settings
 
         if check_for_prior:
             # Look in folder for files of correct format
-            dict_output, combine_results, scaling_factors, matched_files, sorted_run_nums, angle_logs = find_combine_priors(config_final, group_output_sorted["run_nums"], results, group_output_sorted, eight_col)
+            (dict_output, combine_results, scaling_factors, matched_files, sorted_run_nums, sorted_seq_nums,
+             position_run_nums, used_theta_vals) = find_combine_priors(config_final, group_output_sorted["run_nums"], results, group_output_sorted, eight_col)
 
             # check dictionaries and arrays aren't empty - they're empty if no priors found
             if dict_output:
                 # update the config scaling factors
                 config_final.ScaleFactor = scaling_factors
+                # the headers describe the whole set, one entry per sequence position
+                config_final.RBnum = position_run_nums
 
-                # TODO: Need to read in the used_theta_vals
-                #used_theta_vals = {"thi":[], "ths":[], "ThCen":[], "title": []}
-                used_theta_vals = {k: angle_logs.get(k, []) + logs_out.get(k, []) for k in angle_logs.keys() | logs_out.keys()}
                 # save files
                 # non-concatenated
                 # TODO: this is resaving them. Think this is the best option.
                 for i in range(len(dict_output)):
-                    save_fn.save_results(dict_output[i], config_final, used_theta_vals, sname=f"{config_final.Sname}_{i+1}_{sorted_run_nums[i]}{config_final.subname}")
+                    sname = f"{config_final.Sname}_{sorted_seq_nums[i]}_{sorted_run_nums[i]}{config_final.subname}"
+                    save_fn.save_results(dict_output[i], config_final, used_theta_vals, sname=sname)
                     if eight_col:
-                        save_fn.save_results(dict_output[i], config_final, used_theta_vals, sname=f"{config_final.Sname}_{i+1}_{sorted_run_nums[i]}{config_final.subname}", eight_column=True)
+                        save_fn.save_results(dict_output[i], config_final, used_theta_vals, sname=sname, eight_column=True)
                 # Always make the final plot, only show it if plot is True
                 new_plot = plot_reflectivity(dict_output, RQ4=False, show_fig=plot)
                 figures_out.append(new_plot)
@@ -251,6 +255,11 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
     loaded_run_nums = []
     #TODO: This needs cleaning up!
 
+    # Logs of the current reduction, by sequence position like initial_seq (None where no run)
+    current_logs = results["used_log_vals"]
+    loaded_logs = [{k: current_logs[k][pos] for k in LOG_KEYS}
+                   for pos, seq in enumerate(initial_seq) if seq is not None]
+
     # Remove None entries from initial set
     initial_seq = [x for x in initial_seq if x is not None]
     initial_run_nums = [x for x in initial_run_nums if x is not None]
@@ -280,33 +289,33 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
         loaded_run_nums.append(initial_run_nums[val])
 
     # Load, sort data order
-    angle_logs_thi = []
-    angle_logs_ths = []
-    angle_logs_thcen = []
-    title_log = []
     prior_data = []
+    prior_logs = []
     prior_seq_nums = []
     prior_run_nums = []
 
-    for item in matched_files:
-        filepath = Path(updated_config.Spath) / item[0]
-        with open(filepath, "r") as f:
-            for line in f:
-                if line.startswith("# Angles: "):
-                    angles_out = json.loads(line[len("# Angles: "):])
-                elif line.startswith("# Run Title:"):
-                    title_out = json.loads(line[len("# Run Title: "):])
-
-        if angles_out:
-            angle_logs_ths.append(angles_out["THS"])
-            angle_logs_thi.append(angles_out["THI"])
-            angle_logs_thcen.append(angles_out["ThCen"])
-        if title_out:
-            title_log.append(title_out["title"])
+    for filename, seq_num, run_num in matched_files:
+        filepath = Path(updated_config.Spath) / filename
+        logs = own_logs_from_header(read_prior_header(filepath), seq_num, run_num)
+        if logs is None:
+            print(f"{filename}: header does not identify the logs of run {run_num}; reading title and angles "
+                  f"from its NeXus file, ThCen unknown until run {run_num} is reduced again")
+            logs = read_logs_from_nexus(run_num, updated_config.NEXUSpathRB)
         data = np.loadtxt(filepath, unpack=True)
         prior_data.append(data)
-        prior_seq_nums.append(item[1])
-        prior_run_nums.append(item[2])
+        prior_logs.append(logs)
+        prior_seq_nums.append(seq_num)
+        prior_run_nums.append(run_num)
+
+    # Report positions with files of more than one run (a re-measured step, or files misnamed by the
+    # pre-fix Q-order naming): only one of them is used
+    position_runs = {}
+    for seq_num, run_num in zip(loaded_seq_nums + prior_seq_nums, loaded_run_nums + prior_run_nums):
+        position_runs.setdefault(seq_num, []).append(run_num)
+    for seq_num, run_nums in sorted(position_runs.items()):
+        if len(set(run_nums)) > 1:
+            print(f"Warning: sequence position {seq_num} has files for runs {sorted(set(run_nums))}; "
+                  f"using run {run_nums[0]}")
 
     # Join the two together based on seq num (ignore None values)
     highest_seq_num = max((x for x in loaded_seq_nums + prior_seq_nums if x is not None), default=0)
@@ -314,31 +323,100 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
     combined_data = [None] * highest_seq_num
     combined_seq_nums = [None] * highest_seq_num
     combined_run_nums = [None] * highest_seq_num
+    combined_logs = [None] * highest_seq_num
     for i in range(len(combined_data)):
         if i+1 in loaded_seq_nums:
             idx = loaded_seq_nums.index(i+1)
             combined_data[i] = existing_data[idx]
             combined_seq_nums[i] = loaded_seq_nums[idx]
             combined_run_nums[i] = loaded_run_nums[idx]
+            combined_logs[i] = loaded_logs[idx]
         elif i+1 in prior_seq_nums:
             idx = prior_seq_nums.index(i+1)
             combined_data[i] = prior_data[idx]
             combined_seq_nums[i] = prior_seq_nums[idx]
             combined_run_nums[i] = prior_run_nums[idx]
+            combined_logs[i] = prior_logs[idx]
 
-    # sort
-    indices = sorted(range(len(combined_data)), key=lambda i: combined_data[i][0][0])
+    # sort the positions that have data (a gap in the sequence stays None)
+    present = [i for i in range(len(combined_data)) if combined_data[i] is not None]
+    indices = sorted(present, key=lambda i: combined_data[i][0][0])
     sorted_data = [combined_data[i] for i in indices]
     sorted_seq_num = [combined_seq_nums[i] for i in indices]
     sorted_run_num = [combined_run_nums[i] for i in indices]
-    angle_logs_thcen = max(angle_logs_thcen, key=len) # THis is weird and messy and needs a fix but because it adds on in prior cycles...!!
-    angle_logs_ths = max(angle_logs_ths, key=len)
-    angle_logs_thi = max(angle_logs_thi, key=len)
-    title_log = max(title_log, key=len)
 
-    angle_logs = {"ths": angle_logs_ths, "thi": angle_logs_thi, "ThCen": angle_logs_thcen, "title": title_log}
+    # logs stay by sequence position, like the config lists they are written next to
+    position_logs = {k: [None if logs is None else logs[k] for logs in combined_logs] for k in LOG_KEYS}
 
-    return sorted_data, sorted_seq_num, sorted_run_num, angle_logs
+    return sorted_data, sorted_seq_num, sorted_run_num, combined_run_nums, position_logs
+
+
+def read_prior_header(filepath):
+    """
+    Read the run list, format marker and per-run logs from the header of a saved partial file.
+    Missing or unreadable entries are None.
+    """
+    header = {"format": None, "NR_runs": None, **{k: None for k in LOG_KEYS}}
+    with open(filepath, "r") as f:
+        for line in f:
+            if not line.startswith("#"):
+                break
+            try:
+                if line.startswith("# NR_runs = "):
+                    header["NR_runs"] = ast.literal_eval(line[len("# NR_runs = "):].strip())
+                elif line.startswith("# Run Title: "):
+                    header["title"] = json.loads(line[len("# Run Title: "):])["title"]
+                elif line.startswith("# Angles: "):
+                    angles = json.loads(line[len("# Angles: "):])
+                    header["ths"], header["thi"], header["ThCen"] = angles["THS"], angles["THI"], angles["ThCen"]
+                elif line.startswith("# Header format: "):
+                    header["format"] = int(line[len("# Header format: "):].split()[0])
+            except (ValueError, SyntaxError, KeyError, TypeError):
+                pass  # an unreadable entry stays None, so the header cannot vouch for its logs
+    return header
+
+
+def own_logs_from_header(header, seq_num, run_num):
+    """
+    The logs of run `run_num` at sequence position `seq_num`, from the header of its own saved file,
+    or None when the header cannot vouch for them.
+
+    Header format 2 lists are indexed by sequence position. Older headers ("legacy") hold lists
+    appended in reduction order, and NR_runs holds the runs of the call that wrote them. There the
+    file's entry is known only when that call reduced this run alone (NR_runs has one run, at the
+    file's position): it appended its own entry last, to the longest list among the other files
+    (or to nothing, when there were none).
+    """
+    runs = header["NR_runs"]
+    lists = [header[k] for k in LOG_KEYS]
+    if not isinstance(runs, list) or not all(isinstance(values, list) and values for values in lists):
+        return None
+    if len({len(values) for values in lists}) != 1 or len(runs) < seq_num or runs[seq_num - 1] != run_num:
+        return None
+    if header["format"] is None:
+        if [r for r in runs if r is not None] != [run_num]:
+            return None
+        return {k: header[k][-1] for k in LOG_KEYS}
+    if len(lists[0]) != len(runs):
+        return None
+    return {k: header[k][seq_num - 1] for k in LOG_KEYS}
+
+
+def read_logs_from_nexus(run_num, datapath):
+    """
+    Title, ths and thi of a run, read from its NeXus file as NR_Reduction.reduce() records them.
+    ThCen is None: it is a result of the reduction (theta shift or calculated theta), not a log.
+    """
+    fname = Path(datapath) / f"REF_L_{run_num}.nxs.h5"
+    try:
+        with h5py.File(fname, "r") as f:
+            return {"title": f["entry/title"].asstr()[0],
+                    "ths": float(np.round(f["entry/DASlogs/BL4B:Mot:ths.RBV/value"][-1], 3)),
+                    "thi": float(np.round(f["entry/DASlogs/BL4B:Mot:thi.RBV/value"][-1], 3)),
+                    "ThCen": None}
+    except (OSError, KeyError) as e:
+        print(f"Could not read the logs of run {run_num} from {fname}: {e}")
+        return {k: None for k in LOG_KEYS}
 
 def find_combine_priors(updated_config, run_nums, results, group_output_sorted, eight_col=False):
     # Find the files
@@ -352,7 +430,7 @@ def find_combine_priors(updated_config, run_nums, results, group_output_sorted, 
     if len(matched_files) > 0:
 
         print(f"Found {len(matched_files)} to combine")
-        sorted_data, sorted_seq_num, sorted_run_num, angle_logs = load_prior_data(results, matched_files, updated_config, initial_seq, initial_run_nums)
+        sorted_data, sorted_seq_num, sorted_run_num, position_run_nums, position_logs = load_prior_data(results, matched_files, updated_config, initial_seq, initial_run_nums)
         # TODO: quite a bit is a duplicate of in the calc file. Can be smarter here.
         Q, R, dR, dQ = [], [], [], []
         T, L, dT, dL = [], [], [], []
@@ -381,7 +459,7 @@ def find_combine_priors(updated_config, run_nums, results, group_output_sorted, 
                 scale = scaling_factors_out[0]
 
                 if not np.isfinite(scale):
-                    print(f"Unable to find scaling factor for {run}")
+                    print(f"Unable to find scaling factor for run {sorted_run_num[run]}")
                     scale = 1
 
                 result[1, :] *= scale
@@ -390,7 +468,7 @@ def find_combine_priors(updated_config, run_nums, results, group_output_sorted, 
                 print('Scaling factor:', np.round(scale, 3))
                 scaling_factors.append(scale)
                 position = sorted_seq_num[run] - 1
-                if position == len(initial_scalefactors):
+                while position >= len(initial_scalefactors):
                     initial_scalefactors.append(1)
                 initial_scalefactors[position] *= scale
 
@@ -430,11 +508,12 @@ def find_combine_priors(updated_config, run_nums, results, group_output_sorted, 
             combine_results = {'Q': Q_combined[idx], 'R': R_combined[idx], 'dR': dR_combined[idx], 'dQ': dQ_combined[idx]}
 
         #print(combine_results)
-        return dict_output, combine_results, initial_scalefactors, matched_files, sorted_run_num, angle_logs
+        return (dict_output, combine_results, initial_scalefactors, matched_files, sorted_run_num, sorted_seq_num,
+                position_run_nums, position_logs)
 
     else:
         # TODO: fix this...
-        return {}, {}, [], [], [], {}
+        return {}, {}, [], [], [], [], [], {}
 
 def json_to_config(json_input):
     config_init = NRReductionConfig()
