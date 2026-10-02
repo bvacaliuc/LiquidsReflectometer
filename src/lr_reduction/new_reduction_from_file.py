@@ -158,6 +158,16 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
     # Might need to come back to which figures are output.
     return all_results, output_figures, sorted_run_nums, config_final
 
+def highest_run(run_nums):
+    """The run whose data and header entries a sequence position takes when it was measured more than once.
+
+    D-5 (``[human, 2026-10-02]``): the highest run number wins, whatever the order in which the runs
+    were reduced or named. Compared as integers. File names give ``int`` from the regex and callers
+    pass ``int``, but text order ranks ``"99999"`` above ``"100000"``.
+    """
+    return max(run_nums, key=int)
+
+
 def sort_runs(group_output, idx):
     seq_to_use = group_output["seq_nums"][idx]
     sort_seq = np.argsort(seq_to_use)
@@ -169,9 +179,21 @@ def sort_runs(group_output, idx):
 
     # Put None where the seq_id are missing
     full_range = list(range(1, max(group_output_new["seq_nums"]) + 1))
-    # Map values to their positions
-    map2 = dict(zip(group_output_new["seq_nums"], group_output_new["run_nums"]))
-    map3 = dict(zip(group_output_new["seq_nums"], group_output_new["seq_ids"]))
+    # Map values to their positions. A call that names two runs of one position reduces only the
+    # highest (D-5). A plain dict(zip(...)) kept whichever came last, so the argument order decided
+    # and the other run was dropped without a word.
+    by_position = {}
+    for seq, run, seq_id in zip(group_output_new["seq_nums"], group_output_new["run_nums"],
+                                group_output_new["seq_ids"]):
+        by_position.setdefault(seq, []).append((run, seq_id))
+    map2, map3 = {}, {}
+    for seq, entries in by_position.items():
+        runs = [run for run, _ in entries]
+        map2[seq] = highest_run(runs)
+        map3[seq] = next(seq_id for run, seq_id in entries if run == map2[seq])
+        if len(set(runs)) > 1:
+            print(f"Warning: this call names runs {sorted(set(runs), key=int)} at sequence position {seq}; "
+                  f"reducing run {map2[seq]} only")
     # Build aligned lists
     base_aligned  = [x if x in group_output_new["seq_nums"] else None for x in full_range]
     list2_aligned = [map2.get(x, None) for x in full_range]
@@ -288,55 +310,73 @@ def load_prior_data(results, matched_files, updated_config, initial_seq, initial
         loaded_seq_nums.append(initial_seq[val])
         loaded_run_nums.append(initial_run_nums[val])
 
-    # Load, sort data order
-    prior_data = []
-    prior_logs = []
-    prior_seq_nums = []
-    prior_run_nums = []
-
+    # The candidates for each sequence position: this call's run there (no file name) and every prior
+    # file found for it. Which candidate a position takes is decided before any prior file is read.
+    candidates = {}
+    for seq_num, run_num in zip(loaded_seq_nums, loaded_run_nums):
+        candidates.setdefault(seq_num, []).append((run_num, None))
     for filename, seq_num, run_num in matched_files:
-        filepath = Path(updated_config.Spath) / filename
-        logs = own_logs_from_header(read_prior_header(filepath), seq_num, run_num)
-        if logs is None:
-            print(f"{filename}: header does not identify the logs of run {run_num}; reading title and angles "
-                  f"from its NeXus file, ThCen unknown until run {run_num} is reduced again")
-            logs = read_logs_from_nexus(run_num, updated_config.NEXUSpathRB)
-        data = np.loadtxt(filepath, unpack=True)
-        prior_data.append(data)
-        prior_logs.append(logs)
-        prior_seq_nums.append(seq_num)
-        prior_run_nums.append(run_num)
+        candidates.setdefault(seq_num, []).append((run_num, filename))
 
-    # Report positions with files of more than one run (a re-measured step, or files misnamed by the
-    # pre-fix Q-order naming): only one of them is used
-    position_runs = {}
-    for seq_num, run_num in zip(loaded_seq_nums + prior_seq_nums, loaded_run_nums + prior_run_nums):
-        position_runs.setdefault(seq_num, []).append(run_num)
-    for seq_num, run_nums in sorted(position_runs.items()):
-        if len(set(run_nums)) > 1:
-            print(f"Warning: sequence position {seq_num} has files for runs {sorted(set(run_nums))}; "
-                  f"using run {run_nums[0]}")
+    chosen = {}  # sequence position -> (run, prior file name or None for this call's run)
+    for seq_num, position in sorted(candidates.items()):
+        runs = sorted({run_num for run_num, _ in position}, key=int)
+        if len(runs) > 1:
+            # A prior file must belong to the position it names: the pre-fix merge named files by Q
+            # order, and with the highest run winning, such a copy would displace the true run. Checked
+            # only where runs compete, so a position with one run reads no NeXus file. A file whose
+            # NeXus file cannot be read cannot be disproved and stays.
+            belongs = []
+            for run_num, filename in position:
+                if filename is None:
+                    belongs.append((run_num, filename))
+                    continue
+                nexus = Path(updated_config.NEXUSpathRB) / f"REF_L_{run_num}.nxs.h5"
+                try:
+                    with h5py.File(nexus, "r") as f:
+                        true_seq = int(f["entry/DASlogs/BL4B:CS:Autoreduce:Sequence:Num/value"][0])
+                except (OSError, KeyError, IndexError, ValueError, TypeError) as e:
+                    print(f"Warning: {filename} could not be checked against the NeXus file of run {run_num} "
+                          f"({type(e).__name__}: {e}); kept for sequence position {seq_num}")
+                    belongs.append((run_num, filename))
+                    continue
+                if true_seq == seq_num:
+                    belongs.append((run_num, filename))
+                else:
+                    print(f"Warning: {filename} is not used: the NeXus file of run {run_num} puts it at "
+                          f"sequence position {true_seq}, not {seq_num}")
+            position = belongs
+        if position:
+            # D-5: the highest run number wins, whether its data come from this call or from a file
+            winner = highest_run([run_num for run_num, _ in position])
+            chosen[seq_num] = next(c for c in position if c[0] == winner)
+        if len(runs) > 1:
+            used = f"using run {chosen[seq_num][0]}" if seq_num in chosen else "none of them belongs to it"
+            print(f"Warning: sequence position {seq_num} has files for runs {runs}; {used}")
 
-    # Join the two together based on seq num (ignore None values)
-    highest_seq_num = max((x for x in loaded_seq_nums + prior_seq_nums if x is not None), default=0)
+    # Join by sequence position: the winner's data and logs (a position with no run stays None)
+    highest_seq_num = max(chosen, default=0)
     print(highest_seq_num)
     combined_data = [None] * highest_seq_num
     combined_seq_nums = [None] * highest_seq_num
     combined_run_nums = [None] * highest_seq_num
     combined_logs = [None] * highest_seq_num
-    for i in range(len(combined_data)):
-        if i+1 in loaded_seq_nums:
-            idx = loaded_seq_nums.index(i+1)
-            combined_data[i] = existing_data[idx]
-            combined_seq_nums[i] = loaded_seq_nums[idx]
-            combined_run_nums[i] = loaded_run_nums[idx]
-            combined_logs[i] = loaded_logs[idx]
-        elif i+1 in prior_seq_nums:
-            idx = prior_seq_nums.index(i+1)
-            combined_data[i] = prior_data[idx]
-            combined_seq_nums[i] = prior_seq_nums[idx]
-            combined_run_nums[i] = prior_run_nums[idx]
-            combined_logs[i] = prior_logs[idx]
+    for seq_num, (run_num, filename) in chosen.items():
+        if filename is None:
+            idx = loaded_seq_nums.index(seq_num)
+            data, logs = existing_data[idx], loaded_logs[idx]
+        else:
+            filepath = Path(updated_config.Spath) / filename
+            logs = own_logs_from_header(read_prior_header(filepath), seq_num, run_num)
+            if logs is None:
+                print(f"{filename}: header does not identify the logs of run {run_num}; reading title and angles "
+                      f"from its NeXus file, ThCen unknown until run {run_num} is reduced again")
+                logs = read_logs_from_nexus(run_num, updated_config.NEXUSpathRB)
+            data = np.loadtxt(filepath, unpack=True)
+        combined_data[seq_num - 1] = data
+        combined_seq_nums[seq_num - 1] = seq_num
+        combined_run_nums[seq_num - 1] = run_num
+        combined_logs[seq_num - 1] = logs
 
     # sort the positions that have data (a gap in the sequence stays None)
     present = [i for i in range(len(combined_data)) if combined_data[i] is not None]

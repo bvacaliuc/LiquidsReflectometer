@@ -583,3 +583,18 @@ def test_eight_column_set_follows_the_same_rule(remeasured):
         assert outputs[name][0]["NR_runs"] == [R1, R2B, R3], name
     np.testing.assert_allclose(outputs[partial_name(2, R2B).replace(".dat", "_8col.dat")][1][0],
                                q_grid(R2B), rtol=1e-9)
+
+
+def test_a_position_whose_every_file_is_a_misnamed_copy_stays_a_gap(remeasured, capsys):
+    """Added when mutation F7 (the guard for a position left with no candidate) survived the battery:
+    nothing put a position where every file belongs elsewhere, and there the highest of nothing raises.
+    """
+    for run in (R2, R3):
+        write_misnamed_copy(remeasured.out, run, 1, [R1, R2, R3], [R1, R2, R3])
+        write_legacy_file(remeasured.out, run, [R1, R2, R3], [R1, R2, R3])
+    reduce_runs(remeasured, [R2B])
+    out = capsys.readouterr().out
+    assert combined_header(remeasured.out)["NR_runs"] == [None, R2B, R3]
+    for copy in (partial_name(1, R2), partial_name(1, R3)):
+        assert f"{copy} is not used" in out, copy
+    assert f"sequence position 1 has files for runs [{R2}, {R3}]; none of them belongs to it" in out
