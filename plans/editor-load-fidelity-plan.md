@@ -1,7 +1,7 @@
 # Plan: `editor-load-fidelity` — a reducer-written settings file loads quietly, saves as it was written, and its runtime record is read-only
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `editor-load-fidelity` (refs `triage/editor-load-fidelity`,
-`feature/editor-load-fidelity`, `qa/editor-load-fidelity`) · **Status:** READY (v1) ·
+`feature/editor-load-fidelity`, `qa/editor-load-fidelity`) · **Status:** v2 (retry 1 of N = 3; v1 rejected at `review/editor-load-fidelity` @ `8b62952` — see Revision history) ·
 **Base:** `agentic/exp-review` @ `7b6d6b9` · **PR target:** `exp-review` on the fork, **draft** ·
 **Depends on:** nothing (first of the editor lane; `editor-combos` waits for this slug's merge) ·
 **Review domains:** design, test (block) · **Kind:** launcher / settings model — **not** reduction-path
@@ -70,20 +70,21 @@ file boundary, in one place, driven by a declaration on the `Field`.
 
 | # | Behaviour | Where it must hold |
 |---|---|---|
-| B1 | A declared boolean accepts `True`, `False`, and the integers `1`, `0` without a problem line. Anything else is reported, with a message that names both spellings (`true/false (or 1/0)`). | `validate()` on **any** document — loaded, injected (`SettingsDocument(config)`), or edited. |
-| B2 | After `from_dict` / `from_file`, integer `1`/`0` in a declared-boolean field is held as `True`/`False` (`type(v) is bool`). Other values are left exactly as loaded. The seed is taken after this, so `changed_vs_seed()` is empty straight after a load. | load only |
+| B1 | **(v2)** The integers `1`, `0` are accepted without a problem line **only where the file encoding is `1`/`0`** — the fields declared integer-encoded (`useBS` entries; `Field.int_encoded` at the feature tip). `True`/`False` are accepted everywhere. In the seven scalar booleans an integer is reported as at the base — a line naming the field and the value, telling the author to write `true`/`false`, and **not** offering `1/0`. Anything else is reported; for an integer-encoded entry the message names both spellings. | `validate()` on **any** document — loaded, injected (`SettingsDocument(config)`), or edited. |
+| B2 | **(v2)** After `from_dict` / `from_file`, integer `1`/`0` **in an integer-encoded field** is held as `True`/`False` (`type(v) is bool`). Every other value — including an integer in a scalar boolean — is left exactly as loaded. The seed is taken after this, so `changed_vs_seed()` is empty straight after a load. | load only |
 | B3 | An Angles-table cell of a boolean column shows `true` / `false` for `True`/`1` and `False`/`0`; any other value shows as today. | `refresh_angles` |
 | B4 | `save()` writes each `useBS` entry as JSON `1`/`0` (`null` for an unset entry); scalar booleans are written as held (`true`/`false`). `normalize()` encodes `useBS` identically. Which list fields are integer-encoded is declared on `Field` (one new attribute, default off, set for `useBS` only) — not a name test inside the document. | `save`, `normalize` |
 | B5 | `LambdaMinUse` and `LambdaMaxUse` never produce a problem line, whatever shape the file carries. | `validate()` |
 | B6 | Their editors are read-only: `isReadOnly()` is true, typing changes neither the widget nor the document, and they still display what the file recorded (after every load). | `_build_editor`, `refresh_scalars` |
 | B7 | load → save → load → save: the second file is byte-identical to the first, and `useBS` in it is the JSON the source held. | end to end |
+| B8 | **(v2, new)** **Load → save never changes what the reduction does with a declared boolean.** For each of the seven scalar booleans the saved JSON value has the same value **and type** as the source's (`1` stays `1`, `true` stays `true`) — so every reader sees what it saw before, whether it reads by truthiness, by identity (`useGravity`, `nr_reduction_calc.py:1079`) or by formatting the value into a header (`save_reduced_data.py:79-80,97-98`). For `useBS`, an entry in {`1`, `0`, `true`, `false`} is saved as `1`/`0`, which its readers (truthiness at `nr_reduction_calc.py:102`, `:509`, `:979`; `== 1` at `new_reduction_from_template.py:224`) read as they read the source. | end to end |
 
 **Types and states each changed path acts on** (amendment 18 — state the behaviour before writing code):
 
 | Value in a declared-boolean position | scalar field (`Normalize`, `AutoScale`, `plotON`, `plotQ4`, `save8col`, `useGravity`, `use_emission_time`) | one `useBS` entry |
 |---|---|---|
 | `True` / `False` | no problem; checkbox; saved `true`/`false` | no problem; `true`/`false`; saved `1`/`0` |
-| `1` / `0` (int) | no problem; loaded → `True`/`False`; saved `true`/`false` (A3) | no problem; loaded → `True`/`False`; saved `1`/`0` |
+| `1` / `0` (int) | **(v2)** reported (as at the base); held as loaded; saved as loaded — `1` stays `1` (B8) | no problem; loaded → `True`/`False`; saved `1`/`0` |
 | other int (`2`, `-1`) | reported, kept | reported at its angle, kept |
 | float (`1.0`), str (`"0"`, `"true"`), list | reported, kept — never coerced on load: `"0"` is truthy to the reducer, so silence would subtract a background the author switched off | same |
 | `None` | no problem (unset) | no problem; saved `null` |
@@ -101,6 +102,11 @@ Decisions, with reasons:
 - **Why canonicalize on load as well as accept in validation.** Acceptance alone leaves `[1, False, 0]`
   in the model after one edit, and the "Changed from the seed" panel prints it that way. Canonical
   booleans give the scientists one spelling on screen and give `editor-combos` a `bool` to bind.
+- **(v2) Why 1/0 is accepted only where it is the file's own encoding.** v1 widened it to every declared
+  boolean on the premise that the reducer reads them all by truthiness. One reader does not
+  (`useGravity is True`, `:1079`), and others format the value into headers. Mirroring each reader's mode in
+  the table would be a hand-copy of the reducer that drifts; leaving scalars untouched needs no knowledge
+  of the readers at all, and it is all item 1 and Q1 asked for (`useBS`).
 - **Why acceptance is not load-only.** A document handed a config directly never passes `from_dict`;
   it must not cry wolf either.
 - **Why the record is quiet rather than re-typed.** It is not an input: `nr_reduction_calc.py:385-391`
@@ -128,8 +134,9 @@ Decisions, with reasons:
 | common | fresh document, add two angles, type `false` in one cell, save | `[null, 0]` or as filled; never the string `"false"` |
 | edge | mixed `[1, true, 0]` | quiet; held `[True, True, False]`; saved `[1, 1, 0]` |
 | edge | `.dat` header as the source | identical to the JSON case (same loader) |
-| edge | config injected with ints (no load) | quiet (B1); cells `true`/`false` (B3); saved `1`/`0` (B4) |
-| edge | scalar `"Normalize": 1` | quiet; checkbox checked; saved `true` |
+| edge | config injected with integer `useBS` (no load) | quiet (B1); cells `true`/`false` (B3); saved `1`/`0` (B4) |
+| edge | **(v2)** config injected with an integer scalar boolean (`useGravity = 1`) | reported; held and saved as `1` |
+| edge | **(v2)** scalar `"Normalize": 1`, `"useGravity": 1` or `0` (a hand-edited file) | reported by name; held and saved as written; the reduction of the saved file is the reduction of the source |
 | edge | record holds a list, or `None` | quiet; shown; never editable |
 | edge | toggle one `useBS` cell after loading ints | only that entry changes; "Changed from the seed" lists `useBS` once, in booleans |
 | pathological | `useBS: [2]`, `["0"]`, `[1.0]`, `[[1]]` | each reported at its angle, value kept, save writes what is held |
@@ -240,7 +247,7 @@ code the test does not depend on (`settings-editor-learning.md` §8).
 4. No file outside "Files in" changes; no `plans/`, `todo.md` or mutation battery in the diff.
 5. **Deployment-shaped acceptance (Integrator, analysis node — the operator-facing clause of charter §4):**
    `pixi run python <ledger>/scripts/editor-real-file-roundtrip.py` over at least three real
-   `*_settings.json` and one reduced `.dat` from an IPTS `shared/autoreduce` folder the Integrator can
+   `*_settings.json` (they live under an IPTS's `shared/reduced/`) and one reduced `.dat` the Integrator can
    read → exit 0; the file paths and the script's `sha256` prefixes go in the PR body. A problem line the
    script prints as `note` (a field outside this slug) is **not** a rejection: quote it in the PR body
    and file it as a ledger todo — it is the next slug's evidence. Then, by hand or offscreen: Load one of
@@ -255,7 +262,9 @@ code the test does not depend on (`settings-editor-learning.md` §8).
 - §6: "Count the places that switch on a type tag. More than one is a refactor; the copies that disagree
   are the bug you have not found yet." → one encoder, one declaration.
 - §4: "Read the consumer before writing the validator. Detection complete (every disagreement is
-  reported), resolution minimal" → 0/1 is what the consumer writes and reads; `2` is still reported.
+  reported), resolution minimal" → for `useBS`, 0/1 is what the consumer writes and reads; `2` is still
+  reported. **(v2)** v1 applied this sentence to all eight booleans after reading the consumers of one —
+  the rejection's "premise that failed". Every reader of every changed field is now enumerated (B8).
 - §5: "Give every slot a top-level guard that reports into the UI" → new slots, if any, are `@guarded`.
 - §1: "Prefer keyboard activation … it does not encode a layout" → V3 types, it does not click.
 - §8: "A mutation that stays green means the test is vacuous OR the mutation missed."
@@ -268,10 +277,70 @@ code the test does not depend on (`settings-editor-learning.md` §8).
 |---|---|---|
 | A1 | Commit a facility settings file as a test fixture? It would publish an IPTS's settings on a public fork. | **No.** The unit fixture is writer-shaped (§6); real files are exercised by the Integrator on an analysis node (§8.5). The human may supply a file cleared for publication. |
 | A2 | Should `RBnum` ("Run numbers", runtime-owned) also be read-only? Item 5 names only the two Lambda fields. | Left editable. Question for the scientists; a `fix/` follow-on if yes. |
-| A3 | A scalar boolean loaded as `1` is saved as `true`. | Accepted: it is what the reduction's writer produces for that key. |
+| A3 | ~~A scalar boolean loaded as `1` is saved as `true`.~~ **Withdrawn (v2).** The premise — "0/1 is what the consumer writes and reads" — is true of `useBS` and false of `useGravity`, which the reducer reads with `is True` (`nr_reduction_calc.py:1079`). | Scalars are left exactly as loaded (B8). Whether `:1079` should read by truthiness is `todo-usegravity-identity-read.md` — the scientists' and a reducer slug's, not this one. |
 | A4 | Cell text is lower-case `true`/`false`. | Yes (the human's wording, JSON's spelling); `editor-combos` replaces the text cell with a two-item drop-down. |
 | A5 | An unset (`None`) `useBS` entry is saved as `null`, which the reducer reads as "off". | Unchanged and out of scope; noted for `editor-combos`, which gives the cell a definite choice. |
 
 ## Revision history
 
-v1 — this document.
+v1 — this document as dispatched at `triage/editor-load-fidelity` @ `0c0a126`.
+
+### v2 — 2026-10-02 (retry 1; the work order for `triage/editor-load-fidelity-v2`)
+
+**Rejection.** `review/editor-load-fidelity` @ `8b62952` — `todo.md` at that commit, finding B-1 (design domain,
+harm clause): a hand-written `"useGravity": 1` loads silently as `True` and saves as `true`, switching gravity
+correction on, because the reducer reads that field with `is True` (`nr_reduction_calc.py:1079`). Not
+infrastructure. **The defect was in this plan** (v1's A3 and the scalar column of §3's table), not in the
+implementation, which did what v1 prescribed. Reproduced by the Analyst at the base: `:1079` reads
+`if self.config.useGravity is True:`; the other readers are as the Integrator's table lists them, plus three
+that format the value into text (`save_reduced_data.py:79-80,97-98`, `web_report.py:430-431`,
+`new_reduction_template_reader.py:199`).
+
+**What stands (do not redo; `todo.md` "What passed").** Everything about `useBS` (B2 for it, B3, B4, B7), the
+runtime record (B5, B6), the diff scope, and the v1 tests and mutation rows that concern them.
+
+**What changes (behaviour — B1, B2 as rewritten in §3, and B8).**
+
+| Value in a scalar boolean (`Normalize`, `AutoScale`, `plotON`, `plotQ4`, `save8col`, `useGravity`, `use_emission_time`) | v1 | v2 |
+|---|---|---|
+| `True` / `False` | quiet; saved `true`/`false` | unchanged |
+| `1` / `0` — loaded from a file, from a dict, or held by an injected config | quiet; held as `bool`; saved `true`/`false` | **reported by name; held as loaded; saved as loaded** |
+| other int, float, str, list, `None` | reported / unset | unchanged |
+
+`useBS` entries: unchanged from v1 in every state. One declaration decides where `1`/`0` counts as a boolean —
+the integer-encoding attribute v1 introduced; no field-name test in the document or the view. How the type
+check learns it (it has no field in hand today) is the Developer's choice; the three call sites of the "is this a
+boolean spelling" helper each get a frame row.
+
+**Guard (the dimension the fix must not freeze).**
+
+| # | Test (names are suggestions) | RED at `9fe4184` | GREEN |
+|---|---|---|---|
+| R1 | load → save is the identity on every scalar boolean: parametrized over **the scalar booleans derived from `FIELD_SPEC`** (not a typed list) × {`1`, `0`, `True`, `False`}; write `{name: value}`, `from_file`, `save`, read the saved text; assert `type(saved) is type(value)` **and** `saved == value` | the `1`/`0` rows of all seven: saved type is `bool` | B8 |
+| R2 | the same matrix: for `1`/`0` a problem line names the field and does not contain `1/0` as an accepted spelling; for `True`/`False` no line names it | `1`/`0` rows: no line | B1 |
+| R3 | the reduction reads the saved file as it read the source: for `useGravity` × {`1`, `0`, `True`, `False`}, `(json_to_config(source).useGravity is True) == (json_to_config(saved).useGravity is True)` — the rejection's reproduction as a test | row `1` | B8 |
+| R4 | an injected config holding an integer scalar boolean is reported (`SettingsDocument(config)`, no load) | no line | B1 |
+| R5 | the derived scalar-boolean set is exactly the seven names (a pin on the derivation R1–R2 iterate, so an eighth boolean cannot slip past unexamined — and when one is added, its reader is read before the pin is updated) | passes — a pin | stays |
+| R6 | `useBS` entries × {`1`, `0`, `True`, `False`}: saved entry `type` is `int`; `bool(saved) == bool(source)` and `(saved == 1) == (source == 1)` | passes — v1 behaviour, now pinned against its readers | stays |
+| R7 | view: Load a file holding `"useGravity": 1` through the tab → the panel names `useGravity`; Save → the saved text holds `"useGravity": 1` | panel quiet; saved `true` | B8 |
+
+Any v1 test that asserted the withdrawn behaviour (a scalar `1` loading quietly or saving as `true`) is rewritten
+to the v2 row, in the RED commit, with the old assertion quoted in the commit body.
+
+**Mutations (each recorded as `<mutation> → <test> -> N failed`).**
+
+| # | Mutation | Must red |
+|---|---|---|
+| N1 | load canonicalizes every declared boolean again (the integer-encoding restriction removed) | R1 — on **all seven** scalars' `1`/`0` rows, not `useGravity` alone; R3 row `1`; R7 |
+| N2 | validation accepts `1`/`0` for every declared boolean again | R2, R4 |
+| N3 | the restriction inverted (scalars canonicalized, `useBS` not) | v1's T2 and V1, and R1 |
+| N4 | the scalar message offers `1/0` | R2 |
+
+Then the whole v1 battery again (ledger `scripts/mutate-editor-load-fidelity.py`, 22 rows): a row whose expected red
+changed because of v2 is re-aimed and the change recorded; the battery stays out of the PR diff.
+
+**Acceptance (v2).** §8 as written, with: the gate from the repository root; `todo.md` removed from the
+feature branch in its own commit before `qa/`; §8.5 re-run with the current script (count lines are notes) —
+exit 0 on the same real files; R3's four rows quoted in the PR body. The PR body carries the Integrator's
+advisories verbatim (the scalar checkbox's `bool(value)` display, the repeated encoder call, the
+`runtime_owned`-keyed exemption, file sizes, V4/V5 coverage) — none is in this revision's scope.
