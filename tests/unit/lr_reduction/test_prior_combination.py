@@ -275,13 +275,31 @@ def test_eight_column_files_carry_the_same_headers(env, runs):
 
 
 R2B = 221475  # a second run at sequence position 2: the step was measured again
+# R2B's stub curve sits on a stretched Q grid, so a file shows WHOSE data it holds. A factor on R
+# would not: AutoScale is on in these settings and absorbs a multiplicative difference.
+R2B_Q_STRETCH = 1.01
 
 
 @pytest.fixture
 def remeasured(env, monkeypatch):
     monkeypatch.setitem(RUNS, R2B, (2, -1.3, "Si Ir Air-221472-2. again"))
     write_nexus(env.nexus, R2B)
+    stub = NR_Reduction._reduce_single_run  # env's physics stub
+
+    def remeasured_stub(self, i, rb_num):
+        result, config, logs = stub(self, i, rb_num)
+        if rb_num == R2B:
+            result = {**result, "q": result["q"] * R2B_Q_STRETCH}
+        return result, config, logs
+
+    monkeypatch.setattr(NR_Reduction, "_reduce_single_run", remeasured_stub)
     return env
+
+
+def q_grid(run):
+    """The stub's Q grid for `run` (reverse_q off)."""
+    q = synthetic_curve(RUNS[run][0] - 1, reverse_q=False)[0]
+    return q * R2B_Q_STRETCH if run == R2B else q
 
 
 def test_current_run_wins_at_its_position(remeasured):
@@ -298,8 +316,6 @@ def test_two_runs_at_one_position_are_reported(remeasured, capsys):
     assert f"sequence position 2 has files for runs [{R2}, {R2B}]" in capsys.readouterr().out
 
 
-@pytest.mark.xfail(strict=True, reason="pre-existing: which run wins a re-measured position is undecided "
-                                       "(tasking plan M1, residual); the first prior file in name order is used")
 def test_remeasured_position_survives_rereduction_of_another_run(remeasured):
     reduce_runs(remeasured, [R1, R2, R3, R2B, R1])
     header = read_outputs(remeasured.out)[f"REFL_{SEQ_ID}_combined_autoreduction.dat"][0]
@@ -414,3 +430,156 @@ def test_corrupted_legacy_priors_fall_back_to_nexus_then_heal(env, canonical):
 
     reduce_runs(env, [R1])  # re-reducing the stale position heals the sequence
     assert headers_only(read_outputs(env.out)) == headers_only(canonical)
+
+
+# ---------------------------------------------------------------------------
+# D-5: at a re-measured sequence position the highest run number wins, whatever the order of
+# reduction, and the superseded run's file is left in place (charter D-5, [human, 2026-10-02])
+
+COMBINED = f"REFL_{SEQ_ID}_combined_autoreduction.dat"
+
+
+def combined_header(out):
+    return read_outputs(out)[COMBINED][0]
+
+
+def partial_name(seq, run):
+    return f"REFL_{SEQ_ID}_{seq}_{run}_autoreduction.dat"
+
+
+@pytest.mark.parametrize("runs", [
+    pytest.param([R1, R2, R3, R2B, R2], id="superseded run re-reduced last"),
+    pytest.param([R2B, R1, R2, R3], id="newer run reduced first"),
+    pytest.param([R1, R2B, R3, R2, R1], id="superseded run reduced after it, then another"),
+])
+def test_highest_run_wins_in_any_order(remeasured, runs):
+    reduce_runs(remeasured, runs)
+    outputs = read_outputs(remeasured.out)
+    header = outputs[COMBINED][0]
+    assert header["NR_runs"] == [R1, R2B, R3]
+    assert (header["title"][1], header["THS"][1]) == (title(R2B), ths(R2B))
+    # the data of position 2 are R2B's too, not only its header entries
+    np.testing.assert_allclose(outputs[partial_name(2, R2B)][1][0], q_grid(R2B), rtol=1e-9)
+
+
+def test_superseded_file_is_left_in_place(remeasured):
+    reduce_runs(remeasured, [R1, R2, R3, R2B, R1])
+    assert (remeasured.out / partial_name(2, R2)).exists()
+
+
+def test_shared_position_report_names_the_run_used(remeasured, capsys):
+    reduce_runs(remeasured, [R1, R2, R3, R2B])
+    capsys.readouterr()
+    reduce_runs(remeasured, [R1])
+    assert f"sequence position 2 has files for runs [{R2}, {R2B}]; using run {R2B}" in capsys.readouterr().out
+
+
+def write_misnamed_copy(out, run, wrong_seq, nr_runs, entries):
+    """What the pre-fix merge rewrite left when it named files by Q-order index: run `run`'s file
+    under another position's name, beside the true one."""
+    write_legacy_file(out, run, nr_runs, entries)
+    (out / partial_name(RUNS[run][0], run)).rename(out / partial_name(wrong_seq, run))
+
+
+def test_misnamed_legacy_copy_does_not_take_a_position(env, capsys):
+    # the V10 folder: the true files of R1 and R2, plus each run's copy under the other's position
+    write_misnamed_copy(env.out, R2, 1, [R1, R2], [R1, R2])
+    write_misnamed_copy(env.out, R1, 2, [R1, R2], [R1, R2])
+    for run in (R1, R2):
+        write_legacy_file(env.out, run, [R1, R2], [R1, R2])
+    reduce_runs(env, [R3])
+    out = capsys.readouterr().out
+    assert combined_header(env.out)["NR_runs"] == [R1, R2, R3]
+    for copy in (partial_name(1, R2), partial_name(2, R1)):
+        assert f"{copy} is not used" in out, copy
+
+
+def test_a_misnamed_copy_does_not_displace_the_current_run(env, capsys):
+    # R2's copy under position 1 has the higher run number than the run being reduced there
+    write_misnamed_copy(env.out, R2, 1, [R1, R2, R3], [R1, R2, R3])
+    for run in (R2, R3):
+        write_legacy_file(env.out, run, [R1, R2, R3], [R1, R2, R3])
+    reduce_runs(env, [R1])
+    out = capsys.readouterr().out
+    assert combined_header(env.out)["NR_runs"] == [R1, R2, R3]
+    assert f"{partial_name(1, R2)} is not used" in out
+
+
+def write_nexus_without_sequence(nexus_dir, run):
+    seq, theta, name = RUNS[run]
+    with h5py.File(nexus_dir / f"REF_L_{run}.nxs.h5", "w") as f:
+        f["entry/title"] = [name.encode()]
+        logs = f.create_group("entry/DASlogs")
+        logs["BL4B:Mot:ths.RBV/value"] = np.array([theta])
+        logs["BL4B:Mot:thi.RBV/value"] = np.array([THI])
+
+
+@pytest.mark.parametrize("damage", ["file removed", "sequence log missing"])
+def test_unreadable_nexus_keeps_the_candidate(remeasured, capsys, damage):
+    reduce_runs(remeasured, [R1, R2, R3, R2B])
+    (remeasured.nexus / f"REF_L_{R2B}.nxs.h5").unlink()
+    if damage == "sequence log missing":
+        write_nexus_without_sequence(remeasured.nexus, R2B)
+    capsys.readouterr()
+    reduce_runs(remeasured, [R1])  # position 2 is shared by R2 and R2B: both are checked
+    out = capsys.readouterr().out
+    assert combined_header(remeasured.out)["NR_runs"] == [R1, R2B, R3]
+    assert f"{partial_name(2, R2B)} could not be checked" in out
+
+
+def test_unshared_positions_do_not_consult_nexus(env, canonical, capsys):
+    reduce_runs(env, [R1, R2, R3])
+    for run in (R2, R3):
+        (env.nexus / f"REF_L_{run}.nxs.h5").unlink()
+    capsys.readouterr()
+    reduce_runs(env, [R1])
+    out = capsys.readouterr().out
+    assert headers_only(read_outputs(env.out)) == headers_only(canonical)
+    assert "could not be checked" not in out
+    assert "is not used" not in out
+
+
+@pytest.mark.parametrize("runs", [[R2B, R2, R3], [R2, R2B, R3]], ids=["newer run first", "newer run second"])
+def test_two_runs_of_one_position_in_one_call(remeasured, capsys, runs):
+    nrff.reduce_from_file(runs, remeasured.settings, EXPERIMENT, datapath=remeasured.nexus, plot=False,
+                          override_params={"Spath": remeasured.out, "subname": "autoreduction"},
+                          check_for_prior=True)
+    out = capsys.readouterr().out
+    outputs = read_outputs(remeasured.out)
+    assert partial_name(2, R2B) in outputs
+    assert partial_name(2, R2) not in outputs
+    assert outputs[COMBINED][0]["NR_runs"] == [None, R2B, R3]
+    assert f"sequence position 2; reducing run {R2B} only" in out
+    assert str(R2) in out
+
+
+R2C = 221476  # a third run at sequence position 2
+
+
+def test_three_runs_at_one_position(remeasured, monkeypatch):
+    monkeypatch.setitem(RUNS, R2C, (2, -1.25, "Si Ir Air-221472-2. third"))
+    write_nexus(remeasured.nexus, R2C)
+    reduce_runs(remeasured, [R1, R2C, R2, R2B, R3])
+    assert combined_header(remeasured.out)["NR_runs"] == [R1, R2C, R3]
+
+
+def test_run_numbers_compare_as_integers(env, monkeypatch):
+    # name order puts "..._2_100000_..." before "..._2_99999_..."; text comparison ranks "99999" highest
+    low, high = 99999, 100000
+    for run, theta in ((low, -1.21), (high, -1.22)):
+        monkeypatch.setitem(RUNS, run, (2, theta, f"position 2, run {run}"))
+        write_nexus(env.nexus, run)
+    reduce_runs(env, [R1, high, low])
+    assert combined_header(env.out)["NR_runs"] == [R1, high]
+
+
+def test_eight_column_set_follows_the_same_rule(remeasured):
+    for run in [R1, R2, R3, R2B, R1]:
+        nrff.reduce_from_file([run], remeasured.settings, EXPERIMENT, datapath=remeasured.nexus, plot=False,
+                              override_params={"Spath": remeasured.out, "subname": "autoreduction", "save8col": True},
+                              check_for_prior=True)
+    outputs = read_outputs(remeasured.out)
+    for name in (COMBINED, COMBINED.replace(".dat", "_8col.dat")):
+        assert outputs[name][0]["NR_runs"] == [R1, R2B, R3], name
+    np.testing.assert_allclose(outputs[partial_name(2, R2B).replace(".dat", "_8col.dat")][1][0],
+                               q_grid(R2B), rtol=1e-9)
