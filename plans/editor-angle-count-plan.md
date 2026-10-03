@@ -1,7 +1,7 @@
 # Plan: `editor-angle-count` — the editor counts, adds and saves angles the way the reduction reads them
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `editor-angle-count` (refs `triage/editor-angle-count`,
-`feature/editor-angle-count`, `qa/editor-angle-count`) · **Status:** READY (v1) — re-sealed 2026-10-02 against `exp-review` @ `c34c8c5` (PR #33 merged; every probe of §2 re-run there, same outcomes; line numbers below are the new tip's) · **Base:** `agentic/exp-review` @ `c34c8c5` ·
+`feature/editor-angle-count`, `qa/editor-angle-count`) · **Status:** v2 (retry 1 of N = 3; v1 rejected at `review/editor-angle-count` @ `1568397` — see Revision history) · re-sealed 2026-10-02 against `exp-review` @ `c34c8c5` · **Base:** `agentic/exp-review` @ `c34c8c5` ·
 **PR target:** `exp-review` on the fork, **draft** · **Depends on:** `editor-load-fidelity` (same three files);
 `editor-combos` now waits for **this** slug (its table drop-downs sit on the rows this slug defines) ·
 **Review domains:** design, test (block); ui-aspects (advise) · **Kind:** launcher / settings model — not
@@ -61,7 +61,8 @@ although the panel says "No problems found."
 | G3 | **"Short" is measured against the reduction's count.** A list at least that long is never reported short. An angle-defining list shorter than the count is reported as today. The exemptions for empty-with-default, broadcast and runtime-owned lists stand. |
 | G4 | **A surplus entry is a note, not a problem.** One line per field: which field, how many extra entries, that the reduction ignores them, and that removing the surplus angle drops them. `validate()` does not return it; the panel shows notes in their own section, and a reducible file still reads "No problems found." |
 | G5 | Removing a surplus row trims exactly the lists that reach it (F7 — pinned, not changed). |
-| G6 | **An added angle has one index.** After Add, every per-angle list is either still in a compact state the reduction accepts (empty with a default; a single broadcast entry; `None` for an optional list) or has its new entry at the same index — the row the table shows as new. A value supplied for a compact list expands it: a broadcast list by repeating its single entry for the existing angles (what the reducer does at `:77-79`), the others with unset entries. |
+| G6 | **An added angle has one index — the reduction's next one.** **(v2)** The new angle is inserted at index `m` (the reduction's count), directly after the last real angle; entries that were surplus move down one row and stay surplus. Every per-angle list is either still in a compact state the reduction accepts (empty with a default; a single broadcast entry; `None` for an optional list) or has its new entry at index `m`. A value supplied for a compact list expands it: a broadcast list by repeating its single entry for the existing angles (what the reducer does at `:77-79`), the others with unset entries. *(v1 appended after the surplus rows, which turned them into angles with no required values — `todo.md` @ 1568397 Q-1.)* |
+| G8 | **(v2, new) An edit changes exactly the entry edited.** `set_angle_field(i, name, value)` never adds entries at any other index beyond what is needed to reach `i` — no growth into surplus rows (v1 padded to the table's row count, `settings_document.py:279-283` @ `09ac86e`); a single broadcast entry expands to the reduction's count `m`, not to the table's rows. The reduction's count and the set of surplus rows change only when the edit itself defines a new angle (an angle-defining value at an index ≥ `m`). G7's "some unset" rule and every count look at entries **below `m`** only. The view re-derives the surplus marks after every edit, as after Load, Add and Remove. |
 | G7 | **An unset entry is written the way the reduction reads "unset".** At the file boundary (`save`, `normalize`): a `default_if_empty` or broadcast list whose entries are **all** unset is written as `[]`, so the reducer's default applies; one that is unset for **some** angles is reported as a problem naming the angles (the wording the optional lists already have), and written as held. Loading a file with `[null, null]` in such a list shows empty cells and saves `[]`. |
 
 **Types and states** (each per-angle list × its state, with the reduction's count `m` and the table's rows `n ≥ m`):
@@ -207,4 +208,78 @@ button and the tests. Any assertion on encoded values compares text or `type`, n
 
 ## Revision history
 
-v1 — authored 2026-10-02 against `7b6d6b9` (staged); re-sealed and dispatched the same day against `c34c8c5` after PR #33 merged (§2 probes re-run: F1, F3, F4, F5, F7 unchanged in outcome; citations moved to the new tip's lines).
+v1 — authored 2026-10-02 against `7b6d6b9` (staged); re-sealed and dispatched the same day against `c34c8c5` after PR #33
+merged (§2 probes re-run: F1, F3, F4, F5, F7 unchanged in outcome; citations moved to the new tip's lines).
+
+### v2 — 2026-10-02 (retry 1; the work order for `triage/editor-angle-count-v2`)
+
+**Rejection.** `review/editor-angle-count` @ `1568397` — `todo.md` at that commit. Not infrastructure. **B-1 (blocking, the
+plan's gap):** the plan enumerated Load, Add, Remove and Save but never an **edit** on a file with surplus rows;
+`set_angle_field` pads the edited list to the table's row count (`settings_document.py:279-283` @ `09ac86e`), so one
+ordinary cell edit on `Aug2026/REFL_231105_settings.json` turns the reduction's count 3 → 7, erases the notes and prints
+four false problems — and saves that way. **B-3 (blocking):** two declared behaviours have no test that can fail — G7's
+"some unset → problem" for a broadcast list (mutant `fills_itself = field.default_if_empty` survives 233 tests while
+`[None, None, 'constantQ']` reduces to `AttributeError`), and G6's expansion of an **empty** default list given a value
+when `n > 0` (mutant `[]` head survives: the new value lands on angle 0). **B-2 (blocking):** the module docstring's
+"`add_angle` mutates **every** per-angle field in one operation" is false by design since G6 — restate it. **Q-1
+(answered here):** v1's G6 appended the new angle *after* the surplus rows, which makes surplus rows real angles with no
+required values (`RBnum […, null, 999999]`) — the plan's choice, and the wrong one; G6 is revised above.
+
+**What stands (do not redo; `todo.md` "What passed").** G1–G5, G7 as implemented: the count, the notes, Remove, the
+file-boundary rule, and the first end-to-end proof that an editor-authored file reduces (byte-identical data to the real
+`reduce_settings.json` run). The 26 recorded mutation rows.
+
+**What changes.**
+
+| # | Behaviour (as rewritten in §3) | Reachable state it closes |
+|---|---|---|
+| G8 | an edit changes exactly the entry edited; padding only up to `i`; broadcast expands to `m`; counts and the some-unset rule look below `m`; marks re-derived after an edit | B-1's three reproductions |
+| G6 (revised) | the new angle is inserted at index `m`; surplus entries shift down and stay surplus | Q-1 |
+| B-2 | the module docstring states the v2 rule ("one index per added angle; compact lists stay compact") and the reducer citations move to `:77-79` / `:42-43` | the verify-prose rule |
+
+**Types and states the changed path acts on** (amendment 18). Operation: edit at index `i` with `i < m`, `i ≥ m` (a
+surplus row), `i` beyond every list. List kind: angle-defining / default-if-empty / broadcast / optional. List state:
+compact (empty, single broadcast entry, `None`), full length `m`, ragged short (`< m`), surplus (`> m`), non-list.
+Behaviour per cell of that matrix: the edited entry changes; for `i < m` nothing else changes (a ragged-short list is
+padded only to `i + 1`; a single broadcast entry expands to `m`); for `i ≥ m` in an **angle-defining** list the
+reduction's count becomes `i + 1` and the rows below it are no longer surplus (and the count lines then apply to the
+other defining lists, as for any real angle); for `i ≥ m` in any other kind the entry is a surplus value and nothing
+else changes; a non-list is replaced only as `set_angle_field` does today (reported type, excluded from counts). Add:
+insert at `m` in every non-compact list (shifting surplus entries), compact lists stay compact unless a value is
+supplied.
+
+**Guard (vary what the fix freezes).**
+
+| # | Test (names are suggestions) | RED at `09ac86e` |
+|---|---|---|
+| R1 | on the T1 surplus document **and** an Aug2026-shaped one (`useBS` and `method_per_run` longer than the defining lists): for each list kind × an edit at index 0, at `m-1`, and inside a surplus row → `validate()`, `notes()`, `reduction_angles` and the saved text are as G8 says; save → reload → identical | `DBname[0]` edit: count 3 → 7, four false problems |
+| R2 | an edit of a default-if-empty entry below `m` on the surplus file leaves no "set for some angles but not angles [surplus]" line | `ThetaShift [0.01, 0, 0, None]` reported |
+| R3 | an edit of a single broadcast entry expands it to `m`, not to the table's rows | expands to `n` |
+| R4 | an angle-defining edit inside a surplus row makes that row a real angle (count `i + 1`) and nothing else grows | — |
+| R5 | view: after a cell edit on the surplus file the row marks are re-derived (surplus rows still marked; the panel still "No problems found." plus the notes) | marks stale, panel wrong |
+| R6 | Add on the surplus file inserts the new angle at `m`: the typed `DBname` is at index `m`, the former surplus entries are at `m+1…`, still surplus; the reduction's count is `m + 1`; saved `RBnum` has no `null` before the new run | new angle after the surplus rows (Q-1) |
+| R7 (B-3) | T11 parametrized over every default-if-empty **and** the broadcast field: a partly-unset list is a problem naming the angles | `method_per_run` leg: no line under the mutant |
+| R8 (B-3) | T8 leg: on three angles with `ThetaShift: []`, `add_angle(DBname="d", ThetaShift=0.1)` → `[None, None, None, 0.1]` (assert the position, not only the length) | `[0.1]` under the mutant |
+| R9 (B-2) | the module docstring no longer claims every list grows; the statement that replaces it is checked by R6/R8 | — |
+
+**Mutations (each recorded as `<mutation> → <test> -> N failed`).**
+
+| # | Mutation | Must red |
+|---|---|---|
+| N1 | `set_angle_field` pads to the table's rows again | R1 (every kind at index 0), R2, R5 |
+| N2 | single broadcast entry expanded to the table's rows | R3 |
+| N3 | the some-unset rule measured over the whole list | R2, R1 (surplus-row edits) |
+| N4 | an angle-defining edit in a surplus row does not raise the count | R4 |
+| N5 | view does not re-derive marks after an edit | R5 |
+| N6 | Add appends after the surplus rows (v1's G6) | R6 |
+| N7 | `fills_itself = field.default_if_empty` (broadcast dropped) | R7 |
+| N8 | `add_angle` expands an empty default list with `[]` instead of `[None] * n` | R8 |
+
+Then the v1 battery again; a row whose expected red moved because of v2 is re-aimed and recorded.
+
+**Acceptance (v2).** §8 as written, plus: §8.5 re-run on the thirteen real files **with one edit each** (a `DBname` at
+index 0; a `ThetaShift` at index 0; a surplus-row edit) — no count line, notes unchanged, saved file reduces where it
+reduced before; the Tab Add check repeated with the new placement; `todo.md` removed in its own commit before `qa/`.
+The PR body carries the advisories verbatim (A2's note wording, `Field.fills_itself`, the `_length_is_allowed`
+docstring, the Remove-by-`currentRow()` pre-existing item, the ui-aspects notes on wording and visibility, the test
+reviewer's notes); none is in this revision's scope.
