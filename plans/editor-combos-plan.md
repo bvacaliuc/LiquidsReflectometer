@@ -1,7 +1,7 @@
 # Plan: `editor-combos` — the wheel never changes a setting; every enumerated field is a drop-down, in the table too
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `editor-combos` (refs `triage/editor-combos`, `feature/editor-combos`,
-`qa/editor-combos`) · **Status:** READY (v1) — re-sealed 2026-10-03 against `exp-review` @ `e313f38` (PRs #33 and #35 merged; §2 re-run there; the operation × state table of §3 added from the predecessors' rejections) ·
+`qa/editor-combos`) · **Status:** v2 (attempt 2 of N = 3; v1 passed the Integrator's gate as draft PR #36 and was **rejected at the human's gate** by the PR comment of 2026-10-04 00:30Z — see Revision history) · re-sealed against `exp-review` @ `e313f38` ·
 **Base:** `agentic/exp-review` @ `e313f38` · **PR target:** `exp-review` on the fork, **draft** ·
 **Depends on:** `editor-load-fidelity` (per-angle booleans are real `bool`s, text `true`/`false`) and `editor-angle-count` (the rows the table shows, the surplus mark, compact lists: a drop-down in a surplus row or over a broadcast column follows that slug's rules) ·
 **Review domains:** ui-aspects, test (block) · **Kind:** launcher — not reduction-path ·
@@ -56,6 +56,9 @@ folder list as completion."
 | C3 | `useBS` cells offer `true` / `false` plus unset; choosing stores a real `bool`. |
 | C4 | `DBname` cells are **editable** drop-downs: the list is the `*.txt` and `*.dat` file names in the document's resolved direct-beam folder, sorted, and it completes typed text; a typed name that is not in the folder is stored as typed. Empty or unreadable folder → empty list, typing still works, nothing raises. |
 | C5 | **The list follows the resolved path.** When `experiment_id` or `_DBpath_override` changes (edit or Load), the next time a `DBname` cell offers candidates they come from the new folder. |
+| C8 | **(v2)** **A table drop-down is visible and opens on one gesture.** Every enumerated cell shows its drop-down affordance at rest (the arrow, the current value) and opens its list on a **single** click or on Enter / Space / Down with the cell focused — the menu-button pattern the human cites (W3C APG "Menu Button"; the UX-guideline thread on drop-downs in table cells). A double-click is not required for anything. The mechanism is the Developer's (persistent editors, or a delegate that paints the control and opens on the first click), bounded by `MAX_TABLE_ROWS` and by C1/C6/C10 holding for whatever it is. |
+| C9 | **(v2)** **The drop-down's choices match the intake's spelling and capitalization, and re-choosing the held value writes nothing.** For a column whose held values are case variants of the declared choices (a reducer-written file holds `meantheta`, `constantq`, `constanttof`), the drop-down offers the choices in **that** casing, so the list reads as the file does and a new choice is written in the file's convention; a document with no such value (a fresh one, or declared spellings) offers the declared spellings. Choosing the value a cell already holds is the identity — no write, no entry in "Changed from the seed". Mixed casing within one column → declared spellings. |
+| C10 | **(v2)** **A drop-down releases focus after a choice.** Once a value is chosen (pop-up click or keyboard), the combo no longer has keyboard focus — focus returns to its container (the table for a cell; the panel for a scalar) — so a later Up/Down or wheel changes nothing. A combo is reached deliberately (click, or Tab) and opened deliberately (click, Enter, Space, Down); a value changes only by a choice made with the list open. |
 | C6 | **Row-index rule, unchanged.** Every table write still goes through `SettingsDocument.set_angle_field(row, name, value)` with the row the cell is in **at the time of the edit** — after any Add/Remove. `currentRow()` is not consulted. Displaying a value writes nothing. |
 | C7 | **A drop-down never shows "unset" where the reduction has a value.** In a real angle's cell of a compact list (empty default-if-empty list; single-entry broadcast list) the drop-down displays the value the reduction will use — `Field.reducer_default`, or the broadcast entry — visibly marked as implied (the test states the queryable property), and the document is **not** written by displaying it. Choosing in such a cell goes through `set_angle_field`, which materialises the list as `editor-angle-count` G9 defines (the other angles keep the implied value, now explicit). A cell in a **surplus** row shows its held value or unset, never an implied one (the reduction never reads it). An optional-list cell (`LambdaMin`/`LambdaMax`) is not an enumerated field and is untouched here. |
 
@@ -142,6 +145,9 @@ never inside `refresh_report()` — and is a Qt-free function so it is testable 
 | V13 | C7: with `method_per_run: ["constantQ"]` and `useBS: []` on three angles, rows 1–2 show `constantQ` / `true` marked implied, and the document is unchanged after the render (`changed_vs_seed() == {}`); choosing `meanTheta` in row 1 materialises `["constantQ", "meanTheta", "constantQ"]`; a surplus row of a surplus-length `useBS` shows its held value, not an implied one | cells empty |
 | V14 | the operation × state table, driven through the tab: Add (button) then choose in the new row; Remove a real row and a surplus row; choose "unset" in a compact cell → no write — assert the document, `validate()`, `notes()` and the marks after each | — |
 | V15 | a wheel event over a cell drop-down in a surplus row and in a real row leaves the document unchanged (already V3 — add the surplus-row leg) | — |
+| V16 (v2, C8) | on a shown tab, one `QTest.mouseClick` on an enumerated cell (no double-click) opens its list (the editor exists and its pop-up is visible, or the queryable equivalent the Developer states); Enter / Space / Down on the focused cell do the same; the affordance (arrow or current value) is drawn at rest — assert on the painted control's state or the persistent editor's presence, not on a double-click | opens only on double-click (`7452201`) |
+| V17 (v2, C9) | load `method_per_run: ['meantheta'] * 6`; the cell drop-down's items are `['meantheta', 'constantq', 'constanttof']` (+ unset); re-choosing `meantheta` in row 2 leaves `document.get('method_per_run')` **byte-identical** and `changed_vs_seed() == {}`; choosing `constantq` writes `constantq`; a fresh document's items are `list(fs.METHOD_CHOICES)`; a mixed-case column offers the declared spellings | the human's reproduction: `['meantheta', …] -> ['meantheta', 'meantheta', 'meanTheta', …]` |
+| V18 (v2, C10) | after a choice in a scalar combo and in a cell drop-down, `QApplication.focusWidget()` is not the combo; a following `QTest.keyClick(..., Key_Down)` sent to the former combo (or to the focus widget) leaves the document unchanged | the combo keeps focus and Down changes the value |
 | U1 | `direct_beam_candidates` → names for a populated folder; `[]` for missing, file-not-dir, unreadable, and a patched `os.scandir` raising `OSError` | function absent |
 | U2 | the cap is honoured and announced | — |
 
@@ -164,6 +170,10 @@ never inside `refresh_report()` — and is a Qt-free function so it is testable 
 | implied value written into the document by displaying it | V13 (`changed_vs_seed`) |
 | implied value shown in a surplus row | V13 (surplus leg) |
 | choosing "unset" in a compact cell writes `None` | V14 |
+| (v2) the cell editor opens only on double-click again | V16 |
+| (v2) the choices always use the declared spellings | V17 (lower-case file leg) |
+| (v2) re-choosing the held value canonicalises it (writes the declared spelling) | V17 (identity leg) |
+| (v2) focus left on the combo after a choice | V18 |
 
 Frame: the wheel-ignoring combo is used at every combo construction site in the tab — one row per site
 (`_build_editor`'s enumerated branch; each table editor); the listing helper has one call site per trigger
@@ -202,4 +212,52 @@ Frame: the wheel-ignoring combo is used at every combo construction site in the 
 
 ## Revision history
 
-v1 — authored 2026-10-02 against `7b6d6b9` (staged); re-sealed and dispatched 2026-10-03 against `e313f38` after PRs #33 and #35 merged: F1 re-measured (unchanged), F3/F7 citations moved to the tip, F8 added (compact lists display unset where the reduction has a value), C7 and the operation × state table added — the axis whose absence cost the predecessors five rejections — with V13–V15 and their mutations.
+v1 — authored 2026-10-02 against `7b6d6b9` (staged); re-sealed and dispatched 2026-10-03 against `e313f38` after PRs #33
+and #35 merged: F1 re-measured (unchanged), F3/F7 citations moved to the tip, F8 added (compact lists display unset where
+the reduction has a value), C7 and the operation × state table added — the axis whose absence cost the predecessors five
+rejections — with V13–V15 and their mutations. Passed the Integrator's gate at `7452201` (I-15) → draft PR #36.
+
+### v2 — 2026-10-04 (attempt 2 of 3; the work order for `triage/editor-combos-v2`)
+
+**Rejection — the human's gate, not the Integrator's.** PR #36's comment of 2026-10-04 00:30Z (`bvacaliuc`), quoted
+verbatim as the rejection record; there is no `todo.md` at the feature tip for this cycle:
+
+> I observe the following discrepancies:
+>
+> 1.in the angles table, only *after double-click* in the field, does the drop-down show. This is counter intuitive and
+> differs from established UI practice. Please review [Menu Button Example Using element.focus](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/examples/menu-button-actions/)
+> and [what-do-ux-guidelines-say-about-dropdown-boxes-in-table-cells](https://ux.stackexchange.com/questions/19635/what-do-ux-guidelines-say-about-dropdown-boxes-in-table-cells)
+> 2.After operating the drop down and then selecting the *same* value for angle method, the diagnostic shows:
+>  * `method_per_run: ['meantheta', 'meantheta', 'meantheta', 'meantheta', 'meantheta', 'meantheta'] -> ['meantheta', 'meantheta', '**meanTheta**', 'meantheta', 'meantheta', 'meantheta']`
+>
+> Where only the spelling has changed. The drop-down choices should match the intake spelling and capitalization
+> 3. After making a selection and moving away from the drop down, it *holds* focus until another widget is selected (such
+> that an up/dn button press can change the state). Can focus be lost when navigating away from the button?
+
+`[human, 2026-10-04: "PR #36 (editor-combos) is rejected at my gate. My PR comment of 2026-10-04 00:30Z holds the three
+findings — treat it as the rejection … The fix lands on feature/editor-combos and refreshes #36."]`
+
+**Where the plan was wrong.** (1) §3's mechanism note *recommended* item delegates for their row-index safety and said
+nothing about how the editor is reached — Qt's default edit trigger for a delegate is the double-click, which is what
+shipped; the plan never stated the gesture. (2) C2 said a loaded case variant "displays as its declared choice and is not
+rewritten until the user chooses" — so choosing the **same** value rewrote the spelling, exactly the diagnostic the human
+saw; the plan treated spelling as the editor's to normalise, the human treats the file's spelling as the file's. (3) The plan
+had no focus rule at all; C1 covered the wheel and the human's third finding is the keyboard twin of it.
+
+**What stands (do not redo).** C1 (the wheel), C3, C4, C5, C6, C7 and the operation × state table as implemented at
+`7452201` (I-15: gate 205 + 666, the 50-row battery, the direct-beam acceptance on IPTS-36119) — except where C8–C10
+change a cell's gesture, the offered spellings, or focus.
+
+**What changes.** C8, C9, C10 as written in §3, with V16–V18 and the four mutation rows. Types and states for C9: the held
+value is one of — a declared spelling; a case variant of one (lower-case from a reducer-written file; any other casing);
+`None`; out-of-domain — × the column's convention (all declared / all one case variant / mixed / empty column). The choices
+list follows the convention; the held value is always one of the items (never substituted, C2); choosing the held item is
+the identity. C8/C10 act on both cell drop-downs and the scalar combos (the scalar combos are reached by click or Tab and
+already open on one click; C10 adds the release). The references the human cites are read before the gesture is designed
+and the design note says which pattern it follows.
+
+**Branch and gate.** v{N>1} rule: the Developer continues on the existing `feature/editor-combos` (fast-forward from
+`7452201`; never re-cut from the base), pushes, re-tags `qa/editor-combos`; the Integrator re-gates — the §8.4
+deployment-shaped acceptance repeated through the real tab for the three findings (single click opens; re-choosing the
+held value leaves "Changed from the seed" empty on the IPTS-36119 file; focus released after a choice) — and PR #36
+refreshes with the branch. Then the human's gate again.
