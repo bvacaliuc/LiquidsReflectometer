@@ -1,7 +1,7 @@
 # Plan: `editor-combos` — the wheel never changes a setting; every enumerated field is a drop-down, in the table too
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `editor-combos` (refs `triage/editor-combos`, `feature/editor-combos`,
-`qa/editor-combos`) · **Status:** v2 (attempt 2 of N = 3; v1 passed the Integrator's gate as draft PR #36 and was **rejected at the human's gate** by the PR comment of 2026-10-04 00:30Z — see Revision history) · re-sealed against `exp-review` @ `e313f38` ·
+`qa/editor-combos`) · **Status:** v3 (attempt 3 of N = 3 — the last before escalation; v1 rejected at the human's gate, v2 at `review/editor-combos` @ `d3ee364` — see Revision history) · re-sealed against `exp-review` @ `e313f38` ·
 **Base:** `agentic/exp-review` @ `e313f38` · **PR target:** `exp-review` on the fork, **draft** ·
 **Depends on:** `editor-load-fidelity` (per-angle booleans are real `bool`s, text `true`/`false`) and `editor-angle-count` (the rows the table shows, the surplus mark, compact lists: a drop-down in a surplus row or over a broadcast column follows that slug's rules) ·
 **Review domains:** ui-aspects, test (block) · **Kind:** launcher — not reduction-path ·
@@ -59,6 +59,9 @@ folder list as completion."
 | C8 | **(v2)** **A table drop-down is visible and opens on one gesture.** Every enumerated cell shows its drop-down affordance at rest (the arrow, the current value) and opens its list on a **single** click or on Enter / Space / Down with the cell focused — the menu-button pattern the human cites (W3C APG "Menu Button"; the UX-guideline thread on drop-downs in table cells). A double-click is not required for anything. The mechanism is the Developer's (persistent editors, or a delegate that paints the control and opens on the first click), bounded by `MAX_TABLE_ROWS` and by C1/C6/C10 holding for whatever it is. |
 | C9 | **(v2)** **The drop-down's choices match the intake's spelling and capitalization, and re-choosing the held value writes nothing.** For a column whose held values are case variants of the declared choices (a reducer-written file holds `meantheta`, `constantq`, `constanttof`), the drop-down offers the choices in **that** casing, so the list reads as the file does and a new choice is written in the file's convention; a document with no such value (a fresh one, or declared spellings) offers the declared spellings. Choosing the value a cell already holds is the identity — no write, no entry in "Changed from the seed". Mixed casing within one column → declared spellings. |
 | C10 | **(v2)** **A drop-down releases focus after a choice.** Once a value is chosen (pop-up click or keyboard), the combo no longer has keyboard focus — focus returns to its container (the table for a cell; the panel for a scalar) — so a later Up/Down or wheel changes nothing. A combo is reached deliberately (click, or Tab) and opened deliberately (click, Enter, Space, Down); a value changes only by a choice made with the list open. |
+| C11 | **(v3)** **Only a deliberate choice writes.** Opening a list never makes an item current that the user did not move to; Return / Enter / Escape / Tab / a click elsewhere, with no deliberate move, leave the cell exactly as held — any column, any held state (a listed item; a direct-beam name **outside** the listed folder, the reducer-written norm; empty; implied) — and `changed_vs_seed()` is unchanged. A deliberate move (arrow to another item, or a click on an item) followed by Return, or a click on an item, is the choice. A held direct-beam name not in the folder stays shown and kept until the user picks or types another. |
+| C8′ | **(v3, amends C8)** In the Angles table the **grid** convention applies: Up/Down/Left/Right move between cells and never open a list or change a value; a focused cell opens its list with Enter, F2, Space or Alt+Down, and with one click. The scalar combos keep the menu-button convention (one click, or Enter/Space/Alt+Down when focused). The PR body names both patterns (APG grid for the table, APG menu-button for the scalars) — the Integrator's D-a, decided here. |
+| C9′ | **(v3, amends C7/C9)** **Re-choosing the value a cell shows is the identity — implied values included.** In a compact column, choosing the implied value a cell displays writes nothing and leaves the list compact (the reduction already uses that value at every angle); only choosing a *different* value materialises the list (G9). The Integrator's D-b, decided here: "choose the shown value, nothing changes" holds everywhere. |
 | C6 | **Row-index rule, unchanged.** Every table write still goes through `SettingsDocument.set_angle_field(row, name, value)` with the row the cell is in **at the time of the edit** — after any Add/Remove. `currentRow()` is not consulted. Displaying a value writes nothing. |
 | C7 | **A drop-down never shows "unset" where the reduction has a value.** In a real angle's cell of a compact list (empty default-if-empty list; single-entry broadcast list) the drop-down displays the value the reduction will use — `Field.reducer_default`, or the broadcast entry — visibly marked as implied (the test states the queryable property), and the document is **not** written by displaying it. Choosing in such a cell goes through `set_angle_field`, which materialises the list as `editor-angle-count` G9 defines (the other angles keep the implied value, now explicit). A cell in a **surplus** row shows its held value or unset, never an implied one (the reduction never reads it). An optional-list cell (`LambdaMin`/`LambdaMax`) is not an enumerated field and is untouched here. |
 
@@ -147,7 +150,11 @@ never inside `refresh_report()` — and is a Qt-free function so it is testable 
 | V15 | a wheel event over a cell drop-down in a surplus row and in a real row leaves the document unchanged (already V3 — add the surplus-row leg) | — |
 | V16 (v2, C8) | on a shown tab, one `QTest.mouseClick` on an enumerated cell (no double-click) opens its list (the editor exists and its pop-up is visible, or the queryable equivalent the Developer states); Enter / Space / Down on the focused cell do the same; the affordance (arrow or current value) is drawn at rest — assert on the painted control's state or the persistent editor's presence, not on a double-click | opens only on double-click (`7452201`) |
 | V17 (v2, C9) | load `method_per_run: ['meantheta'] * 6`; the cell drop-down's items are `['meantheta', 'constantq', 'constanttof']` (+ unset); re-choosing `meantheta` in row 2 leaves `document.get('method_per_run')` **byte-identical** and `changed_vs_seed() == {}`; choosing `constantq` writes `constantq`; a fresh document's items are `list(fs.METHOD_CHOICES)`; a mixed-case column offers the declared spellings | the human's reproduction: `['meantheta', …] -> ['meantheta', 'meantheta', 'meanTheta', …]` |
-| V18 (v2, C10) | after a choice in a scalar combo and in a cell drop-down, `QApplication.focusWidget()` is not the combo; a following `QTest.keyClick(..., Key_Down)` sent to the former combo (or to the focus widget) leaves the document unchanged | the combo keeps focus and Down changes the value |
+| V18 (v2, C10; v3 widened) | after a choice in a scalar combo and in **each** cell column — Q method, background, **and a direct-beam name picked from the open list** — `QApplication.focusWidget() is tab.angle_table` (cells) / the scalar panel's focus proxy (scalars), not the combo; the pick wrote the name; a following `Key_Down` changes nothing | T-2: the direct-beam pick had no test; R3d (v1's shape) survived 111 tests |
+| V19 (v3, C11) | the gesture matrix: three columns × held state {listed; direct-beam name **outside** the folder (the `Aug2026` shape: no override, names in a subfolder); empty; new row after Add; implied} × gesture {open then Return; open then Escape; open then Tab; open then click elsewhere; open, arrow to another item, Return; open, click an item} — only the last two write, and only the chosen item; everything else leaves `changed_vs_seed()` unchanged and the saved text identical | U-1: click + Return on a direct-beam cell writes the folder's first file (`A2_div10_Cd.txt` → `176.txt`) |
+| V20 (v3, C8′) | Down/Up on a focused cell moves the current cell and writes nothing; Enter / F2 / Space / Alt+Down open the list (replaces V16's "Down opens") | v2's `test_down_in_the_table_moves_to_the_next_row` already pins the move — make it the declared behaviour |
+| V21 (v3, C9′) | in a compact column (`method_per_run: ['constantQ']`, `useBS: []` on three angles) choosing the implied value a cell shows writes nothing (`changed_vs_seed() == {}`, list still compact); choosing a different value materialises per G9 | re-choosing materialises (D-b) |
+| V3′ (v3, T-1) | the C1 cell test: open the editor, `Escape` in `editor.view()` (list hidden, editor still open), then one wheel notch → `currentText()` and `changed_vs_seed()` unchanged, in all three columns | the list was already open, so the wheel was ignored whatever the guard did; P11 survived 111 tests |
 | U1 | `direct_beam_candidates` → names for a populated folder; `[]` for missing, file-not-dir, unreadable, and a patched `os.scandir` raising `OSError` | function absent |
 | U2 | the cap is honoured and announced | — |
 
@@ -174,6 +181,13 @@ never inside `refresh_report()` — and is a Qt-free function so it is testable 
 | (v2) the choices always use the declared spellings | V17 (lower-case file leg) |
 | (v2) re-choosing the held value canonicalises it (writes the declared spelling) | V17 (identity leg) |
 | (v2) focus left on the combo after a choice | V18 |
+| (v3) the list opens with row 0 current (no deliberate move) | V19 (Return legs) |
+| (v3) `setModelData` writes without a choice | V19 (Escape / Tab / click-away legs) |
+| (v3) a held direct-beam name outside the folder replaced on open | V19 (direct-beam outside-folder leg) |
+| (v3) `_CandidatesDelegate`'s choice connection removed (R3d) | V18 (direct-beam leg) |
+| (v3) the delegate editors' `wheelEvent` reverted to `QComboBox.wheelEvent` (P11) | V3′ |
+| (v3) Down opens the list in a cell | V20 |
+| (v3) re-choosing an implied value materialises | V21 |
 
 Frame: the wheel-ignoring combo is used at every combo construction site in the tab — one row per site
 (`_build_editor`'s enumerated branch; each table editor); the listing helper has one call site per trigger
@@ -261,3 +275,37 @@ and the design note says which pattern it follows.
 deployment-shaped acceptance repeated through the real tab for the three findings (single click opens; re-choosing the
 held value leaves "Changed from the seed" empty on the IPTS-36119 file; focus released after a choice) — and PR #36
 refreshes with the branch. Then the human's gate again.
+
+### v3 — 2026-10-04 (attempt 3 of 3 — the last before escalation; the work order for `triage/editor-combos-v3`)
+
+**Rejection.** `review/editor-combos` @ `d3ee364` — `todo.md` at that commit. Not infrastructure. The human's three
+findings are **fixed** on the Q method and background cells and on the scalars (gestures run on both real files). What
+fails is the **direct-beam column**, which v2's tests never drove with a held name outside the listed folder — the
+reducer-written norm (`Aug2026/REFL_231105`: no `_DBpath_override`, the names live in `shared/transmission/Aug2026/`):
+**U-1**, click + Return on such a cell writes the folder's first file (`A2_div10_Cd.txt` → `176.txt`) — a silent change of
+a reduction input by the most natural keyboard gesture, and a v2 regression (at `7452201` the gesture changed nothing);
+**T-1**, the C1 cell test can no longer fail because v2 auto-shows the list and an open `QComboBox` ignores the wheel
+whatever the guard does (mutant P11 survived 111 tests); **T-2**, no test picks a direct-beam name from the list, so v1's
+commit-on-close-with-focus-kept shape survives on that column (R3d, 111 passed). **The plan's gap:** v2's C8–C10 were
+stated for "a cell" and tested on the enumerated columns; the direct-beam cell has a fourth held state — a name the list
+does not contain — that the gesture matrix never had a row for, and "re-choosing the held value is the identity" was
+specified for a value *in* the list.
+
+**What stands (do not redo).** C1, C3–C7, C9, C10 as implemented at `6e97703` for the Q method and background cells and
+the scalars; the direct-beam list itself (39 names of `shared/transmission`); the 500-row cost; the gesture script
+`scripts/editor-combos-gestures.py` and its results on the two real files.
+
+**What changes.** C11 (only a deliberate choice writes), C8′ (the grid convention in the table — the Integrator's D-a,
+decided: arrows never change a value, which is finding 3's spirit; Enter/F2/Space/Alt+Down and one click open), C9′
+(re-choosing an implied value is the identity too — D-b, decided), with V18 widened, V19–V21 and V3′ and their mutation
+rows. Types and states: three columns × held {listed; not listed (direct beam outside the folder); empty; new row; implied}
+× gesture {open+Return; open+Escape; open+Tab; open+click-away; open+arrow+Return; open+click item} — every cell of
+that matrix is a required outcome and a V19 case. The `useBS` column's held states are `True`/`False`/unset/implied.
+
+**Acceptance (v3).** §8 as written; the gesture script extended with the direct-beam column on the `Aug2026` file (held
+name outside the folder: open, Return → unchanged; open, Escape → unchanged; pick a listed name → that name); the two
+decisions D-a/D-b stated in the PR body for the human's gate; `todo.md` removed in its own commit before `qa/`. The
+advisories (typing with the list open reaches only printable keys — Escape first; the first click on "Remove angle" closes
+an open list; the mixed-case column listing both spellings by spec; the test reviewer's unrowed hunks P2–P8) ride the PR
+body; none is in this revision's scope. **A rejection of v3 escalates** (`plans/editor-combos-escalate.md` + the annotated
+tag); if that happens the escalation names the per-cell matrix as the state of understanding.
