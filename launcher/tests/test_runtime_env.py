@@ -4,17 +4,21 @@ The analysis nodes' login hook sets XDG_CACHE_HOME=/var/tmp/xdgcache-$USER and d
 so anything the launcher keeps there is gone when a scientist opens a second terminal. The launcher therefore
 chooses matplotlib's cache directory itself (launcher/runtime_env.py), before anything imports matplotlib.
 
-U1-U3 call the deciding function with a mapping and a base under tmp_path. V1 runs the three start paths in a
-child interpreter, because the property that matters is the order of imports, which a call cannot show.
+U1-U3 and V3 call the deciding function with a mapping and a base under tmp_path. V1 starts the launcher by
+the two commands that run (python -m launcher.new_launcher, and the installed new_launcher gui-script), because
+the property that matters is the order of imports, which only a real start shows. `python launcher/new_launcher.py`
+does not run at the base: launcher/launcher.py shadows the package (plan F3).
 """
 
 import getpass
 import logging
 import os
 import pathlib
+import shutil
 import stat
 import subprocess
 import sys
+import time
 
 import pytest
 
@@ -34,12 +38,12 @@ def _own_directory(base):
     return base / f"mpl-{getpass.getuser()}"
 
 
-def _one_refusal(caplog, path):
-    """The one line a refusal logs: a warning that names the path, and no traceback (an expected refusal, not
-    an error caught by the broad except)."""
+def _one_refusal(caplog, named):
+    """The one line a refusal logs: a warning that names the path (or the reason), and no traceback (an expected
+    refusal, not an error caught by the broad except)."""
     (record,) = [r for r in caplog.records if r.name == _LOGGER]
     assert record.levelno == logging.WARNING
-    assert str(path) in record.getMessage()
+    assert str(named) in record.getMessage()
     assert record.exc_info is None
 
 
@@ -207,6 +211,44 @@ def test_the_directory_name_is_spelled_in_one_module():
     assert spelled == ["launcher/runtime_env.py"]
 
 
+@pytest.mark.parametrize("error", [KeyError, OSError], ids=["no-passwd-entry", "no-user-name"])
+def test_no_user_name_is_refused_without_raising(tmp_path, caplog, monkeypatch, error):
+    """V3 (v2, design advisory A5): getpass.getuser() raising (KeyError from pwd on Python 3.11, OSError on 3.13):
+    nothing set, nothing created, one line, no exception."""
+
+    def no_user():
+        raise error("no user name for this uid")
+
+    monkeypatch.setattr(getpass, "getuser", no_user)
+    environ = {}
+    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        assert _prepare(environ, tmp_path) is None
+
+    assert environ == {}
+    assert list(tmp_path.iterdir()) == []
+    _one_refusal(caplog, "no user name")
+
+
+def test_a_path_that_cannot_be_inspected_is_refused_without_raising(tmp_path, caplog, monkeypatch):
+    """V3 (v2, design advisory A5): os.lstat raising OSError on the path: nothing set, one line naming it, no
+    exception."""
+    target = str(_own_directory(tmp_path))
+    real_lstat = os.lstat
+
+    def lstat(path, *args, **kwargs):
+        if os.fspath(path) == target:
+            raise PermissionError(13, "Permission denied", target)
+        return real_lstat(path, *args, **kwargs)
+
+    environ = {}
+    with monkeypatch.context() as patch, caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        patch.setattr(os, "lstat", lstat)
+        assert _prepare(environ, tmp_path) is None
+
+    assert environ == {}
+    _one_refusal(caplog, target)
+
+
 # --- U2: a preset MPLCONFIGDIR ---------------------------------------------------------------------------------
 
 
@@ -244,54 +286,74 @@ def test_the_deciding_module_imports_neither_qt_nor_matplotlib():
     assert result.stdout.strip().splitlines()[-1] == "[]"
 
 
-# --- V1: the three start paths, in a child interpreter -------------------------------------------------------
+# --- V1: the two start paths that run, by their actual commands -----------------------------------------------
 
-# Each leg imports launcher.new_launcher the way its start path does, without calling main(), then prints the
-# directory matplotlib fixed. The base is redirected on the deciding module before the start path runs; the
-# import is tolerated so that, before the module exists, the probe shows where the cache went.
-_PROBE = """
-import importlib.metadata, runpy, sys
-try:
-    import launcher.runtime_env
-    launcher.runtime_env.NODE_LOCAL_BASE = sys.argv[2]
-except ImportError:
-    pass
-if sys.argv[1] == "module":
-    runpy.run_module("launcher.new_launcher", run_name="__probe__")
-elif sys.argv[1] == "script":
-    runpy.run_path(sys.argv[3], run_name="__probe__")
-else:
-    (entry,) = [ep for ep in importlib.metadata.entry_points(group="gui_scripts") if ep.name == "new_launcher"]
-    entry.load()
-import matplotlib
-print("CACHEDIR=" + matplotlib.get_cachedir())
+# Test-only, on the child's PYTHONPATH: at interpreter start, before the launcher is imported, it points the
+# deciding module's base at the test's scratch directory. runtime_env.py reads no switch for this.
+_SITECUSTOMIZE = """import launcher.runtime_env
+launcher.runtime_env.NODE_LOCAL_BASE = {base!r}
 """
+_GUI_SCRIPT = shutil.which("new_launcher")
+_START_COMMANDS = [
+    pytest.param([sys.executable, "-m", "launcher.new_launcher"], id="python-m"),
+    pytest.param(
+        [_GUI_SCRIPT], id="gui-script",
+        marks=pytest.mark.skipif(_GUI_SCRIPT is None, reason="no new_launcher gui-script installed in this environment"),
+    ),
+]
 
 
-@pytest.mark.parametrize("start", ["module", "script", "entry"])
+def _font_cache(directory):
+    """matplotlib's font cache in `directory`: its sign of having chosen that directory."""
+    return sorted(directory.glob("fontlist-*.json")) if directory.is_dir() else []
+
+
+@pytest.mark.parametrize("command", _START_COMMANDS)
 @pytest.mark.parametrize("state", ["hook-xdg", "preset", "no-xdg"])
-def test_every_start_path_fixes_the_cache_outside_the_hooks_directory(tmp_path, start, state):
-    """V1, L1-L3: `python -m launcher.new_launcher`, `python launcher/new_launcher.py` and the `new_launcher`
-    gui-script each leave matplotlib's cache in <base>/mpl-<user>, not under the hook's XDG_CACHE_HOME; with
-    MPLCONFIGDIR preset, in the preset directory."""
-    base = tmp_path / "var-tmp"
-    base.mkdir()
-    (tmp_path / "home").mkdir()
-    env = {k: v for k, v in os.environ.items() if k not in ("MPLCONFIGDIR", "XDG_CACHE_HOME")}
-    env.update(HOME=str(tmp_path / "home"), QT_QPA_PLATFORM="offscreen")
+def test_every_start_path_that_runs_keeps_the_cache_out_of_the_hooks_directory(tmp_path, command, state):
+    """V1 (v2), L1-L3: the launcher started by its actual command, offscreen, and stopped once matplotlib has
+    written its font cache somewhere. Then, on the filesystem:
+    - under the hook's XDG_CACHE_HOME: <base>/mpl-<user> holds the cache, 0700, and the hook's directory has none.
+      A call made in main(), after the imports, would still create <base>/mpl-<user>, but only after matplotlib
+      had written under XDG;
+    - with MPLCONFIGDIR preset: the preset holds it, and <base>/mpl-<user> is not created;
+    - with no XDG_CACHE_HOME: <base>/mpl-<user> holds it, and <home>/.cache/matplotlib has none."""
+    assert command[1:] == ["-m", "launcher.new_launcher"] or os.path.basename(command[0]) == "new_launcher"
+    base, home, site = tmp_path / "var-tmp", tmp_path / "home", tmp_path / "site"
+    for directory in (base, home, site):
+        directory.mkdir()
+    (site / "sitecustomize.py").write_text(_SITECUSTOMIZE.format(base=str(base)))
+    hook, preset, mine = tmp_path / "xdgcache-u", tmp_path / "preset", _own_directory(base)
+    env = {k: v for k, v in os.environ.items() if k not in ("MPLCONFIGDIR", "XDG_CACHE_HOME", "PYTHONPATH")}
+    env.update(HOME=str(home), XDG_CONFIG_HOME=str(tmp_path / "config"), QT_QPA_PLATFORM="offscreen",
+               PYTHONPATH=str(site))
     if state != "no-xdg":
-        env["XDG_CACHE_HOME"] = str(tmp_path / "xdgcache-u")
+        env["XDG_CACHE_HOME"] = str(hook)
     if state == "preset":
-        env["MPLCONFIGDIR"] = str(tmp_path / "preset")
+        env["MPLCONFIGDIR"] = str(preset)
+    places = [mine, hook / "matplotlib", home / ".cache" / "matplotlib", preset]
 
-    result = subprocess.run(
-        [sys.executable, "-c", _PROBE, start, str(base), str(_REPO / "launcher" / "new_launcher.py")],
-        cwd=_REPO, env=env, capture_output=True, text=True, timeout=100,
-    )
+    with open(tmp_path / "stderr.txt", "wb") as stderr:
+        child = subprocess.Popen(command, cwd=_REPO, env=env, stdout=subprocess.DEVNULL, stderr=stderr)
+        try:
+            deadline = time.monotonic() + 90
+            while time.monotonic() < deadline and child.poll() is None and not any(map(_font_cache, places)):
+                time.sleep(0.2)
+            exited = child.poll()
+        finally:
+            child.terminate()
+            try:
+                child.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                child.wait()
 
-    assert result.returncode == 0, result.stderr[-2000:]
-    (line,) = [line for line in result.stdout.splitlines() if line.startswith("CACHEDIR=")]
-    cachedir = line[len("CACHEDIR="):]
-    expected = tmp_path / "preset" if state == "preset" else _own_directory(base)
-    assert cachedir == str(expected.resolve())
-    assert not (tmp_path / "xdgcache-u" / "matplotlib").exists()
+    log = (tmp_path / "stderr.txt").read_text(errors="replace")[-2000:]
+    assert exited is None, f"the launcher exited ({exited}) before matplotlib wrote its cache:\n{log}"
+    if state == "preset":
+        assert _font_cache(preset) and not mine.exists()
+    else:
+        assert _font_cache(mine), [str(path) for place in places for path in _font_cache(place)]
+        assert stat.S_IMODE(mine.lstat().st_mode) == 0o700
+        assert not (hook / "matplotlib").exists()
+        assert not (home / ".cache" / "matplotlib").exists()
