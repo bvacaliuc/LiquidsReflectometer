@@ -1,7 +1,7 @@
 # Plan: `launcher-test-teardown` — the launcher tests' teardown deletes only the windows nothing else owns
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `launcher-test-teardown` (refs `triage/launcher-test-teardown`,
-`feature/launcher-test-teardown`, `qa/launcher-test-teardown`) · **Status:** READY (v1) — re-sealed 2026-10-04 against `exp-review` @ `b86237b` (PR #36 merged; `launcher/tests/conftest.py` and `test_harness.py` are byte-identical to `e313f38`; the probe re-run at the tip: 2 of 4 runs abort) ·
+`feature/launcher-test-teardown`, `qa/launcher-test-teardown`) · **Status:** v2 (attempt 2 of N = 3; v1 rejected at `review/launcher-test-teardown` @ `7a97819` — test-only, see Revision history) — re-sealed 2026-10-04 against `exp-review` @ `b86237b` (PR #36 merged; `launcher/tests/conftest.py` and `test_harness.py` are byte-identical to `e313f38`; the probe re-run at the tip: 2 of 4 runs abort) ·
 **Base:** `agentic/exp-review` @ `b86237b` · **PR target:** `exp-review` on the fork, **draft** ·
 **Depends on:** `editor-combos` merged (order only — the files are disjoint); `editor-defaults-and-theta` now waits for
 **this** slug · **Review domains:** test (block); design (advise) · **Kind:** test infrastructure — not reduction-path,
@@ -119,10 +119,39 @@ Frame: one helper (if extracted) with one call site; the subprocess runner in `t
 
 | # | Question | Default |
 |---|---|---|
-| A1 | N = 12 subprocess runs. | A ½-per-run abort rate makes a false GREEN under the mutation a `(½)^12 ≈ 0.02 %` event; the plan says re-run on an unexpected green. |
+| A1 | N = 12 subprocess runs. | **Corrected (v2):** the measured abort rate is ~0.48 per run (worst observed 4 of 12), so a false GREEN under the mutation is `0.52^12 ≈ 4·10⁻⁴` — at the worst observed rate `0.67^12 ≈ 0.8 %`, not the `(½)^12` v1 wrote. N = 16–20 bounds it under `10⁻⁴`; raising N is recommended, not required; an unexpected green under the mutation is re-run, not passed. |
 | A2 | `Qt.Tool` windows are in the delete set. | Yes — the launcher's own tool windows are test-created. |
 | A3 | The slug runs between `editor-combos` and `editor-defaults-and-theta`, as the human placed it. | Yes; files disjoint from both. |
 
 ## Revision history
 
-v1 — authored 2026-10-04 against `e313f38` (staged); re-sealed and dispatched the same day against `b86237b` after PR #36 merged (the two files unchanged; the abort reproduced again at the tip, 2 of 4).
+v1 — authored 2026-10-04 against `e313f38` (staged); re-sealed and dispatched the same day against `b86237b` after PR #36
+merged (the two files unchanged; the abort reproduced again at the tip, 2 of 4).
+
+### v2 — 2026-10-04 (attempt 2 of 3; the work order for `triage/launcher-test-teardown-v2`)
+
+**Rejection.** `review/launcher-test-teardown` @ `7a97819` — `todo.md` at that commit: two declared clauses with no test
+that can fail; **test-only**, the fix itself is sound and independently proven on the deploy-target class (base conftest
+7 of 12 fresh `pytest` processes abort; the slug's 0 of 12, twice; the faithful revert caught in 6 of 6 invocations).
+Not infrastructure. **The plan's gap:** §3 declared "hidden or visible (both handled)" and H2 "identity restored first"
+with no §6 row for either — a declared state and a declared order with nothing that could red.
+
+**What stands (do not redo).** The rule in `conftest.py` (H1), its window-type allowlist (exact for Qt 5.15, design
+reviewer), T1–T4 and the twelve recorded mutation rows, the gate (321 + 666), the subprocess runner.
+
+**What changes (tests only; no production line, no change to `conftest.py`'s rule).**
+
+| # | Change | RED / proof it can fail |
+|---|---|---|
+| W1 (B1) | in the drain test (`test_the_drain_frees_the_test_windows_now_and_leaves_the_owned_ones` or its sibling) leave one or more of the `freed` test windows **un-shown**, keep the `isdeleted` assertion | mutant `if widget.isVisible() and _is_test_window(widget):` → the hidden window survives → red (at `8585197` the mutant passes 25) |
+| W2 (B2) | in `_LEFT_OPEN_WINDOWS_MODULE`, the window's `closeEvent` records `QCoreApplication.organizationName()` and the test asserts it does **not** start with `test-org-` — the identity was restored **before** the drain closed the window; optionally a fixture-free test that the identity equals the module-import value afterwards | deleting the three `prev_*` restore lines → red (at `8585197` the deletion passes 25 / 272) |
+| W3 (recommended) | `_TEARDOWN_RUNS` raised to 16–20 (A1 corrected); the `(½)^12` comment replaced by the measured rate | — |
+
+**Mutations.** `conftest.py` drain gated on `isVisible()` → W1 red; the three identity-restore lines deleted → W2 red;
+the restore moved **after** the drain → W2 red (the "first" leg). Then the twelve v1 rows again.
+
+**Acceptance (v2).** §8 as written; the advisories (the shared-`QApplication` parentless-`QMenu` case; parented windows
+now deleted with their parent and not closed; the two stale comments at `conftest.py:37-38` and `:42-43`; `--basetemp`
+for concurrent inner runs; a possible `test_harness_teardown.py` split; `editor-combos`' inline completer now free to
+become `PopupCompletion` in a successor) ride the PR body — none is in this revision's scope; `todo.md` removed in its own
+commit before `qa/`. The Developer continues on `feature/launcher-test-teardown` (v{N>1} rule).
