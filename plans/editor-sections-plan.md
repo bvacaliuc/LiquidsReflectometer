@@ -1,7 +1,7 @@
 # Plan: `editor-sections` — sections in the scientists' order, collapsible, remembered per user
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `editor-sections` (refs `triage/…`, `feature/…`,
-`qa/editor-sections`) · **Status:** READY — v1 (attempt 1 of N = 3) — **stacked** `[human, 2026-10-04, posture]`: dispatched 2026-10-04 when `editor-paths-header`'s draft PR #39 opened (its v2 PASS, I-26); §2 **re-sealed against `agentic/feature/editor-paths-header` @ `0cc96e1`** (PR #39's head; first sealed at `7b6d6b9` — every `settings_editor.py` / `field_spec.py` citation re-measured, F3 re-counted after the header moved three fields, F7–F9 added) ·
+`qa/editor-sections`) · **Status:** v2 (attempt 2 of N = 3; v1 rejected at `review/editor-sections` @ `1b8fe08` — **tests only**: four declared items with no failing-capable test, B-1…B-4; no production change asked for; see Revision history) — **stacked** `[human, 2026-10-04, posture]`: v1 dispatched 2026-10-04 when `editor-paths-header`'s draft PR #39 opened (its v2 PASS, I-26); v2 continues on `feature/editor-sections` (the Integrator's `todo.md` on top, @ `1b8fe08`); §2 **re-sealed against `agentic/feature/editor-paths-header` @ `0cc96e1`** (PR #39's head; first sealed at `7b6d6b9` — every `settings_editor.py` / `field_spec.py` citation re-measured, F3 re-counted after the header moved three fields, F7–F9 added) ·
 **Base:** `agentic/feature/editor-paths-header` @ `0cc96e1` · **PR target:** `feature/editor-paths-header` on the fork, **draft** (retargeted by the human's merges down the stack) ·
 **Stack** (posture, "Stacked editor lane" — it governs; this line points): `launcher-test-teardown` (#37) → `editor-defaults-and-theta` (#38) → `editor-paths-header` (#39) → **this slug**, the last; the Developer cuts `feature/editor-sections` `--no-track` from `agentic/feature/editor-paths-header` and regular-merges it forward before every `qa/` push; the Integrator opens the draft PR `--base feature/editor-paths-header`; **the stacked-lane rule retires when this slug is merged** ·
 **Depends on:** `editor-paths-header` (it removes IPTS and the two input paths from the list; what remains
@@ -67,9 +67,10 @@ state ∈ {**E** expanded (first run or stored `true`); **C** collapsed (stored 
 
 | Operation | E | C | G | U |
 |---|---|---|---|---|
-| build the tab | fields visible (`isVisibleTo(tab)`), reachable by Tab | fields hidden, skipped by Tab, heading still reachable | expanded (as E); no exception; the bad value left in the store | ignored; no exception; the key left in the store |
+| build the tab | fields visible (`isVisibleTo(tab)`), reachable by Tab | fields hidden, skipped by Tab, heading still reachable; **the body takes no space — the next heading's `y()` is higher by at least the body's height (S3)** | expanded (as E); no exception; **each** bad value (`"maybe"`, `[1]`, `""`) left in the store **as written** | ignored; no exception; the key left in the store |
 | toggle by mouse click on the heading | → C; store written `false`; no document write (`changed_vs_seed() == {}`); panel unchanged | → E; store `true` | → C (it was shown expanded) | n/a |
-| toggle by keyboard (heading focused, Space / Enter) | same as the click | same | same | n/a |
+| toggle by keyboard (heading focused, Space / `Key_Return` / keypad `Key_Enter` — **each key its own leg**) | same as the click | same | same | n/a |
+| collapse, then expand, **with no Load in between** | every editor under the section shows the document's value — line edit `text()`, combo current entry, check box state (B-2: a clear-on-collapse is invisible to Save, `changed_vs_seed()` and the panel because editors write on `editingFinished`) | → E then → C: the same | as E | n/a |
 | Tab through the panel | every field of the section is in the Tab order | none of its fields is; the next section's heading follows | as E | n/a |
 | edit a field, then collapse, then Save | the edit is in the file | — | as E | n/a |
 | Load a file while collapsed | editors inside refreshed (expand and read: the file's value) | same | — | n/a |
@@ -111,19 +112,20 @@ name, so re-ordering (this slug, or a later one) cannot hand one section another
 | # | Test (names are suggestions) | RED at the base |
 |---|---|---|
 | U1 | the declared order is exactly the ten names of S1 | no declaration |
-| U2 | every group of a scalar field is in the order and vice versa (and the import-time check exists: a spec with a stray group raises — exercised on a copy, not by editing the module) | — |
+| U2 | every group of a scalar field is in the order and vice versa; **(v2, B-1) the wiring, not the function:** import a *modified copy of the module source* (exec the edited source under a new module name, or a subprocess `python -c`) with a field in a group absent from `SECTION_ORDER`, and expect `ValueError` naming that group **from the import itself** — so deleting the module-level `_check_section_order(FIELD_SPEC, SECTION_ORDER)` call reds it; calling the function directly (v1) does not exercise the call site | — |
 | U3 | `PER_ANGLE_NAMES` equals the base tip's tuple, verbatim | passes — the pin for S5 |
 | U4 | the merged section's fields are exactly the seven of S2 (after `editor-paths-header`) | two groups |
 | V1 | the section headings in the tab, top to bottom, equal the declared order | base order (F1) |
-| V2 | toggling a heading with the keyboard hides and shows its fields (`isVisibleTo(tab)` on a field editor, on a shown tab) | not collapsible |
+| V2 | toggling a heading with the keyboard hides and shows its fields (`isVisibleTo(tab)` on a field editor, on a shown tab); **(v2, B-3)** and the space is gone — on collapse the next section's heading `y()` (mapped to the panel) decreases by at least the body's height, and returns on expand; **(v2, test A-1)** driven by Space, `Key_Return` and keypad `Key_Enter` as three legs | not collapsible |
 | V3 | the state survives a new tab instance in the same isolated store: collapse two, build a second `SettingsEditorTab`, same two collapsed | — |
 | V4 | a stored INI string `"false"`/`"true"` is read as its meaning (write the raw string into the store, then build the tab) | — |
-| V5 | garbage and unknown keys → all expanded, constructor does not raise | — |
+| V5 | garbage and unknown keys → all expanded, constructor does not raise; **(v2, B-4)** and the store still holds **each** garbage value as written — `"maybe"`, `[1]` and `""` read back raw, plus the orphaned key — so the docstring "the bad values stay in the store as they were" is true for all three | — |
 | V6 | a value edited before collapsing is saved; a collapsed section's invalid value is still reported | — |
 | V7 | `set_document` refreshes editors inside a collapsed section (expand afterwards and read the widget) | — |
+| V11 | **(v2, B-2)** collapse → expand with **no Load between** — each editor under the section shows the document's value: a section with line edits (Instrument geometry, `mmpix`), one with a combo (Detector resolution, `DetResFn`) and one with a check box (Processing, `Normalize`); assert `text()` / current entry / `isChecked()` against `document.get(...)` after the expand | passes at `b9ad10c`; red under the clear-on-collapse mutant |
 | V8 | collapsing changes nothing: `changed_vs_seed()` empty **and the panel text unchanged** after toggling every section | — |
 | V9 | §3's operation × state table, parametrized over E/C/G/U × the operations on a **shown** tab (`_shown_tab`), each cell asserting field visibility (`isVisibleTo(tab)`), the Tab order where the cell says so, the store's value after a toggle (read back raw and parsed), `changed_vs_seed()`, the panel text, and `tab._last_error is None`; the docstring says exactly what is asserted | the states have no tests |
-| V10 | the header is untouched: `tab.paths_header` is above the splitter, has no toggle, and `HEADER_NAMES` are in no section (S7; the `editor-paths-header` tests V1 still pass) | passes — the pin for S7 |
+| V10 | the header is untouched: `tab.paths_header` is above the splitter, has no toggle, and `HEADER_NAMES` are in no section (S7; the `editor-paths-header` tests V1 still pass); **(v2, test A-3) made non-vacuous:** `tab.paths_header.isCheckable() is False`, it is not wrapped in a `_Section` (`isinstance` / not among `tab.sections.values()` **and** the header's `QGroupBox` is a direct child of the tab's layout), and its `y()` is above the first section heading's — so making the header checkable or wrapping it reds | passes — the pin for S7 |
 | U5 | `GROUPS` equals the declared order's groups plus the per-angle-only groups, i.e. the declared order is a permutation of the groups that have a list scalar — nothing added, nothing lost | — |
 
 ## 7. Mutate-once gate
@@ -132,13 +134,17 @@ name, so re-ordering (this slug, or a later one) cannot hand one section another
 |---|---|
 | swap two entries of the declared order | U1, V1 |
 | `GROUPS` computed from `FIELD_SPEC` order again | V1 |
-| import-time check removed | U2 |
+| import-time check removed (the module-level call deleted, `field_spec.py:795` at `b9ad10c`) | U2 (**through the import of an edited copy** — B-1) |
 | state keyed by position instead of name (then reorder in the test) | V3 variant that reorders — add it if the mechanism could be positional |
 | state read with `bool(value)` | V4 |
 | state never written (read only) | V3 |
 | default-collapsed on first run | V5 / a first-run assertion in V1 |
 | collapsed section's editors detached from `self.editors` | V7, V6 |
-| collapse implemented by clearing or disabling values | V8, V6 |
+| collapse implemented by clearing or disabling values | V8, V6, **V11 (clearing — B-2: the v1 battery mutated only the disabling half)** |
+| **(v2)** collapsed body keeps its space (`setRetainSizeWhenHidden(True)`) | V2 (space leg — B-3) |
+| **(v2)** garbage removed from the store at build, for non-strings only / for `""` only | V5 (each form read back raw — B-4) |
+| **(v2)** keypad `Key_Enter` dropped from the heading's keys | V2 (`Key_Enter` leg) |
+| **(v2)** the header `QGroupBox` made checkable | V10 |
 | per-angle order changed by the regrouping | U3 |
 | the header box made a collapsible section / its fields pulled into the list | V10 |
 | toggle slot writes the document (e.g. calls `_set_scalar`) or refreshes the panel differently | V8 (panel leg), V9 |
@@ -181,6 +187,9 @@ the toggle slot is `@guarded` and touches `self.settings` only — never `self.d
   test (V9), "panel" means `tab.report.toPlainText()`, and a declared cell with no test is a declared defect.
 - `editor-paths-header` v1's rejection (B-1): a cell that says "panel" must be asserted on the panel widget, not on the
   model's `changed_vs_seed()` / `validate()`.
+- **(v2)** this slug's own v1 rejection: **a §7 row must name a test that observes through the path the mutation breaks** —
+  the import-time *call site* (not the function), expand-then-read (not reload-then-read), the geometry (not visibility),
+  each garbage form (not one). A test that passes under the faithful mutant is not the row's guard, whatever the row says.
 
 ## 10. Assumptions and open questions
 
@@ -198,4 +207,64 @@ v1 — authored 2026-10-02 against `7b6d6b9` (staged); **re-sealed and dispatche
 identical); F3 re-counted after `editor-paths-header` moved `experiment_id` and the two input overrides to the header — the merged
 section is exactly the seven fields of S2; F7 (the header is OUT, S7), F8 (the import-time-check shape), F9 (`PER_ANGLE_NAMES` value)
 added; every `settings_editor.py` / `field_spec.py` citation re-measured; the operation × state table and V9/V10/U5 added so every
-declared cell is a test; V8 asserts the panel. The last slug of the stacked lane: the posture rule retires when it is merged.
+declared cell is a test; V8 asserts the panel. The last slug of the stacked lane: the posture rule retires when it is merged. Developer:
+RED `2b91907`, GREEN `5ba08f6`, battery `b9ad10c` (D-30). **Rejected** at `review/editor-sections` @ `1b8fe08` (the Integrator's `todo.md`
+at that commit) — tests only.
+
+### v2 — 2026-10-04 (attempt 2 of 3; the work order for `triage/editor-sections-v2` — **tests only, no production change**)
+
+**Rejection.** `review/editor-sections` @ `1b8fe08` — `todo.md` at that commit (Integrator, Claude Opus 5.5): *"Verdict: REJECT — tests
+only. The behaviour passes every reviewer and the deployment-shaped acceptance; four declared items have no test that fails when they
+break (two §7 rows survive in faithful forms, one S3 clause and one States case are unasserted). No production change is asked for.
+Stacked slug: v2 continues on `feature/editor-sections` (base `feature/editor-paths-header` @ 0cc96e1, merged forward per the posture
+before `qa/`). Not infrastructure."* Gate green (launcher 628, reduction 725); ui-aspects PASS on every gesture; the 18-row battery
+reproduced; the Integrator's acceptance passes **including the restart from a fresh login shell through the launcher's own `main()`**
+(the store is `$HOME/.config/ORNL/lr_reduction_new_launcher.conf`, untouched by the login hook's cache wipe) — §"What passed (do not
+redo)" stands; **the Developer does not redo it**.
+
+> **BLOCKING — B-1: deleting the import-time call survives** (§7 "import-time check removed", rule b; S5 / §5 "import fails naming the
+> group", rule a). U2 calls `fs._check_section_order` directly, so the module-level call can go. Reproduction (Integrator, archive copy
+> of b9ad10c with a resolution test): delete `field_spec.py:795` `_check_section_order(FIELD_SPEC, SECTION_ORDER)` → **1078 passed**. The
+> wiring itself works (a copy with an added field in a new group raises `ValueError: … missing ['Brand new group'] …` at import).
+> **Fix (tests; domain = the one import-time call site):** a test that imports a modified copy of the module source (exec the edited
+> source, or a subprocess) with a field in a group absent from `SECTION_ORDER`, and expects the `ValueError` naming that group — so
+> removing the call reds it.
+>
+> **BLOCKING — B-2: "collapse implemented by clearing values" survives** (§7, rule b). The battery mutated only the disabling half (M9).
+> Mutant: in `_Section._show_body`, after `self.body.setVisible(expanded)`, `if not expanded:` clear every `QLineEdit` under the body →
+> **1077 passed**. Editors write on `editingFinished`, so a programmatic clear leaves the document intact and Save, `changed_vs_seed()`
+> and the panel stay green; V7 and the load-collapsed cells reload before expanding. No test does collapse → expand → read the editor.
+> **Fix (tests; domain = every editor kind under a section — line edits, combos, check boxes):** after a C → E toggle, assert each of
+> the section's editors shows the document's value (text / current entry / check state), on a section that holds a line edit and one
+> that holds a combo.
+>
+> **BLOCKING — B-3: S3 "collapsed means its fields take no space" has no test** (rule a). Reproduction: in `_show_body`, set
+> `setRetainSizeWhenHidden(True)` on the body's size policy → **1078 passed**; the probe confirms the mutant keeps the space. **Fix
+> (tests):** in V2 or V9's C cells, assert the space is gone — the next section's heading `y()` decreases by at least the body's height
+> on collapse, and returns on expand.
+>
+> **BLOCKING — B-4: G's "the bad value left in the store" is asserted for `"maybe"` only** (rule a; rule d on V5's docstring). V9's G
+> column uses only `"maybe"`; V5 covers `"maybe"`, `[1]` and `""` for "expanded, nothing raised", and its docstring says "the bad values
+> stay in the store as they were", but it asserts only the orphaned `"Paths"` key. Mutants: at build, remove a garbage value only when
+> it is a non-string → **1077 passed**; only when it is `""` → **1077 passed**. **Fix (tests; domain = the three garbage forms the plan
+> names):** V5 asserts the store still holds each garbage value as written (`[1]` and `""` included), so V5's docstring is true.
+
+**What the plan missed (the Analyst's defects).** Each §7 row named a test, but the named test did not observe through the path the
+mutation breaks: U2 reached the *function* while the row mutates the *call site*; V7/V6 reload before reading while the row mutates
+what a collapse does to the widgets; S3's "no space" was a behaviour with no geometry test at all; the States paragraph listed three
+garbage forms and V5 pinned one. The plan's mutation table is only a contract when each row's test fails under the row's faithful
+mutant — the Integrator ran them and four did not.
+
+**Changes in v2 (tests only).** U2 through the import of an edited copy (B-1); **V11** collapse → expand → read each editor kind,
+no Load between (B-2); V2 gains the geometry leg (B-3) and three key legs — Space, `Key_Return`, keypad `Key_Enter` (test A-1
+adopted: the table said "Enter"); V5 reads back each garbage form raw (B-4); V10 made non-vacuous (test A-3 adopted: `isCheckable()
+is False`, not a `_Section`, above the first heading); the table's cells say what each test now asserts; five mutation rows added.
+The remaining advisories (test A-2, A-4–A-6; ui-aspects A1–A5 — the pressed-button look of an expanded heading and the narrow
+click target are worth the human's eye, not this slug's gate) go to the PR body.
+
+**Unchanged:** S1–S7, F1–F9, U1, U3–U5, V1, V3, V4, V6–V9, every v1 mutation; **no production file changes are asked for** — if the
+Developer finds a production change necessary to make a test pass, that is a finding to record in the transcript, not a silent edit;
+base `feature/editor-paths-header` @ `0cc96e1` (re-checked 2026-10-04: still PR #39's head; `exp-review` still `b86237b`); the
+Developer continues on `feature/editor-sections` from `1b8fe08`, merges `agentic/feature/editor-paths-header` forward before `qa/`,
+keeps the v1 battery and extends it. **Retry arithmetic:** attempts_done = 1 + 1 = 2 → v2 is attempt 2 of 3; a third rejection
+escalates.
