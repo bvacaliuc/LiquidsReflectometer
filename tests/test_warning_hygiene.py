@@ -218,6 +218,63 @@ def test_the_functional_background_warns_nothing_for_pixels_without_counts(nexus
         _, refl, d_refl = template.process_from_template_ws(ws, template_data)
     assert np.all(np.isfinite(refl)) and np.all(np.isfinite(d_refl))
 
+
+def test_the_functional_background_fits_each_bin_with_the_base_weights_of_its_counts(nexus_dir, template_dir, monkeypatch):
+    """U7 (v2, test advisory A1): the call site of background_fit_weights. For run 198409 with the functional
+    background, each bin's fit receives that bin's counts as its data and, as its weights, the base's expression
+    on those counts, their errors and the proton charge of the workspace functional_background was given. The
+    counts and errors are recorded as functional_background stacks them. A wrong argument at the call (twice the
+    charge, counts and errors swapped) reds."""
+    import mantid.simpleapi as mtd_api
+
+    from lr_reduction import background, event_reduction, template
+    from lr_reduction.utils import amend_config
+
+    calls, recording = [], []
+    real_functional = background.functional_background
+    real_reflectivity = event_reduction.EventReflectivity._reflectivity
+    real_fit = background.LinearModel.fit
+
+    def functional(ws, *args, **kwargs):
+        recording.append({"charge": ws.getRun().getProtonCharge(), "counts": [], "errors": [], "fits": []})
+        try:
+            return real_functional(ws, *args, **kwargs)
+        finally:
+            calls.append(recording.pop())
+
+    def reflectivity(self, *args, **kwargs):
+        result = real_reflectivity(self, *args, **kwargs)
+        if recording:
+            recording[-1]["counts"].append(np.array(result[0]))
+            recording[-1]["errors"].append(np.array(result[1]))
+        return result
+
+    def fit(self, data, *args, **kwargs):
+        if recording:
+            recording[-1]["fits"].append((np.array(data), np.array(kwargs["weights"])))
+        return real_fit(self, data, *args, **kwargs)
+
+    monkeypatch.setattr(background, "functional_background", functional)
+    monkeypatch.setattr(event_reduction.EventReflectivity, "_reflectivity", reflectivity)
+    monkeypatch.setattr(background.LinearModel, "fit", fit)
+    with amend_config(data_dir=nexus_dir):
+        ws = mtd_api.Load("REF_L_198409")
+    sequence_number = ws.getRun().getProperty("sequence_number").value[0]
+    template_data = template.read_template(os.path.join(template_dir, "template_fbck.xml"), sequence_number)
+    template_data.two_backgrounds = True
+    with amend_config(data_dir=nexus_dir):
+        template.process_from_template_ws(ws, template_data)
+
+    assert calls, "the functional background did not run"
+    for call in calls:
+        counts, errors = np.vstack(call["counts"]), np.vstack(call["errors"])
+        assert len(call["fits"]) == counts.shape[1]
+        assert np.any(counts == 0)
+        for column, (data, weights) in enumerate(call["fits"]):
+            expected = _base_background_fit_weights(counts[:, column], errors[:, column], call["charge"])
+            assert np.array_equal(data, counts[:, column])
+            assert np.array_equal(weights, expected, equal_nan=True)
+
 def _base_paralyzable_correction(rate, dead_time, tof_step):
     """The base's arithmetic (2324e5c, dead_time_correction.py:96-101), with its warnings silenced."""
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -258,12 +315,51 @@ def test_the_paralyzable_dead_time_algorithm_warns_nothing_for_bins_without_even
     algo.setProperty("InputWorkspace", ws)
     algo.setProperty("Paralyzable", True)
     algo.setProperty("OutputWorkspace", "hygiene_dead_time_corr")
+    # RuntimeWarning only (v2, test advisory A2): the whole algorithm under "error" failed once in nine runs under
+    # load, on something other than this slug's arithmetic.
     with warnings.catch_warnings():
-        warnings.simplefilter("error")
+        warnings.simplefilter("error", RuntimeWarning)
         algo.PyExec()
     corr = algo.getProperty("OutputWorkspace").value.readY(0)
     assert np.all(np.isfinite(corr)) and np.all(corr >= 1)
     assert np.any(corr == 1)
+
+
+def _rate_as_the_algorithm_measures_it(ws, tof_step):
+    """Counts per pulse in each TOF bin, as SingleReadoutDeadTimeCorrection measures them with its defaults: the
+    run's own TOF range, no error events."""
+    import mantid.simpleapi as mtd_api
+
+    params = "%s,%s,%s" % (ws.getTofMin(), tof_step, ws.getTofMax())
+    rebinned = mtd_api.Rebin(InputWorkspace=ws, Params=params, PreserveEvents=False, OutputWorkspace="hygiene_rebinned")
+    counts = mtd_api.SumSpectra(rebinned, OutputWorkspace="hygiene_counts")
+    pulses = np.count_nonzero(np.asarray(rebinned.getRun()["proton_charge"].value))
+    return counts.readY(0) / pulses
+
+
+def test_the_algorithm_applies_the_base_arithmetic_to_the_rate_it_measures(nexus_dir):
+    """U7 (v2, test advisory A1): the call site of paralyzable_correction. The algorithm's correction equals, bit
+    for bit, the base's arithmetic on the rate measured independently from the same run, with its DeadTime and
+    TOFStep (the defaults, 4.2 and 100). A wrong argument at the call (2 * tof_step, a swapped pair, a rate that is
+    not counts per pulse) reds."""
+    import mantid.simpleapi as mtd_api
+
+    from lr_reduction.dead_time_correction import SingleReadoutDeadTimeCorrection
+    from lr_reduction.utils import amend_config
+
+    with amend_config(data_dir=nexus_dir):
+        ws = mtd_api.Load("REF_L_198409")
+    algo = SingleReadoutDeadTimeCorrection()
+    algo.PyInit()
+    algo.setProperty("InputWorkspace", ws)
+    algo.setProperty("Paralyzable", True)
+    algo.setProperty("OutputWorkspace", "hygiene_dead_time_corr")
+    algo.PyExec()
+    corr = algo.getProperty("OutputWorkspace").value.readY(0)
+
+    rate = _rate_as_the_algorithm_measures_it(ws, 100.0)
+    assert np.any(rate == 0) and np.any(rate > 0)
+    assert np.array_equal(corr, _base_paralyzable_correction(rate, 4.2, 100.0))
 
 
 def test_reading_a_result_file_without_data_rows_warns_nothing(tmp_path):

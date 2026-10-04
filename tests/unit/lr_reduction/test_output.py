@@ -216,17 +216,39 @@ class TestRunCollection:
         assert capsys.readouterr().out == _NO_POINTS
 
     @pytest.mark.parametrize(
-        "rows",
-        ["0.1 1.0 0.1\n0.2 0.5 0.05\n", "0.1 1.0 0.1 0.01 7\n", "0.1 1.0 0.1 0.01\n0.2 0.5\n", "q r dr dq\n"],
-        ids=["three-columns", "five-columns", "ragged", "not-numbers"],
+        "text, meta",
+        [
+            ('# Meta:{"run": 2}\n0.1 1.0 0.1\n0.2 0.5 0.05\n', {"run": 2}),
+            ('# Meta:{"run": 2}\n0.1 1.0 0.1 0.01 7\n', {"run": 2}),
+            ('# Meta:{"run": 2}\n0.1 1.0 0.1\n', {"run": 2}),
+            ('# Meta:{"run": 2}\n0.1\n0.2\n0.3\n', {"run": 2}),
+            ('# Meta:{"run": 2}\n0.1 1.0 0.1 0.01\n0.2 0.5\n', {"run": 2}),
+            ('# Meta:{"run": 2}\nq r dr dq\n', {"run": 2}),
+            ("5\n", {}),
+            ('# Meta:{"start_time": "x"}\n0.01\n', {"start_time": "x"}),
+        ],
+        ids=[
+            "rows-of-three", "one-row-of-five", "one-row-of-three", "three-rows-of-one", "ragged", "not-numbers",
+            "a-single-number", "a-single-number-after-meta",
+        ],
     )
-    def test_read_file_whose_rows_are_not_four_numbers(self, tmp_path, capsys, rows):
-        """U4: rows that do not form four numeric columns give four empties and the meta, with the base's message"""
+    def test_read_file_whose_rows_are_not_four_numbers(self, tmp_path, capsys, text, meta):
+        """U4: every shape the base read as "no points" gives four empty lists and the meta, with the base's
+        message. That includes the 0-d shape: np.loadtxt reads a single number as a 0-d array, whose unpack
+        raises TypeError, not ValueError (v2, B-1: v1 let it out)."""
         file_path = tmp_path / "bad.txt"
-        file_path.write_text('# Meta:{"run": 2}\n' + rows)
+        file_path.write_text(text)
 
-        assert read_file(str(file_path)) == ([], [], [], [], {"run": 2})
+        result = read_file(str(file_path))
+
+        assert result == ([], [], [], [], meta)
+        assert all(type(column) is list for column in result[:4])
         assert capsys.readouterr().out == _NO_POINTS
+
+    def test_read_file_on_a_missing_file_raises_file_not_found(self, tmp_path):
+        """U4 (v2, test advisory A4): no file is not "no points": FileNotFoundError propagates, as at the base"""
+        with pytest.raises(FileNotFoundError):
+            read_file(str(tmp_path / "absent.txt"))
 
     def test_read_file_lets_an_interrupt_through(self, tmp_path, monkeypatch):
         """U4: only a ValueError reads as "no points"; a KeyboardInterrupt raised while reading propagates"""
@@ -251,12 +273,15 @@ class TestRunCollection:
 
         expected = np.loadtxt(file_path).T
         assert all(np.array_equal(got, want) for got, want in zip((q, r, dr, dq), expected, strict=True))
+        assert all(isinstance(column, np.ndarray) and column.shape == (3,) for column in (q, r, dr, dq))
         assert meta == {"run": 3}
 
-    def test_read_file_with_one_row_returns_four_scalars(self, tmp_path):
-        """Plan A2, kept as at the base: one data row gives four scalars, not four arrays of one element"""
+    @pytest.mark.parametrize("text", ["0.1 1.0 0.1 0.01\n", "0.1\n1.0\n0.1\n0.01\n"], ids=["one-row", "four-rows-of-one"])
+    def test_read_file_with_one_row_returns_four_scalars(self, tmp_path, text):
+        """Plan A2, kept as at the base: four numbers in one row, or in four rows of one, give four scalars, not
+        four arrays of one element (np.loadtxt reads both as one dimension of four)"""
         file_path = tmp_path / "one.txt"
-        file_path.write_text("0.1 1.0 0.1 0.01\n")
+        file_path.write_text(text)
 
         q, r, dr, dq, _ = read_file(str(file_path))
 
