@@ -33,11 +33,18 @@ def _reset_warning_registries():
     would pass vacuously. Note this deliberately does NOT use
     `simplefilter("always")`: that replaces the filter list, which would discard
     the very ini configuration under test and make the assertion unfalsifiable.
-    """
-    import sys
 
+    The registry is read from each module's own namespace, never with getattr:
+    a getattr runs a module-level __getattr__ (PEP 562) or a lazy loader when
+    the name is missing, and mpmath 1.4's deprecated `rational` and `math2`
+    modules warn from theirs.
+    """
     for module in list(sys.modules.values()):
-        registry = getattr(module, "__warningregistry__", None)
+        try:
+            registry = object.__getattribute__(module, "__dict__").get("__warningregistry__")
+        except (AttributeError, TypeError):
+            # sys.modules may hold None (a blocked import) or an object with no namespace.
+            continue
         if registry:
             registry.clear()
 
@@ -208,7 +215,7 @@ def test_the_functional_background_warns_nothing_for_pixels_without_counts(nexus
     template_data.two_backgrounds = True
     with amend_config(data_dir=nexus_dir), warnings.catch_warnings():
         warnings.filterwarnings("error", category=RuntimeWarning)
-        _, refl, d_refl, _ = template.process_from_template_ws(ws, template_data)
+        _, refl, d_refl = template.process_from_template_ws(ws, template_data)
     assert np.all(np.isfinite(refl)) and np.all(np.isfinite(d_refl))
 
 def _base_paralyzable_correction(rate, dead_time, tof_step):
