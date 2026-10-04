@@ -3,7 +3,7 @@
 ## Dispatch header (Analyst, 2026-10-04 — v1; supersedes the "agents never push … the human pushes" line below, which it keeps as the model)
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `shared-deploy-exp-review` (refs on the **subject** repo: `triage/shared-deploy-exp-review`,
-`feature/shared-deploy-exp-review`, `qa/shared-deploy-exp-review`) · **Status:** v2 (attempt 2 of N = 3; v1 rejected at `review/shared-deploy-exp-review` @ `10ed77e` — four findings, B-1…B-4, all on the
+`feature/shared-deploy-exp-review`, `qa/shared-deploy-exp-review`) · **Status:** **v3 (attempt 3 of N = 3 — the last before escalation**; v2 rejected at `review/shared-deploy-exp-review` @ `808b689` — two findings, B-5 and S-1, every v1 blocker fixed; see "v3 re-specification" and Revision history); v1 rejected at `review/shared-deploy-exp-review` @ `10ed77e` — four findings, B-1…B-4, all on the
 series; the deploy itself passed the Integrator's real scratch acceptance; see Revision history and "v2 re-specification") — v1 dispatched
 2026-10-04 the moment the human's third answer landed (V1-28); v2 continues on the ledger series (`plans/shared-deploy-exp-review-series/`,
 revised in place by the Developer in the same read-only clone) and on the subject's `feature/shared-deploy-exp-review` (the Integrator's
@@ -244,6 +244,22 @@ is refused; the planted-symlink lock case. **The human's acceptance row (B-3, af
 tier, then a third; `ls -l conda-meta/pixi conda-meta/history` unchanged; both start. The crossrepo record's step 2 says `mv` for the first
 rollback and uses full SHAs.
 
+## v3 re-specification (Analyst, 2026-10-04 — from the Integrator's B-5 and S-1; the Developer revises the series in place; **the last attempt**)
+
+| # | Behaviour (v3) | Domain / types (amendment 18) |
+|---|---|---|
+| N6 | **Every path of a tree ends in the team group, and the tree is "complete" only after it verifies.** (a) Before cloning, the deploy **refuses** a `SHARE` that is not setgid to `TEAM` (the share's own group, `stat -c %G`; `TEAM=` may name it explicitly) — a precondition **checked**, not asserted. (b) The install runs with **`TMPDIR` inside the new tree** (`<tag>@<sha7>/.cache/tmp`, created first, so uv's rename of the editable wheel inherits the setgid group), **and** the post-install sweep is `chgrp -h -R "$TEAM"` + `g+rX` over the whole tree (both: detection complete whatever a tool does); `.cache/uv-cache` is removed after the install (security (2) — nothing needs it at run time). (c) **C7 compares every path's group with `TEAM`**, never with the tree's own group; one path in another group → FAIL naming it. (d) **`DEPLOYED.txt` is written only after the verifier passes**; until then the tree carries `.deploying`; a FAILed verification leaves the marker, prints the verifier's FAIL lines and the recovery (`re-run the same command: it resumes the marked tree, re-sweeps, re-verifies` / `remove the marked tree`), exit 1, link untouched — the README has that section. | path origin ∈ {git clone (incl. `REPO=file://…` hardlinks carrying the upstream's group), pixi install, uv editable wheel renamed from `$TMPDIR` on the same fs / copied from another fs, the sweep itself} × `SHARE` ∈ {setgid TEAM, setgid other group, not setgid} × `TMPDIR` ∈ {unset (`/tmp`), on the share's fs, inside the tree}; tree state ∈ {marked, complete (DEPLOYED.txt), FAILed-and-marked} |
+| N7 | **Verifying writes nothing: the verifier exercises the runtime path, never `pixi run`.** C5/C8 become: `source activate.sh`; `PYTHONDONTWRITEBYTECODE=1` exported **before** the source (security (6)); the env's `bin/python -c 'import lr_reduction, sys; print(sys.prefix)'` and `bin/new_launcher --help` — what scientists run; C1 reads the checkout with `GIT_OPTIONAL_LOCKS=0 git status --porcelain` (no index refresh write) and `git rev-parse HEAD`. **No `pixi run` anywhere after the install**, in the deploy or the verifier. A re-run of the deploy, and a rollback's verify step, change **no path** of a complete tree — the README's three claims (`make-shared-deploy.sh:21`, `README:22`, `:61`) are then true and are kept; the test is a full listing snapshot (`find -printf '%p %m %u %g %T@\n'`) equal before and after a re-run and after a verify. | the writers a re-run or a verify has: pixi (`conda-meta/*`, env install if "stale"), git (`.git/index`), python (`__pycache__`), fontconfig (`.cache/fontconfig`), the verifier's own temp files (under `$TMPDIR` outside the tree) |
+| N8 | **Adopted advisories (cheap, security-relevant, in declared files):** the deploy adopts a marked tree only if the tree **and** the marker are owned by the running user (`-O`), else refuses — a forged marker in a group-writable dir cannot make the deployer fetch/checkout/install into another member's tree (security (3)); `DEPLOYED.txt`'s `PIXI=` is honoured by the verifier only when it equals `SYSTEM_PIXI` or is root-owned (security (4)); `REPO` with userinfo (`user:pw@`) is refused before it reaches `bash -x` or `DEPLOYED.txt` (security (10)); C2/C3 compare **full** SHAs (security (8)); the README's rollback verifies the target tree **before** switching and takes the lock (security (9)); `README:154`'s reference to `launcher/runtime_env.py` is corrected (absent from `2324e5c` — it lands with PR #42); T2b greps C7's readability line, not the share line (design A6); the `fonts.conf` edit is tested on a share reached through a symlink, physical ≠ logical path (design A4 — the real share is `/gpfs/…`); the migration's "Once" sequence verifies the new tree **before** the `mv … .in-place`, so `exp-review` resolves at every instant but the two renames (design A2). | — |
+
+**Not adopted (PR body, for the human):** security (5) `LR_SHARE` ownership rules beyond validation (no worse than `PATH`), (6b) Mantid geometry-cache writes beside an IDF — **covered by the acceptance listing-diff including a reduction run**, fixed only if it writes; (7) any local user can `flock` the share dir (a DoS the group boundary already allows); the deploying account's global `safe.directory = *` (machine-local, the human's — stated plainly in the PR body as the reason security (3) matters). Design A5 (`TIER` left an unresolved symlink: the acceptance's running-tree cell), A7 (test file length; the double `find`/`sed`), A8 (battery 42 vs 43).
+
+**Tests (v3, shim + real; each red at v2):** N6 — a share setgid to a **supplementary** group of the runner that is not its primary (SKIP with a reason if the runner has none; the Integrator's host has `sns_ref_l_team`): a stub install that **renames in** a file created in a non-setgid directory on the same filesystem → the tree ends in TEAM (sweep) and C7 would have FAILed without it (mutant: sweep removed); `REPO=file://<local clone>` whose objects carry another group → TEAM after the deploy; a T2 row "tree in another group inside a team share → C7 FAIL naming the path" (mutant: C7's group leg blinded, `wg_n=0`, must red); a non-setgid `SHARE` refused before clone (mutant: check removed); `DEPLOYED.txt` absent after a forced verifier FAIL, marker present, re-run resumes; N7 — the listing snapshot across a re-run and across a verify (mutant: `pixi run` restored in C5 → red; `git status` without `GIT_OPTIONAL_LOCKS=0` → red if the index rewrites); a grep test: no `pixi run` after the install line in either script; N8 — forged marker (owner ≠ runner, simulated with a file the test cannot `chown`: use `-O` on a path the test makes unowned via a `fakeroot`-free route: a **directory owned by another user is not creatable by the test**, so the test asserts the `-O` check's presence by mutating it and by a marker whose recorded uid ≠ `id -u`; SKIP the real-ownership leg with a reason), `PIXI=` not `SYSTEM_PIXI` and not root-owned → ignored with a WARN, `REPO=https://u:p@…` → refused, full-SHA compare rows, rollback-verifies-first row, symlinked-share `fonts.conf` row, migration-order row (`exp-review` resolves at every step but the renames).
+
+**Acceptance (v3 — Integrator, scratch share **setgid to `sns_ref_l_team`** on an analysis node; every probe sets `LR_SHARE`; nothing runs from `/SNS/REF_L/shared`):** fresh deploy with `TMPDIR` on the share's filesystem **and** with `TMPDIR` unset → both 0 FAIL, every path in TEAM (`find ! -group sns_ref_l_team` empty); a re-run and a rollback-verify change no path (listing diff empty); **a reduction run** (not only a start) from the tree, offscreen, then the listing diff (security (6b)); a planted foreign-group tree → C7 FAIL; a forged marker → refused; the migration sequence on a scratch copy of a legacy in-place tree with `--exp-review -- --help` polled throughout. **Then the human:** `git am` the series onto `FY26B`, push, run the migration and the deploy from the README with `REPO=<fork> TAG=exp-review SHA=<full>`; the second-member run (umask 077) and the third's.
+
+**If v3 is rejected:** the cap is reached — the Analyst writes `plans/shared-deploy-exp-review-escalate.md` (best understanding, the three attempts with SHAs, what would be tried next) and pushes the annotated `review/shared-deploy-exp-review-escalate` tag; the human decides.
+
 ## Revision history
 
 v1 — the Advisor's review and items P1–P8 (2026-10-02/03, §1–§6), the actionability measurement (§7, 2026-10-04); **dispatch header
@@ -326,7 +342,70 @@ share; nothing runs from `/SNS/REF_L/shared`**. **Unchanged:** P1 (as re-specifi
 P8's canonical-copy rule, the transport, the base (`FY26B` @ `91e5c8f` — re-check at the series' `git am` on a fresh clone; `exp-review` @
 `2324e5c`); the Developer revises the series in place in the read-only clone (kept, D-42), re-exports, updates `crossrepo.md` (sha256s, full
 SHAs, `mv` rollback), and signals with a new `--allow-empty` commit on `feature/shared-deploy-exp-review` from `10ed77e`. **Retry
-arithmetic:** attempts_done = 1 + 1 = 2 → v2 is attempt 2 of 3; a third rejection escalates.
+arithmetic:** attempts_done = 1 + 1 = 2 → v2 is attempt 2 of 3; a third rejection escalates. Developer: the 15-patch series @ ledger `655c180`,
+signalling `48bb42f`/`787a079`, a real scratch deploy 14/1/0, the real run that falsified its own N3 GREEN and the fix (D-44). **Rejected** at
+`review/shared-deploy-exp-review` @ `808b689` (the Integrator's `todo.md`).
+
+### v3 — 2026-10-04 (attempt 3 of 3 — **the last**; the work order for `triage/shared-deploy-exp-review-v3`)
+
+**Rejection.** `review/shared-deploy-exp-review` @ `808b689` — `todo.md` at that commit (Integrator, Claude Opus 5.5): *"Verdict: REJECT — two
+findings; every v1 blocker is fixed. A fresh deploy can fail its own C7 depending on where `TMPDIR` lives, C7 cannot see a tree in the wrong
+group (and no test can fail on either), and the README's 'a re-run changes nothing' is falsified by the verifier the deploy runs. Both fixes are
+small and the plan already points at them. Cross-repo: the series is revised in the ledger and signalled here as before. Not infrastructure."*
+What passed (**the Developer does not redo it**): the signal empty against `exp-review`; 15 sha256s match; `git am` → tree `223ce5e`; the
+verifier byte-identical to the canonical copy; v1 B-1 (90/90 shim tests on the analysis node under umask 077/022; the seam both ways), B-2
+(six start forms; the planted `activate.sh` not sourced; the launcher exec'd from `bin/`), B-3 for scientist runs (conda-meta mtimes
+unchanged after a launcher run), B-4 (a marker-less tree refused; `.in-place` + `mv` rollback) all fixed; a real deploy 15/0/0 in a setgid
+team share (a tree first created in a non-setgid share — see B-5); C7 FAILs a non-setgid share; battery 42/42 red.
+
+> **BLOCKING — B-5: a foreign-group file can land in a fresh tree; C7 cannot see a tree in the wrong group; no test can fail on either.**
+> Measured: a **fresh** deploy into a scratch share setgid to `sns_ref_l_team` → **`FAIL C7 … 1 path(s) not group sns_ref_l_team`**, the switch
+> refused: `.cache/uv-cache/sdists-v9/editable/<h>/<r>/lr_reduction-…whl` is `6ov:users 0644` (reproduced twice). Mechanism (uv 0.12.17 +
+> hatchling): the editable wheel is built in `$TMPDIR` and moved into the cache — a rename when `$TMPDIR` is on the share's filesystem (keeps
+> `$TMPDIR`'s group), a copy when it is not (inherits the setgid group). … It FAILs wherever `TMPDIR` shares the share's filesystem: every
+> scratch acceptance on `/`, any deployer with `TMPDIR` on GPFS. **Also:** C7 compares paths with the tree's own group, never with `TEAM` — a tree
+> `chgrp -R users` inside a setgid team share PASSes both C7 lines … A faithful mutant survives: C7's group leg blinded (`wg_n=0`) → 0 tests
+> fail (the shims use `TEAM=$(id -gn)`, the primary group, so no fixture ever makes a foreign group). And `DEPLOYED.txt` is written before
+> verification: a FAILed tree counts as complete, a re-run only re-verifies it, and the README has no recovery for "deployed but FAILed".
+> **Fix (behaviour; domain = every path the deploy creates or a tool moves into the tree):** the deploy refuses a SHARE that is not setgid
+> to the team group before cloning; every path of a new tree ends in the team group (a `chgrp -h` sweep with the `g+rX` sweep, and/or `TMPDIR`
+> inside the tree's `.cache` for the install); C7 FAILs when the tree's group is not `TEAM`; a FAILed verification leaves the tree recoverable
+> (not "complete"), with a README step. **Tests:** a share in a supplementary group of the runner that is not the primary one (SKIP line if
+> none), a stub install that renames in a file made in a non-setgid directory on the same filesystem, `REPO=file://…` (a local-path clone
+> hardlinks `.git/objects` and carries the upstream's group), and a T2 row "a tree in another group inside a team share → C7 FAIL" — each red
+> at v2.
+>
+> **BLOCKING — S-1: "a re-run changes nothing" / "never changes a complete tree" falsified by the deploy's own verifier (rule d).**
+> `make-shared-deploy.sh:21`, `README-shared-deploy.md:22`, `:61`. The deploy always runs the verifier (`:156`), and its C5/C8 `pixi run
+> --frozen` rewrite the env's bookkeeping. Measured: `DEPLOYED.txt` 17:01:09; the re-run logged "deployed already: nothing to install" and
+> closed at 17:02:56.806 — `conda-meta/history` 17:02:55.719 and `conda-meta/pixi` 17:02:55.733 were rewritten in that window (design: also
+> `.git/index` by C1's `git status`; the README's rollback "verify" step does the same). A `pixi run` inside a tree launchers run from installs
+> into it in place if pixi judges the env stale. **Fix (preferred):** the verifier's run checks (C5/C8) exercise the runtime path itself —
+> `source activate.sh` and the env's `bin/python` / `bin/new_launcher` with `PYTHONDONTWRITEBYTECODE=1`, no `pixi run` — so verifying writes
+> nothing (and tests what scientists run); a listing/mtime snapshot test across a re-run; **or** reword the three claims to what is true.
+
+**What the plan missed (the Analyst's defects).** (1) v2's N5 adopted "C7 refuses unless `SHARE` is setgid to the team group" and stopped
+there: it never said what *group every path* must end in, nor that C7 must compare with `TEAM` rather than with itself — a check that
+compares a tree to its own group cannot see a tree in the wrong one; and the shim fixtures' `TEAM=$(id -gn)` could never make a foreign
+group, so the row had no failing test by construction. The `TMPDIR` mechanism was not foreseeable from the plan's desk, but the *invariant*
+("every path in TEAM, checked against TEAM") was, and would have caught it. (2) N3 said "a scientist's run writes nothing" and N7's domain
+now says why that was not enough: **the deploy's own verifier is a run too** — `pixi run` in C5/C8 was the writer the Developer's real-run
+measurement (D-44) did not cover because it measured a launcher run, not a re-deploy. (3) "Complete" was never defined: `DEPLOYED.txt`
+before verification made a FAILed tree complete.
+
+**Changes in v3** — "v3 re-specification" above: N6 TEAM end to end (refuse a non-TEAM share before clone; `TMPDIR` inside the tree **and**
+`chgrp -h -R TEAM` with the `g+rX` sweep; `uv-cache` removed; C7 against `TEAM`; `DEPLOYED.txt` only after the verifier passes, FAILed trees
+marked and recoverable with a README step); N7 the verifier runs the runtime path (`activate.sh` + `bin/python` / `bin/new_launcher`,
+`PYTHONDONTWRITEBYTECODE=1` first, `GIT_OPTIONAL_LOCKS=0`), **no `pixi run` after the install anywhere**, a listing-snapshot test across a
+re-run and a verify, the README's claims kept because now true; N8 the adopted advisories (owner-checked marker, `PIXI=` trusted only from
+`SYSTEM_PIXI`/root, userinfo in `REPO` refused, full SHAs in C2/C3, rollback verifies first under the lock, the README citation, T2b's grep,
+the symlinked-share `fonts.conf` test, the migration verifies before the renames). Acceptance adds `TMPDIR` on the share's fs, a reduction
+run in the listing diff, the forged marker, the migration sequence polled. **Unchanged:** N1–N5 as landed at v2, P1–P8, the transport, the
+base (`FY26B` @ `91e5c8f`; subject `exp-review` @ `2324e5c` is what deploys — **note** the fork's `exp-review` has since moved to `8bec251`
+(#38 merged): the series' recorded gitlink stays `2324e5c` as dispatched; the human may re-deploy a later SHA with the same scripts — that is
+the deploy's normal update path, not this slug's concern); the Developer revises the series in place, re-exports, updates `crossrepo.md`
+(sha256s), and signals with a new `--allow-empty` commit from `808b689`. **Retry arithmetic:** attempts_done = 1 + 2 = 3 → **v3 is attempt 3
+of 3**; a rejection escalates (`plans/shared-deploy-exp-review-escalate.md` + the annotated tag).
 
 ## 7. 2026-10-04 — actionable once three lines are on the bus `[Advisor V1]`
 
