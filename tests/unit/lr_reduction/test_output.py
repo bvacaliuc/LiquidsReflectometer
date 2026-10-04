@@ -1,11 +1,15 @@
 import json
 import tempfile
+import warnings
 from pathlib import Path
 
 import numpy as np
 import pytest
 
 from lr_reduction.output import RunCollection, read_file
+
+# What read_file prints when it finds no points, at the base and after (U4).
+_NO_POINTS = "Could not read file. It may have no points\n"
 
 
 class TestRunCollection:
@@ -173,15 +177,88 @@ class TestRunCollection:
             assert q[0] == pytest.approx(0.1)
             assert read_meta == meta
 
-    def test_read_file_empty(self):
-        """Test reading an empty or invalid data file"""
+    def test_read_file_empty(self, capsys):
+        """Test reading an empty or invalid data file: four empties, no meta, the message, and no warning (U4)"""
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "empty.txt"
 
             with open(file_path, "w") as f:
                 f.write("# No data\n")
 
-            q, r, dr, dq, meta = read_file(str(file_path))
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                q, r, dr, dq, meta = read_file(str(file_path))
 
-            assert len(q) == 0
+            assert [str(w.message) for w in caught] == []
+            assert (q, r, dr, dq) == ([], [], [], [])
             assert meta == {}
+            assert capsys.readouterr().out == _NO_POINTS
+
+    @pytest.mark.parametrize(
+        "text, meta",
+        [
+            ('# Meta:{"run": 1}\n', {"run": 1}),
+            ('# Meta:{"run": 1}\n\n   \n  # a comment after blanks\n', {"run": 1}),
+        ],
+        ids=["meta-only", "meta-blanks-and-comments"],
+    )
+    def test_read_file_without_a_data_row(self, tmp_path, capsys, text, meta):
+        """U4: a file with no data row gives four empties and its meta, with the base's message and no warning"""
+        file_path = tmp_path / "empty.txt"
+        file_path.write_text(text)
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = read_file(str(file_path))
+
+        assert [str(w.message) for w in caught] == []
+        assert result == ([], [], [], [], meta)
+        assert capsys.readouterr().out == _NO_POINTS
+
+    @pytest.mark.parametrize(
+        "rows",
+        ["0.1 1.0 0.1\n0.2 0.5 0.05\n", "0.1 1.0 0.1 0.01 7\n", "0.1 1.0 0.1 0.01\n0.2 0.5\n", "q r dr dq\n"],
+        ids=["three-columns", "five-columns", "ragged", "not-numbers"],
+    )
+    def test_read_file_whose_rows_are_not_four_numbers(self, tmp_path, capsys, rows):
+        """U4: rows that do not form four numeric columns give four empties and the meta, with the base's message"""
+        file_path = tmp_path / "bad.txt"
+        file_path.write_text('# Meta:{"run": 2}\n' + rows)
+
+        assert read_file(str(file_path)) == ([], [], [], [], {"run": 2})
+        assert capsys.readouterr().out == _NO_POINTS
+
+    def test_read_file_lets_an_interrupt_through(self, tmp_path, monkeypatch):
+        """U4: only a ValueError reads as "no points"; a KeyboardInterrupt raised while reading propagates"""
+        file_path = tmp_path / "data.txt"
+        file_path.write_text("0.1  1.0  0.1  0.01\n0.2  0.5  0.05  0.02\n")
+
+        def interrupted(*_args, **_kwargs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(np, "loadtxt", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            read_file(str(file_path))
+
+    def test_read_file_reads_data_rows_as_the_base_did(self, tmp_path):
+        """U4: with data rows, among comments and blanks, the four columns are np.loadtxt(path).T, as at the base"""
+        file_path = tmp_path / "data.txt"
+        file_path.write_text(
+            '# Meta:{"run": 3}\n# q r dr dq\n0.1 1.0 0.1 0.01\n\n0.2 0.5 0.05 0.02  # a note\n0.3 0.25 0.02 0.03\n'
+        )
+
+        q, r, dr, dq, meta = read_file(str(file_path))
+
+        expected = np.loadtxt(file_path).T
+        assert all(np.array_equal(got, want) for got, want in zip((q, r, dr, dq), expected, strict=True))
+        assert meta == {"run": 3}
+
+    def test_read_file_with_one_row_returns_four_scalars(self, tmp_path):
+        """Plan A2, kept as at the base: one data row gives four scalars, not four arrays of one element"""
+        file_path = tmp_path / "one.txt"
+        file_path.write_text("0.1 1.0 0.1 0.01\n")
+
+        q, r, dr, dq, _ = read_file(str(file_path))
+
+        assert [np.ndim(v) for v in (q, r, dr, dq)] == [0, 0, 0, 0]
+        assert (q, r, dr, dq) == (0.1, 1.0, 0.1, 0.01)
