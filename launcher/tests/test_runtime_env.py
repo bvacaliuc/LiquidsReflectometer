@@ -34,6 +34,15 @@ def _own_directory(base):
     return base / f"mpl-{getpass.getuser()}"
 
 
+def _one_refusal(caplog, path):
+    """The one line a refusal logs: a warning that names the path, and no traceback (an expected refusal, not
+    an error caught by the broad except)."""
+    (record,) = [r for r in caplog.records if r.name == _LOGGER]
+    assert record.levelno == logging.WARNING
+    assert str(path) in record.getMessage()
+    assert record.exc_info is None
+
+
 # --- U1: the types table ------------------------------------------------------------------------------------
 
 
@@ -98,7 +107,7 @@ def test_a_path_that_is_not_my_writable_directory_is_refused(tmp_path, caplog, m
         assert _prepare(environ, tmp_path) is None
 
     assert environ == {"XDG_CACHE_HOME": str(tmp_path / "xdgcache-u")}
-    assert len([r for r in caplog.records if r.name == _LOGGER]) == 1
+    _one_refusal(caplog, path)
     after = path.lstat()
     assert (after.st_mode, after.st_ino, after.st_mtime_ns) == (before.st_mode, before.st_ino, before.st_mtime_ns)
 
@@ -115,7 +124,7 @@ def test_another_users_directory_is_refused(tmp_path, caplog, monkeypatch):
         assert _prepare(environ, tmp_path) is None
 
     assert environ == {}
-    assert len([r for r in caplog.records if r.name == _LOGGER]) == 1
+    _one_refusal(caplog, path)
 
 
 @_NOT_ROOT
@@ -133,7 +142,7 @@ def test_a_base_that_cannot_be_written_is_refused_without_raising(tmp_path, capl
 
     assert environ == {}
     assert not _own_directory(base).exists()
-    assert len([r for r in caplog.records if r.name == _LOGGER]) == 1
+    _one_refusal(caplog, _own_directory(base))
 
 
 def test_without_user_variables_the_name_comes_from_the_uid(tmp_path, monkeypatch):
@@ -150,14 +159,36 @@ def test_without_user_variables_the_name_comes_from_the_uid(tmp_path, monkeypatc
 
 
 def test_a_user_name_that_is_not_one_path_component_is_refused(tmp_path, caplog, monkeypatch):
-    """U1, L4: a name that would leave the base ("a/b", "..") is refused rather than joined."""
+    """U1, L4: a name that is not one path component ("a/b", "..") is refused rather than joined. getpass
+    honours $LOGNAME first. <base>/mpl-a exists and is mine, so without the guard "a/b" would make a directory
+    inside it."""
+    (tmp_path / "mpl-a").mkdir(mode=0o700)
     environ = {}
     for name in ("a/b", ".."):
         monkeypatch.setenv("LOGNAME", name)
         with caplog.at_level(logging.DEBUG, logger=_LOGGER):
             assert _prepare(environ, tmp_path) is None
     assert environ == {}
-    assert sorted(p.name for p in tmp_path.iterdir()) == []
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["mpl-a"]
+    assert list((tmp_path / "mpl-a").iterdir()) == []
+
+
+def test_an_unexpected_error_is_logged_with_its_traceback_and_goes_no_further(tmp_path, caplog, monkeypatch):
+    """L4: the call runs while the launcher is imported, so no error may leave it. One that nothing expected is
+    logged with its traceback, and nothing is set."""
+    from launcher import runtime_env
+
+    def broken(_base):
+        raise RuntimeError("probe")
+
+    monkeypatch.setattr(runtime_env, "_node_local_directory", broken)
+    environ = {}
+    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        assert _prepare(environ, tmp_path) is None
+
+    assert environ == {}
+    (record,) = [r for r in caplog.records if r.name == _LOGGER]
+    assert record.exc_info is not None and record.exc_info[0] is RuntimeError
 
 
 def test_the_directory_name_is_spelled_in_one_module():
