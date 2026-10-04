@@ -3,8 +3,11 @@
 ## Dispatch header (Analyst, 2026-10-04 — v1; supersedes the "agents never push … the human pushes" line below, which it keeps as the model)
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `shared-deploy-exp-review` (refs on the **subject** repo: `triage/shared-deploy-exp-review`,
-`feature/shared-deploy-exp-review`, `qa/shared-deploy-exp-review`) · **Status:** READY — v1 (attempt 1 of N = 3) — dispatched 2026-10-04,
-the moment the human's third answer landed (V1-28) ·
+`feature/shared-deploy-exp-review`, `qa/shared-deploy-exp-review`) · **Status:** v2 (attempt 2 of N = 3; v1 rejected at `review/shared-deploy-exp-review` @ `10ed77e` — four findings, B-1…B-4, all on the
+series; the deploy itself passed the Integrator's real scratch acceptance; see Revision history and "v2 re-specification") — v1 dispatched
+2026-10-04 the moment the human's third answer landed (V1-28); v2 continues on the ledger series (`plans/shared-deploy-exp-review-series/`,
+revised in place by the Developer in the same read-only clone) and on the subject's `feature/shared-deploy-exp-review` (the Integrator's
+`todo.md` on top, @ `10ed77e`; the next signalling commit names the revised series) ·
 **Base (the deploy repository):** `git@code.ornl.gov:ref_l/shared.git` **`FY26B` @ `91e5c8f`** (`ls-remote` 2026-10-04: the remote tip; the
 facility checkout `/SNS/REF_L/shared` is this branch) `[human, 2026-10-04: "S-2: P4; the series against FY26B."]` · **Subject base:**
 `exp-review` @ `2324e5c` (the tree the review tier deploys; P1's `SHA`) ·
@@ -218,6 +221,29 @@ Acceptance for this section: C7 PASS after the repair; a run of `nr_launcher.sh 
 non-owner team member on an internet-restricted node (the human asks the scientist, or a second
 account) — the one measurement no agent here can take, since every seat runs as the deployer.
 
+## v2 re-specification (Analyst, 2026-10-04 — from the Integrator's four findings; the Developer revises the series in place)
+
+| # | Behaviour (v2) | Domain / types (amendment 18) |
+|---|---|---|
+| N1 | **One seam for the system pixi, and tests that can fail.** `make-shared-deploy.sh` resolves the pixi it will install with **and** name in `activate.sh` as: `SYSTEM_PIXI=${SYSTEM_PIXI-/usr/bin/pixi}` when that path is an executable file, else `$PIXI` (the caller's); the choice is recorded in `DEPLOYED.txt` and C8 checks `activate.sh`'s pixi **is** the install pixi (security A9 / design A5 adopted). The shim suite passes on a host **with** a system pixi (the analysis nodes, `/usr/bin/pixi` 0.60.0) and **without** one, because the tests set the seam; one test plants a group-runnable system stub and a private pixi first on `PATH` and asserts the system one is chosen and `PIXI_EXE` names it (its battery row: `HOOK_PIXI=$PIXI` must red); T1h restores the symlink it removes (or T2/T4 address the tree directly) so no cascade. | the pixi executable: {system executable, system present but not executable (bash `command -v` returns it), absent, private-first-on-PATH} × host umask {077, 022, 002} |
+| N2 | **`PIXI_PREFIX` is never chosen by the caller's cwd** (CWE-426/427 — v1's departure 5 was a regression). `nr_launcher.sh` uses the **fixed** `/SNS/REF_L/shared/lr_reduction` unless `LR_SHARE` is set — an absolute path the caller sets deliberately, to the share's parent (`$LR_SHARE/lr_reduction` must exist); `$0`/`BASH_SOURCE`-derived paths are not used. Every start form resolves the same prefix: absolute path, `PATH` exec, `bash <name>` from a foreign cwd (with and without a planted `<cwd>/../lr_reduction/exp-review/activate.sh`), `./`, a symlink, a copy outside the share. The warning text names `XDG_CACHE_HOME`; `"$@"` forwarded; `PIXI_PREFIX` exported — v1's P6 kept. | start form ∈ {abs, PATH, `bash name`, `./`, symlink, copy} × `LR_SHARE` ∈ {unset, set valid, set invalid} × a planted decoy tree {absent, present} |
+| N3 | **A scientist's run writes nothing into the shared tree** — P10 adopted (the Integrator's B-3 route (a)): `nr_launcher.sh --exp-review` sources the sanitized `activate.sh` and **`exec`s the env's own `bin/new_launcher`** (no `pixi run` at run time; `pixi run --frozen` stays the deployer's verification path, C5/C8). After a run by any user, every file under `<tag>@<sha7>/` has the owner, mode and mtime it had after the deploy (`conda-meta/pixi`, `history`, `pixi_env_prefix` included). The README says what is true: *the deploy never changes a tree once it is switched to; running the tier writes nothing into it.* The second-user row becomes an **acceptance the human can execute** (§Acceptance v2). | the files pixi rewrites at run time (measured: `conda-meta/{pixi,history,pixi_env_prefix}`, `.cache/uv-cache`) × user ∈ {deployer, member with umask 077, member with umask 022} |
+| N4 | **The deploy adopts only directories it created, and the legacy tree is restored by `mv`, never by the symlink.** Before cloning, the deploy writes a marker (`.deploying` with the deploy's pid/host/start) into the new `<tag>@<sha7>/`; a directory at that name **without** `DEPLOYED.txt` **and without the marker** is refused with a message naming it (a moved legacy tree, or anything else the deploy did not make); an interrupted deploy of its own (marker present, no `DEPLOYED.txt`) is resumed or wiped **only after** the marker's pid is gone. The README's "Once" migration and "Roll back" sections state that pixi keys a detached env by its **physical path** (measured: `lr_reduction-5958…` → `-1252…` after `mv`), so the first rollback is `mv exp-review@<sha7> exp-review` (restoring the path), not a symlink; a shim test plants a moved legacy tree under `<tag>@<sha7>` and asserts refusal. | directory at `<tag>@<sha7>`: {absent, deploy-made complete, deploy-made interrupted (marker, pid alive / dead), foreign (no marker, no `DEPLOYED.txt`), legacy moved} |
+| N5 | **Adopted advisories (small, security-relevant, in declared files):** the lock is taken on the **share directory's fd** (`exec 9< "$SHARE"` + `flock`), never on a file path a planted symlink can redirect (security A1); `TAG` is validated — `^[A-Za-z0-9][A-Za-z0-9._-]*$` — before any `pgrep`/path use (A8: a regex error must not read as "no process"); `SHA` is **full** (40 hex) in `DEPLOYED.txt`, the gitlink and the human's commands, 7-hex accepted only as input and resolved (A6); the verifier's C7 **refuses** unless `SHARE` is setgid to the team group and prints the group it saw (A4); C3 prints a `SKIP` line when it has nothing to compare (Integrator's note); `SHARE` defaults to the script's own directory (`$HERE`), not the cwd (design A4); the migration order builds and verifies first and switches the symlink last, so `exp-review` resolves throughout (design A3). | — |
+
+**Not adopted (PR body, for the human):** security A2 (sweep follows a symlink swapped mid-walk — sweep only the fresh install: **adopt if cheap**, else state), A3 (124 720 g+w files — the group is the trust boundary), A5, A7 (GPFS `flock`/`pgrep` one-node blind spot — stated in the README), A10 (verifier needs ownership — the README's rollback verify step is the deployer's), A11; design A6/A7/A9/A10.
+
+**Tests (v2, shim + real):** the shim suite runs green on **both** host classes (T0: a CI-style run with `/usr/bin` hidden *and* a run with a group-runnable system stub); N1 seam rows; N2 one T3 row per start form × decoy; N3 a shim that records every write under the tree during a `--exp-review -- --help` run (none) and the README wording test (grep for "never changed" → gone); N4 the foreign/legacy/interrupted directory rows; N5 the lock-on-symlink row (planted symlink untouched), the `TAG` rows (`-x`, `a b`, `.*`), the C7 non-setgid row, the C3 SKIP row. **Mutate-once (added):** seam removed (`HOOK_PIXI=$PIXI`) → N1 row; prefix from `$0` again → N2 `bash name` + decoy row; `pixi run` restored at run time → N3 write-recorder; marker check removed → N4 foreign-directory row; lock on a file path → N5 symlink row; `TAG` check removed → N5 rows.
+
+**Acceptance (v2 — Integrator, scratch share on an analysis node, never `/SNS/REF_L/shared`; every probe of a fallback sets `LR_SHARE` to the
+scratch share — the v1 incident's rule):** the series applies clean on a fresh `FY26B` @ `91e5c8f` clone; shim suite green there with the
+system pixi present; deploy `REPO=<fork> TAG=exp-review SHA=<full 2324e5c sha>` → verifier 0 FAIL / 0 WARN; `nr_launcher.sh --exp-review --
+--help` from each start form resolves the scratch prefix (`LR_SHARE`) and never a planted decoy; after a real `--exp-review` run (offscreen,
+stopped), **no file under the tree changed** (owner/mode/mtime listing before and after, diffed); a moved legacy tree under `exp-review@<sha7>`
+is refused; the planted-symlink lock case. **The human's acceptance row (B-3, after the re-deploy):** a second member (umask 077) starts the
+tier, then a third; `ls -l conda-meta/pixi conda-meta/history` unchanged; both start. The crossrepo record's step 2 says `mv` for the first
+rollback and uses full SHAs.
+
 ## Revision history
 
 v1 — the Advisor's review and items P1–P8 (2026-10-02/03, §1–§6), the actionability measurement (§7, 2026-10-04); **dispatch header
@@ -225,7 +251,82 @@ added and dispatched by the Analyst 2026-10-04** against `ref_l/shared` `FY26B` 
 (transport = ledger-carried series; S-2 = P4; the series against `FY26B` — `requests/shared-deploy-transport-decision.md` "Decided"; A-53):
 facts re-sealed from a read-only clone; P1 re-specified (upstream default kept, review tier by `REPO`/`SHA` injection + `DEPLOYED.txt`); P6
 re-specified (no `MPLCONFIGDIR` preset — security A1); the operation × state table, the shim-test seed and the Integrator's acceptance
-written; the subject-side signalling (`--allow-empty` commits) defined.
+written; the subject-side signalling (`--allow-empty` commits) defined. Developer: the 10-patch series @ ledger `63ec500`, signalling commit
+`05cb88a`, a real scratch deploy 11/1/0 (D-42). **Rejected** at `review/shared-deploy-exp-review` @ `10ed77e` (the Integrator's `todo.md`).
+
+### v2 — 2026-10-04 (attempt 2 of 3; the work order for `triage/shared-deploy-exp-review-v2`)
+
+**Rejection.** `review/shared-deploy-exp-review` @ `10ed77e` — `todo.md` at that commit (Integrator, Claude Opus 5.5): *"Verdict: REJECT — four
+findings. The deploy itself works on the target host class (a real scratch deploy of the fork's `2324e5c`: verifier 12 PASS / 0 WARN / 0 FAIL;
+idempotent; update, running-tree and rollback cells as declared; the launcher option starts the launcher). But the series' own tests fail 20 of
+43 on that host, the launcher can source an `activate.sh` chosen by the current directory, a README guarantee is falsified by a normal run, and
+the first rollback the README prescribes lands on a tree whose environment pixi can no longer find. This is a cross-repo slug: the series is
+revised in the ledger (`plans/shared-deploy-exp-review-series/`), signalled here as before. Not infrastructure."* What passed (**the Developer
+does not redo it**): the signal is empty against `exp-review`; the 10 sha256s match; `git am --3way` gives tree `07f9eb2`; the verifier is the
+ledger's canonical copy; `--exp-review-with-197` untouched; the Integrator's real acceptance (12/0/0, idempotent re-run, update with a
+"running" process keeps the old tree, README rollback 0/0, `-- --help` forwarded, no `MPLCONFIGDIR`); the departures hold; `shellcheck` clean.
+
+> **BLOCKING — B-1: the tests cannot control the system-pixi lookup; 20 of 43 fail on the deploy host (rule a + d).** `make-shared-deploy.sh:92`
+> `HOOK_PIXI=$(PATH=/usr/bin:/bin command -v pixi || echo "$PIXI")` runs the **real** system pixi's `shell-hook` in the shim tests, against the
+> fake repository ("could not find pixi.toml"). Reproduced: `bash lr_reduction/test-shared-deploy.sh` → **23 ok / 20 not ok** under umask 077,
+> 022 and 002 … the mutant `HOOK_PIXI=$PIXI` (the declared preference removed) passes 43/43 on every host — the behaviour P5/departure 7
+> declare has no test that can fail; bash `command -v` returns a non-executable `/usr/bin/pixi`. **Fix (behaviour; domain = the pixi the deploy
+> installs with and the pixi `activate.sh` names):** one seam the tests set (e.g. `SYSTEM_PIXI=${SYSTEM_PIXI-/usr/bin/pixi}`, used only when it
+> is executable, else `$PIXI`); the shim suite passes 43 (+ new) on a host with and without a system pixi; a test with a group-runnable system
+> stub and a private pixi first on PATH asserts `PIXI_EXE` is the system one and the switch happens (and its battery row); T1h restores the
+> symlink (or T2/T4 address the tree directly). Consider installing with the same pixi `activate.sh` names (security A9 / design A5).
+>
+> **BLOCKING — B-2: `bash nr_launcher.sh` derives `PIXI_PREFIX` from the current directory and sources its `activate.sh` (CWE-426/427;
+> regression).** `launcher/nr_launcher.sh:51-63`: `PIXI_PREFIX=$(cd "$(dirname "$(realpath "$0")")/../lr_reduction" …)`. Started as `bash
+> nr_launcher.sh` (found on `PATH`), `$0` is the bare name; GNU `realpath` does not require it to exist, so the prefix is `<parent of
+> cwd>/lr_reduction`, and line 63 sources that directory's `exp-review/activate.sh` **as the user**. Reproduced (scratch only) … `ATTACKER
+> activate.sh ran as 6ov`; the absolute-path form resolves the share. Any local user can create `/tmp/lr_reduction`; the base used the fixed path
+> (departure 5 introduced this). **Fix (behaviour; domain = every way the script is started):** `PIXI_PREFIX` is the share's own `lr_reduction`
+> or the fixed `/SNS/REF_L/shared/lr_reduction`, never a directory chosen by the caller's cwd … a T3 row per start form, including `bash
+> <name>` from a foreign cwd.
+>
+> **BLOCKING — B-3: "never changed after it is made" is falsified by a normal run (rule d; CWE-732).** `README-shared-deploy.md:13`, `:47`,
+> crossrepo P4 ("immutable"). Measured: in both scratch trees `conda-meta/pixi` and `conda-meta/history` were rewritten after the install by a
+> later `pixi run` … every scientist's `pixi run --frozen new_launcher` writes into the shared env as that scientist. Consequence to settle
+> (suspected, not reproduced — no second account): a member with umask 077 rewriting those files could recreate the mode-600 lockout this
+> series fixes. **Fix (either; the plan's call):** (a) run the tier without `pixi run` (source `activate.sh`, exec the env's `bin/new_launcher`
+> — the plan's §6 P10), so a run writes nothing; or (b) correct the wording **and** make the second-user run an acceptance row the human can
+> execute.
+>
+> **BLOCKING — B-4: the first rollback the README prescribes lands on a tree pixi cannot find (rule d / e).** The migration renames the
+> in-place tree to `exp-review@<sha7>`. Measured with `/usr/bin/pixi info --json`: pixi 0.60.0 names a detached env from a hash of the
+> project's **physical path** … So the README's "Roll back: point the symlink at the earlier tree" applied to the first deploy's only earlier
+> tree makes `pixi run --frozen` look for an env that does not exist … Also: the moved tree's name is exactly what `SHA=<that sha7>` deploys
+> into — the deploy would take it for an interrupted tree and fetch/install **into** it, changing it in place (P4). **Fix (behaviour):** the
+> README and crossrepo state how the pre-immutable tree is restored (by `mv` back, not the symlink), or the migration keeps its env reachable;
+> the deploy never adopts a directory it did not create … a shim test for a moved legacy tree under the `<tag>@<sha7>` name.
+>
+> **Incident (to the human; recorded in the ledger):** the security reviewer, probing B-2's fallback, ran a **copy** of the launcher outside a
+> share: it fell back to the live `/SNS/REF_L/shared/lr_reduction` and ran `pixi run --frozen new_launcher` from the live in-place `exp-review/`
+> as 6ov for ~2 minutes … It rewrote three pixi metadata files in the live env … Nothing else; no process remains.
+
+**What the plan missed (the Analyst's defects).** (1) The shim-test seed named "stubbed `git`/`pixi` on `PATH`" without asking what the
+script resolves **outside** `PATH` — the system-pixi preference the Advisor's P5 implied has a hard-coded lookup the shims cannot reach; a
+plan that declares a preference must declare its seam. (2) The plan let "departure 5" (`PIXI_PREFIX` from the launcher's location) stand as
+a reasonable change without the start-form enumeration: `$0` is caller-controlled under `bash <name>` — the start forms were never a row.
+(3) "Immutable" was the plan's word for the *deploy's* behaviour and the README promised it for the *tree*; the plan never asked what `pixi
+run` writes at run time, though P10 (the Advisor's own recommendation to run without `pixi run`) was already in §6 — adopted now. (4) The
+rollback row said "`ln -sfn <tag>@<old sha7>`" without the fact that pixi keys an env by physical path — a migration that renames a tree
+breaks its env, and the deploy could adopt a stranger's directory. **One root:** the operation × state table enumerated the deploy's own
+states (fresh / prior / running) and not the *environment's* — host pixi, caller cwd, run-time writes, path-keyed env — the axis a
+cross-repo deploy lives on.
+
+**Changes in v2** — "v2 re-specification" above: N1 the pixi seam (install and runtime pixi agree; tests green with and without a system
+pixi); N2 fixed prefix or an explicit `LR_SHARE`, never cwd, one row per start form; N3 **P10 adopted** — no `pixi run` at run time, a run
+writes nothing, the README says what is true, the second-user run is the human's acceptance; N4 the deploy adopts only what it made (marker +
+`DEPLOYED.txt`), the legacy tree is restored by `mv`, a moved legacy tree is refused; N5 the adopted advisories (lock on the directory fd,
+`TAG` validation, full SHAs, C7 setgid refusal, C3 SKIP, `SHARE` = `$HERE`, switch-last migration); the write-recorder, start-form and
+foreign-directory tests; the mutations; the acceptance rule from the incident — **every probe of a fallback sets `LR_SHARE` to the scratch
+share; nothing runs from `/SNS/REF_L/shared`**. **Unchanged:** P1 (as re-specified at v1), P2, P3, P4's `<tag>@<sha7>` + symlink, P5, P7,
+P8's canonical-copy rule, the transport, the base (`FY26B` @ `91e5c8f` — re-check at the series' `git am` on a fresh clone; `exp-review` @
+`2324e5c`); the Developer revises the series in place in the read-only clone (kept, D-42), re-exports, updates `crossrepo.md` (sha256s, full
+SHAs, `mv` rollback), and signals with a new `--allow-empty` commit on `feature/shared-deploy-exp-review` from `10ed77e`. **Retry
+arithmetic:** attempts_done = 1 + 1 = 2 → v2 is attempt 2 of 3; a third rejection escalates.
 
 ## 7. 2026-10-04 — actionable once three lines are on the bus `[Advisor V1]`
 
