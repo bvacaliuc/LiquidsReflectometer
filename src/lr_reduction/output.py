@@ -294,10 +294,11 @@ def read_file(file_path):
             has_data = has_data or bool(l.split("#", 1)[0].strip())
     try:
         # Without a data row np.loadtxt warns ("input contained no data"), so the file is not handed to it:
-        # unpacking nothing raises the same ValueError its empty result did.
-        _q, _r, _dr, _dq = np.loadtxt(file_path).T if has_data else ()
+        # unpacking nothing raises the same ValueError its empty result did. ndmin=1 reads a single number as
+        # one value rather than a 0-d array, whose unpack raises TypeError; no other shape changes.
+        _q, _r, _dr, _dq = np.loadtxt(file_path, ndmin=1).T if has_data else ()
     except ValueError:
-        # No data row, a value that is not a number, or rows that are not four columns.
+        # No data row, a single number, a value that is not a number, or not four columns (nor four values).
         print("Could not read file. It may have no points")
         _q = _r = _dr = _dq = []
     return _q, _r, _dr, _dq, _meta
