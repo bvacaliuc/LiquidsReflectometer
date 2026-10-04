@@ -52,7 +52,12 @@ def test_an_unset_cache_directory_is_created_private_under_the_base(tmp_path, xd
     created 0700. Nothing is made under XDG_CACHE_HOME."""
     environ = {} if xdg is None else {"XDG_CACHE_HOME": str(tmp_path / xdg)}
 
-    chosen = _prepare(environ, tmp_path)
+    # A common umask, so that the mode is the call's doing: under 077 a mkdir with no mode makes 0700 as well.
+    previous = os.umask(0o022)
+    try:
+        chosen = _prepare(environ, tmp_path)
+    finally:
+        os.umask(previous)
 
     expected = _own_directory(tmp_path)
     assert chosen == str(expected)
