@@ -1,8 +1,8 @@
 # Plan: `editor-ipts-inference` — the header's IPTS follows the file's `experiment_id`, else the run numbers, else the field, else the file's path; an empty IPTS with runs named is a problem; the Load dialog opens where the IPTS's files live
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `editor-ipts-inference` (refs `triage/editor-ipts-inference`, `feature/…`, `qa/…`) ·
-**Status:** READY — v1 (attempt 1 of N = 3) — dispatched 2026-10-05 under the posture's **stacking by file overlap** rule (`ec10742`), on
-K1's Integrator PASS (I-39, draft PR #43): the plan's files overlap **two** open branches — `feature/editor-notes-and-report-spelling` (K1,
+**Status:** v2 (attempt 2 of N = 3; v1 rejected at `review/editor-ipts-inference` @ `e0a7e72` — **tests only**: B-1 the runs-before-field order (the human's own flow) and B-2 the remembered-folder write had no failing-capable test; see Revision history) — v1 dispatched 2026-10-05 under the posture's **stacking by file overlap** rule (`ec10742`), on
+K1's Integrator PASS (I-39, draft PR #43); v2 continues on `feature/editor-ipts-inference` (the Integrator's `todo.md` on top, @ `e0a7e72`): the plan's files overlap **two** open branches — `feature/editor-notes-and-report-spelling` (K1,
 both files) and `feature/editor-sections` (#40, `settings_editor.py`) — and K1's branch **contains** #40's tip, so rule (4) resolves to the
 larger overlap, K1, with nothing else to merge forward ·
 **Base:** `agentic/feature/editor-notes-and-report-spelling` @ `779f787` — **overlap at dispatch** (`git diff --name-only agentic/exp-review...
@@ -63,10 +63,10 @@ files live.
 
 | # | Behaviour |
 |---|---|
-| I1 | **One resolution, in the human's order, at Load** (`from_file` and `set_document`): (1) the file's `experiment_id`, when non-empty and clean (`check()` empty) → held as is; (2) else, **if the file names run numbers** (`RBnum` has at least one entry), the IPTS the runs resolve to (2a); (3) else, **if the header's field held an IPTS before the Load** (2b), that IPTS; (4) else, **if the file was loaded from under `/SNS/REF_L/IPTS-<n>/`** (2c), that IPTS; (5) else `""` (2d) — and I4 reports it. The outcome is written into the document's `experiment_id` (so `derived_path`, `candidates()` and Save all follow), and **"Changed from the seed" shows it** when it differs from the file (the human's 2b note: an inferred IPTS is a change the user should see — and can clear). Steps (2)–(4) apply only when (1) yields nothing; the file's own value is never overridden. |
+| I1 | **One resolution, in the human's order, at Load** — **(v2, design A3 adopted) at `load_settings` only**, never at `set_document`/construction: a document injected by other code resolves nothing (no facility lookup at construction; a re-adoption after a clear does not re-infer — I6); the order is **asserted as an order** (B-1: a held `IPTS-1` with runs that resolve under `IPTS-36119` → `IPTS-36119`, the human's flow): (1) the file's `experiment_id`, when non-empty and clean (`check()` empty) → held as is; (2) else, **if the file names run numbers** (`RBnum` has at least one entry), the IPTS the runs resolve to (2a); (3) else, **if the header's field held an IPTS before the Load** (2b), that IPTS; (4) else, **if the file was loaded from under `/SNS/REF_L/IPTS-<n>/`** (2c), that IPTS; (5) else `""` (2d) — and I4 reports it. The outcome is written into the document's `experiment_id` (so `derived_path`, `candidates()` and Save all follow), and **"Changed from the seed" shows it** when it differs from the file (the human's 2b note: an inferred IPTS is a change the user should see — and can clear). Steps (2)–(4) apply only when (1) yields nothing; the file's own value is never overridden. |
 | I2 | **Resolving runs → IPTS (2a):** for each **distinct** run in `RBnum` (bounded: one lookup per distinct run, cached per Load), the IPTS is the single directory `d` such that `/SNS/REF_L/<d>/nexus/REF_L_<run>.nxs.h5` exists (one glob, `/SNS/REF_L/IPTS-*/nexus/REF_L_<run>.nxs.h5`); a run with no hit resolves to nothing. If every resolving run agrees → that IPTS. If they disagree → **the first run's** (the human: "choose the 1st IPTS that resolves") **and a Note** naming the runs and their IPTSs. If none resolves (a run not on this filesystem, no mount, a typo) → nothing, fall through to (3), and the Note says the runs did not resolve. The lookup is a Qt-free helper on the document module, takes the root as a parameter (`root="/SNS/REF_L"`) so tests use a `tmp_path` tree, never touches the network beyond the mount, swallows `OSError` (a stale handle on a facility mount is ordinary — `candidates()`'s precedent). |
 | I3 | **The file's own `experiment_id` wins over the runs, with a Note when they disagree:** when (1) holds and the runs resolve elsewhere, the value stays the file's and a **Note** says *"the run numbers resolve under <IPTS-x>, not <experiment_id>"* (the todo's "file wins; a Note that the runs resolve elsewhere"). A Note, not a problem: `reduce_from_file` substitutes the run's IPTS anyway (`new_reduction_from_file.py:62`), and the reducer's path check is the hard stop. |
-| I4 | **An empty IPTS with runs named is a problem** (2d, "and say so"): `validate()` reports *"IPTS (experiment_id) is empty and <n> run numbers are set: the reduction would look for REF_L_<run>.nxs.h5 under /SNS/REF_L/nexus and not find it — enter the IPTS, or choose a NeXus path"* whenever `experiment_id == ""`, `RBnum` is non-empty and `_NEXUSpathRB_override` is `None`. An empty IPTS with **no** runs is not a problem (nothing to reduce yet); an override set makes the IPTS irrelevant to NeXus (no problem; the direct-beam path has its own override). |
+| I4 | **An empty IPTS with runs named is a problem** (2d, "and say so"): `validate()` reports *"IPTS (experiment_id) is empty and <n> run numbers are set: the reduction would look for REF_L_<run>.nxs.h5 under /SNS/REF_L/nexus and not find it — enter the IPTS, or choose a NeXus path"* whenever `experiment_id` is **empty — `""`, `None` (a file with `null` or no key: 10 of 104 real files) or whitespace only** (v2: one definition of "empty", the test reviewer's row and A7; `None` and spaces made `base_path` raise or misbehave with `validate()` silent — the plan's states listed `""` alone), `RBnum` is non-empty and `_NEXUSpathRB_override` is `None`. **The only production change in v2 is that condition.** An empty IPTS with **no** runs is not a problem (nothing to reduce yet); an override set makes the IPTS irrelevant to NeXus (no problem; the direct-beam path has its own override). |
 | I5 | **The Load dialog opens where the IPTS's files live:** with an IPTS in the header (clean, non-empty) the dialog starts at `/SNS/REF_L/<IPTS>/shared` **unless** the remembered folder (`settings_editor_dir`) is already under `/SNS/REF_L/<IPTS>/`, in which case the remembered folder wins (the user's last place in this experiment); without an IPTS, the remembered folder as today. The dialog's **sidebar** offers `<IPTS>/shared`, `<IPTS>/shared/reduced`, `<IPTS>/shared/autoreduce` (those that exist; `QFileDialog.setSidebarUrls`, non-native dialog so the sidebar is honoured — the Developer measures which option is needed and records it). The remembered folder is still written after a Load and a Save. The **Save** dialog follows the same start rule. The start-folder decision is a Qt-free helper (`load_start_folder(ipts, remembered, root)`), tested without a dialog. |
 | I6 | **Typing an IPTS in the header stays as it is** (`_on_ipts_edited`, `editor-paths-header` P5): no inference runs on a typed value; the typed value is the user's and overrides every inference until the next Load. Clearing the field → `""` and I4's problem line if runs are named. |
 | I7 | **Fail loudly, never silently:** every inference that *changes* the document is visible — in "Changed from the seed" (I1) and, for 2a with disagreeing runs or an unresolvable run, in a Note; nothing is written to the file's `experiment_id` field on disk until the user Saves (as for any edit). The glob never blocks the UI beyond its own duration: one `glob` per distinct run, measured 0.10 s each (F6); a Load of a file with ten distinct runs is ~1 s worst case on the facility tree, acceptable — and the Developer records the measured time on the analysis node in the PR body. |
@@ -93,8 +93,11 @@ load-fidelity` B8) and `validate()` reports it as today; inference does not run 
 | file with `"../x"` (reported) | `"../x"` as loaded | — | Problem (today's) — no inference | as loaded |
 | `.dat` seed, `""`, runs resolving | 2a as for `.json` | shown | — | — |
 | injected document (no path), `""`, no runs, field empty | `""` | — | none | placeholder |
+| **(v2)** injected document naming runs (no Load) | unchanged — **no lookup runs at construction** (I1, A3) | — | Problem (I4) if empty | placeholder |
+| **(v2, B-1)** file with `""`, runs all under `IPTS-36119`, **field held `IPTS-1`** | `IPTS-36119` (2a beats 2b) | shown | none | `IPTS-36119` |
+| **(v2)** file with `null` / no `experiment_id` key, runs with no hit, field empty, path elsewhere | `""` (held as empty) | — | **Problem** (I4) — not silent | placeholder |
 | then: user types `IPTS-9` | `IPTS-9` (I6) | shown | — | `IPTS-9` |
-| then: user clears the field, runs named | `""` | shown | **Problem** (I4) | placeholder |
+| then: user clears the field, runs named | `""` | **shown only if the seed held a value** (v2 CORRECTION — the test reviewer: after loading a `""` file and clearing, the value equals the seed and nothing is Changed; the Problem is what shows) | **Problem** (I4) | placeholder |
 | Load dialog with header `IPTS-36119`, remembered `/home/u` | — | — | — | dialog starts `/SNS/REF_L/IPTS-36119/shared`; sidebar the three |
 | Load dialog with header `IPTS-36119`, remembered `/SNS/REF_L/IPTS-36119/shared/reduced` | — | — | — | starts at the remembered folder |
 | Load dialog with header empty | — | — | — | starts at the remembered folder (today) |
@@ -129,16 +132,16 @@ load-fidelity` B8) and `validate()` reports it as today; inference does not run 
 | # | Test | RED at the base |
 |---|---|---|
 | U1 | `ipts_of_run(run, root=tmp_path)` with a fabricated `IPTS-*/nexus/REF_L_<run>.nxs.h5` tree: one hit → the IPTS; no hit → `None`; two hits → both, sorted; an unreadable root (`OSError`) → `None` | helper absent |
-| U2 | `resolve_experiment_id` × every row of §3's table (fabricated tree, fabricated source paths): the value **and** the Notes text; the file's non-empty value never overridden; a reported value untouched | helper absent |
+| U2 | `resolve_experiment_id` × every row of §3's table (fabricated tree, fabricated source paths): the value **and** the Notes text; the file's non-empty value never overridden; a reported value untouched; **(v2, B-1)** the row "runs resolve under `IPTS-36119` **and** the field held `IPTS-1`" → `IPTS-36119` (the order, asserted — a runs↔field swap must red); **(v2)** every row asserts **all three columns** — header, Changed, Problems/Notes (the test reviewer: twelve rows each lacked one); `None` and whitespace-only `experiment_id` rows; the Notes' IPTS names and runs rendered through `file_spelling` (§2) | helper absent |
 | U3 | `validate()`: `""` + runs + no override → the I4 line; `""` + no runs → nothing; `""` + runs + override set → nothing; the line names the run and the folder | passes silently today |
 | U4 | `from_file` records the source path; `from_dict` records none; the `.dat` seed records its path | no attribute |
 | U5 | `load_start_folder` × {IPTS set/empty} × {remembered under the IPTS / elsewhere / empty} × root → the table's folders; sidebar list = the existing three of the IPTS | helper absent |
 | U6 | the lookup is bounded: a file with N distinct runs performs ≤ cap lookups (count the glob calls via monkeypatch), and the Note says capped when N > cap | — |
 | V1 | the committed from-scratch fixture, loaded on a shown tab with the fabricated tree as root (monkeypatched constant): header `IPTS-36119`, both derived paths, "Changed from the seed" shows `experiment_id`, Save writes it | header `''`, placeholders, "No problems found" |
-| V2 | the field held `IPTS-1`, Load a no-runs `""` file → `IPTS-1` kept (2b); Load from a `/SNS/REF_L/IPTS-7/…` path (the path passed to `from_file`, the tree fabricated) with the field empty → `IPTS-7` (2c) | — |
+| V2 | the field held `IPTS-1`, Load a no-runs `""` file → `IPTS-1` kept (2b); **(v2, B-1) the field held `IPTS-1`, Load a `""` file whose runs resolve under `IPTS-36119` → `IPTS-36119` shown, Changed `"" -> "IPTS-36119"`** (through `load_settings`, the dialog monkeypatched); Load from a `/SNS/REF_L/IPTS-7/…` path (the path passed to `from_file`, the tree fabricated) with the field empty → `IPTS-7` (2c); **(v2, A3)** `SettingsEditorTab(SettingsDocument.from_dict({"RBnum": [229197]}))` → the lookup counter stays 0 and `experiment_id` stays `""` | — |
 | V3 | the I4 problem appears in the panel after Load of a `""` + runs file with no hits, and after clearing the field on a file with runs; disappears when an IPTS is typed | — |
 | V4 | typing an IPTS runs no inference (the glob counter stays 0); the typed value stands after a later `refresh` | — |
-| V5 | `load_settings` with `QFileDialog.getOpenFileName` monkeypatched to capture its `dir` argument: header `IPTS-36119` + remembered `/home/u` → `<root>/IPTS-36119/shared`; remembered under the IPTS → the remembered; header empty → the remembered; `save_settings` the same; the sidebar URLs set (where the platform honours a non-native dialog — else skipped with a reason) | starts at the remembered folder always |
+| V5 | `load_settings` with `QFileDialog.getOpenFileName` monkeypatched to capture its `dir` argument: header `IPTS-36119` + remembered `/home/u` → `<root>/IPTS-36119/shared`; remembered under the IPTS → the remembered; header empty → the remembered; `save_settings` the same; the sidebar URLs set (where the platform honours a non-native dialog — else skipped with a reason); **(v2, B-2) after a Load and after a Save, `self.settings.value("settings_editor_dir")` equals the chosen file's parent** — read back, not preset | starts at the remembered folder always |
 | V6 | the Notes for disagreeing runs and for the file-wins case appear under "Notes:", never under "Problems:" | — |
 
 ## 7. Mutate-once gate
@@ -148,6 +151,10 @@ load-fidelity` B8) and `validate()` reports it as today; inference does not run 
 | step (1) skipped (runs override the file's IPTS) | U2 (file-wins row), V-equivalent |
 | 2a resolves to the *last* run's IPTS instead of the first | U2 (disagreeing row) |
 | 2b dropped (field ignored) | U2, V2 |
+| **(v2, B-1)** the runs block moved below the field block (2b before 2a) | U2 (the held-`IPTS-1`-runs-resolve row), V2 |
+| **(v2, B-2)** the `settings_editor_dir` write deleted in `load_settings` / in `save_settings` | V5 (read-back legs, one per slot) |
+| **(v2)** I4's condition tests `== ""` only (`None` / spaces slip through) | U3 (`None` and whitespace rows) |
+| **(v2, A3)** resolution called from `set_document` again | V2 (injected-document leg: lookup counter 0) |
 | 2c dropped (path ignored) / 2c applied although runs exist | U2, V2 |
 | I4 line emitted with an override set, or without runs | U3 |
 | source path not recorded | U4, V2 (2c leg) |
@@ -168,7 +175,8 @@ so no test touches `/SNS`; `set_document` is the single caller of the resolver; 
 3. Deployment-shaped acceptance (Integrator, analysis node, offscreen; **no login shell**): load the human's from-scratch file → header
    `IPTS-36119`, derived paths, the Changed line; load `IPTS-36574/shared/autoreduce/reduce_settings.json` (its `experiment_id` is
    `IPTS-38511`, the file copied from another experiment — F7's class) → the file's IPTS kept and a **Note** that the runs resolve under
-   `IPTS-36574`; a file with runs from two IPTSs (fabricate by editing a copy in scratch) → the first's + Note; measure and quote the glob
+   **`IPTS-36970`** (v2 CORRECTION of the Analyst's expectation `IPTS-36574`: the Integrator measured runs 228313–228316 with `ipts_of_run`;
+   the file lives under IPTS-36574, its runs under IPTS-36970 — F7's class exactly); a file with runs from two IPTSs (fabricate by editing a copy in scratch) → the first's + Note; measure and quote the glob
    time per run on the facility tree; the Load dialog's start folder and sidebar with `IPTS-36119` in the header (offscreen: capture the
    arguments; a screenshot if the platform shows the sidebar).
 4. ui-aspects: the Note wording reads as information, the Problem as a problem; the header's placeholders unchanged.
@@ -202,4 +210,47 @@ dispatch. The facility-tree facts (F6, F7) are the Advisor's measurements of 202
 **Dispatched 2026-10-05 stacked on `feature/editor-notes-and-report-spelling` @ `779f787`** (K1's PASS, I-39/PR #43) under the stacking-by-
 file-overlap rule (A-69): re-sealed there — four cited files blob-identical, `settings_document.py` definitions at the same lines, F5's
 `load_settings`/`save_settings` moved to `:1186-1228`; the Notes adopt K1's `file_spelling`. The human's "following PR #40" holds: the stack
-merges #40 → #43 → this.
+merges #40 → #43 → this. Developer: RED `f4f6a4c`, GREEN `e49fc05`, battery `4374f89` (48 rows; a sidebar-persistence defect found and fixed; D-52).
+**Rejected** at `review/editor-ipts-inference` @ `e0a7e72` (the Integrator's `todo.md`) — tests only.
+
+### v2 — 2026-10-05 (attempt 2 of 3; the work order for `triage/editor-ipts-inference-v2`)
+
+**Rejection.** `review/editor-ipts-inference` @ `e0a7e72` — `todo.md` at that commit (Integrator, Claude Opus 5.5): *"Verdict: REJECT — tests
+only. The behaviour passes every reviewer and the deployment-shaped acceptance on the real tree; two declared behaviours have no test that
+fails when they break, and one of them guards the human's own flow. Stacked on `feature/editor-notes-and-report-spelling` (#43 @ 779f787,
+which contains #40). Not infrastructure."* What passed (**the Developer does not redo it**): gate 650 + 789; the Integrator's acceptance on the
+real `/SNS/REF_L` tree (the from-scratch file → `IPTS-36119` shown as Changed, Load 0.09 s; the copied `IPTS-36574` file keeps `IPTS-38511`
+with a Note that its runs resolve under **`IPTS-36970`**; two-IPTS runs → the first's + a Note; the dialog under the IPTS with the three-folder
+sidebar); ui-aspects PASS (I1 2a–2d, I3–I6 driven; the user's saved sidebar byte-identical; an unmounted root → the "not available here" Note);
+design PASS; security advisory clean; every §7 row killed.
+
+> **BLOCKING — B-1: I1's order "runs (2a) before the field (2b)" has no test; a faithful swap survives (rule a/b; reachable).** Reproduced:
+> moving the `held = _clean_ipts(field_value)` block above the runs block in `resolve_experiment_id` → **1164 passed**. On a fabricated tree
+> with runs 229197–229199 under `IPTS-36119`: `from_dict({"experiment_id": "", "RBnum": [229197, 229198, 229199]}).resolve_ipts("IPTS-1",
+> root=tree)` → **`IPTS-1`** under the mutant (`IPTS-36119` at 4374f89). No test has runs that resolve **and** a header that held another IPTS.
+> **This is the human's flow:** a previous file leaves `IPTS-1` in the header, the from-scratch file is loaded — the mutant keeps `IPTS-1` and
+> the reducer cannot find the NeXus files. **Fix (tests; domain = I1's five steps):** a U2 case "runs resolve, field held `IPTS-1` → the
+> runs' IPTS" and a V2 leg through Load; a battery row for the runs↔field swap.
+>
+> **BLOCKING — B-2: "the remembered folder is still written after a Load and a Save" (I5) has no test (rule a).** Deleting
+> `self.settings.setValue("settings_editor_dir", …)` survives in `load_settings` (1163 passed) and in `save_settings` (1163 passed); no test
+> reads the value back — V5 only presets it. **Fix (tests):** assert `settings_editor_dir` after `_load` and after `save_settings`.
+
+**What the plan missed (the Analyst's defects).** (1) I1 declared an **order** and §6 pinned each step but never a *collision* — the one state
+where the order decides (runs resolve **and** the field holds another IPTS) was not a row; the campaign's lesson once more: enumerate the
+cells where two rules compete. (2) I5's "the remembered folder is still written" was a declared outcome with no read-back test. (3) The
+test reviewer's findings on the plan itself, corrected in v2: §8.3 expected `IPTS-36574` where the runs are under `IPTS-36970`; row 14
+("clears the field" → Changed) is wrong when the seed held `""`; the types table listed `""` as the only empty IPTS, while real files hold
+`null` or no key (10 of 104) and a spaces-only value is a second definition of empty — with `validate()` silent and `base_path` raising.
+
+**Changes in v2.** (1) U2/V2 gain the collision row through `resolve_experiment_id` **and** through `load_settings` (B-1); a mutation row for
+the swap. (2) V5 reads `settings_editor_dir` back after Load and after Save (B-2); a mutation row per slot. (3) I4's "empty" is one definition —
+`""`, `None`, whitespace-only — **the only production change in v2** (one condition), with U3 rows. (4) **Design A3 adopted:** resolution runs
+in `load_settings` only, never in `set_document`/construction — an injected document with runs does no facility lookup (V2 leg, counter 0),
+and a re-adoption cannot re-infer after a clear (I6). (5) U2's rows assert all three columns; the Notes render values through
+`file_spelling` (§2). (6) §3 row 14 corrected; §8.3's expected IPTS corrected to `IPTS-36970`. Advisories to the PR body (design A1 — a no-edit
+Load → Save now writes the inferred IPTS, the declared intent, stated plainly; A2; A4 cold/warm lookup cost and the cap comment; A5–A7; ui
+A1–A6 — the "why the IPTS appeared" line is worth a K3-era follow-up, not this gate; security F1–F4 — F1's quadratic dedup is a
+one-line `dict.fromkeys` the Developer may take, F4 a `None` remembered folder tolerated). **Unchanged:** I2, I3, I5's folders, I6, I7, F1–F8,
+the base (`feature/editor-notes-and-report-spelling` @ `779f787`; the Developer continues on `feature/editor-ipts-inference` from `e0a7e72`).
+**Retry arithmetic:** attempts_done = 1 + 1 = 2 → v2 is attempt 2 of 3; a third rejection escalates.
