@@ -1,7 +1,11 @@
 # Plan: `roi-popout-dialog` — "Select ROI" beside Add/Remove: #197's dialog lifted onto `SettingsDocument`, with the web report's two detector images
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (refs `triage/roi-popout-dialog`,
-`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** READY — v1 (attempt 1 of N = 3) — dispatched 2026-10-05 under the posture's **stacking by file overlap** rule
+`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** READY — **v2 (attempt 2 of N = 3)** — v1 REJECTED 2026-10-05 at `791bdbe`
+(the Integrator's `review/roi-popout-dialog` @ `b22c8df`: "six declared behaviours untested, one false docstring claim"; production right on real
+data, the gate green; see Revision history) — **v2 is a tests-and-wording revision plus two cheap advisories (A1, D1)**: the Developer continues
+on `feature/roi-popout-dialog` @ `791bdbe` (predecessors unmoved: `feature/roi-popout-data` @ `f424aec`, K2's PASS tip `8ca43ce` merged forward
+at `a42ecdc`; `exp-review` @ `b6b9381`), applies §6′/§7′ below, re-runs the whole battery, and pushes `qa/` — v1 was dispatched 2026-10-05 under the posture's **stacking by file overlap** rule
 (`ec10742`, rule (4)): the plan's files overlap **two** open lines — `src/lr_reduction/roi_estimate.py` is *consumed* from
 `feature/roi-popout-data` (#44, PASS; the data layer exists nowhere else), and `launcher/apps/settings_editor.py` (one button, one slot) is
 changed by the editor stack (#43 `feature/editor-notes-and-report-spelling`, and K2 `feature/editor-ipts-inference` in flight) — the
@@ -28,8 +32,44 @@ recorded), and merges both predecessors forward before every `qa/` push; the Int
 §Resolution), charter §3 row, the reference's #197 review (`plan/contrib/review-exp-json-settings-builder/`)
 and T1 findings R5/R7/R8/R14 (`plan/roi-selector/plan.md`).
 
-Canonical copy: ledger `plans/roi-popout-dialog-plan.md`; the copy on `triage/roi-popout-dialog` is
+Canonical copy: ledger `plans/roi-popout-dialog-plan.md`; the copy on `triage/roi-popout-dialog-v2` is
 byte-identical at dispatch.
+
+## v2 — what changes and why (read this first; §1–§5, §8 and §10 stand except where marked **v2**)
+
+The Integrator reproduced seven items in a `git archive` copy of `791bdbe`, each **surviving with 618 passed** (the
+slug's two test files, unmutated count 618): a mutation that stays green means the declared behaviour has no pin
+(L4). Six are tests (rules a/b), one is a false docstring claim (rule d). Production is right — the deployment-shaped
+acceptance on IPTS-36119 matched the stored web report cell for cell. v2 therefore changes **tests, two docstrings,
+and two cheap advisories**; no other production behaviour moves.
+
+| Item | Where the cell lives | v2 action |
+|---|---|---|
+| B-1 (d) `select_roi`'s docstring: "no file is opened for writing (E4)" is false — the slot's file dialog remembers its folder in the launcher's QSettings (`roi_nexus_dir`, `$XDG_CONFIG_HOME/ORNL/lr_reduction_new_launcher.conf` changed) | §3 "How #197's bugs are closed" F2 — **the plan's own sentence, corrected below (P1)**; `settings_editor.py:1143` | docstring says what is true; **E4′** asserts it over *every file the slot can write* |
+| B-2 (b) `axis.set_minor_formatter(LogFormatter(labelOnlyBase=True))` (`roi_dialog.py:87`) deleted → 618 passed; on run 231801 zoomed to 20–80, 48 minor labels are mathtext | V11 reads only the major labels | **V11′** two draws, minor + offset labels, colorbars |
+| B-3 (a) `RB_Ymin`/`RB_Ymax` `None` → "no peak overlay" — `_move("peak", peak)` → `_move("peak", self._spin_values(self.peak_spins))` (`:538`) survives | §3 types table, row 1, `None` cell | **V15′** `None` leg: every `overlays["peak"]` artist hidden until both edges are set |
+| B-4 (a) `useBS` `[]`/`None` → "treated as on" — `values.get("useBS") != 0` → `bool(values.get("useBS"))` (`:216`) survives | §3 types table, `useBS` row | **V16** `None` and `[]` legs beside the 0/False legs |
+| B-5 (a) B6's X and TOF drags — `_x_range_selected`/`_tof_range_selected` (`:317-321`) made `pass`, each alone and swapped, survive | V4 drags only on `y_axis` | **V4′** X and TOF legs; battery rows M20–M22 |
+| B-6 (a) Cancel/OK never pressed — `rejected.connect(self.accept)` (`:286`) and OK unconnected (`:285`) survive | V6/V7 call `reject()`/`accept()`; every E-test replaces `exec_` (§6: a direct call is not a gesture) | **V6′/V7′** press the `QDialogButtonBox` buttons; **E9** runs the real modal `exec_()` from a `QTimer` |
+| B-7 (a) the log toggle — `set_yscale("log")` unconditionally (`:562`) survives | only the `_set_log_scale` injection leg exists | **V17** clicks `log_check` and reads `get_yscale()` on all three profiles |
+| M13's count (to show) — the test reviewer's three forms of M13 give **4 failed**, the commit records 5 | §7 M13 | the v2 commit body **quotes the battery row's code and its observed count**; 4 or 5, the record then stands on the quoted code |
+| A1 (ui, recommended) the Y-TOF image fills part of its panel — `axvspan(0, 1)` pulls x = 0 into the limits and `_reset_limits` never sets `ytof_axis` (−3 000 µs vs events from 8 000 µs; 32 % of the panel on run 220050) | B3 | **B3′**: the Y-TOF x limits are the TOF edges; **V18** pins them with `get_xlim()`, together with T1's TOF and X profile limits (`:573-574`) |
+| D1 (design, a factual claim) the module docstring and `b041aa2`'s body name welbournR (`3f74d41`) as an author of the lifted lines; `git log -L 396,690:…` lists only `65c83d9`, `ab22307`, `1e692c7`, `8191e49`, `f5513c7`; `git blame -w -M -C` gives `3f74d41` 0 lifted lines | F2 — **the plan's own list, corrected below (P2)** | docstring corrected (the lift commit's body cannot be rewritten — the correction is a sentence in the v2 docstring: "b041aa2's body names 3f74d41 in error") |
+| P3 the V9 sparse-run threshold is the estimator's (`roi-popout-data`'s `e0bba12` advisory) | V9 | V9 stands as the *dialog's* handling of a refusal; the threshold is not this slug's to tune |
+
+**Carried as PR-body advisories, not v2 work** (the Integrator's A2–A8, D2–D8, T2–T3): record them in the PR body
+under "Advisories from the v1 gate"; D3's third copy of `f"REF_L_{run}.nxs.h5"` (`settings_document.py:159`) and D2's
+Qt-free validator are `roi-popout-data` follow-ups the Analyst files. **Where a D6/D7 item is a one-line change in a
+file v2 touches anyway (naming the ±30 margin and the TOF step 100; marking the two #197 comments at `:140`/`:170`
+inferred or citing the test), do it in the same commit as the neighbouring fix** — not as a sweep.
+
+**v2 recipe.** (1) RED first: every test in §6′ fails on `791bdbe` **for the reason its row names** (the mutation of
+§7′ applied to the unmutated tree is the proof — run the row's mutation, see the new test red, restore). (2) GREEN:
+E4′, V11′, V15′, V16, V4′, V6′/V7′, E9, V17, V18 pass with the production of `791bdbe` plus B3′, the two docstrings
+and the cheap advisories. (3) The **whole** battery (§7 + §7′, the ledger script extended with the new rows), each row
+`<mutation> → <test> -> N failed`, N ≥ 1, in the commit body — including the seven rows the Integrator ran, with their
+new counts. (4) Merge the predecessors forward if they moved (`f424aec`, `8ca43ce`; `exp-review` is not a predecessor),
+gate, push `qa/`.
 
 ## Declared scope
 
@@ -74,7 +114,7 @@ requests in the updates_for_setting_loader.md document").
 | # | Fact | Command → observation |
 |---|---|---|
 | F1 | The buttons row and the selection idiom this slug extends. | `launcher/apps/settings_editor.py` **at `779f787`**: `_build_angle_panel` `:598`, the buttons row `:632-639` (`add_angle_button` `:632-634`, `remove_angle_button` `:636-638`, `addStretch` `:639`); `remove_selected_angle` `:1042` captures the row at the click (the module docstring `:15` and `:1009`: "nothing here consults `currentRow()` to decide *what* to…" — the selection is read once, at the gesture); `guarded` `:485`; `report_problem` `:1069`. (At `7b6d6b9`: `:133-142`, `:324-336`, `:38-55`, `:352-359`.) |
-| F2 | The seed. | `git show agentic/feature/harden-review-branch:launcher/apps/json_settings_builder.py` → `_move_span` `:396-406`, `ROISelectionDialog` `:409-690` (`values()` at `:682`), `edit_roi` `:1303-1348`. Upstream's copy (`upstream/exp-json-settings-builder` @ `3ce5e20`, `:337`/`:350`) differs in the dialog only by the `parse_math=False` title (`:452-458` in the hardened copy). Authors of the lifted lines: Mathieu Doucet (`f5513c7`, `8191e49`, `1e692c7`, `ab22307`), welbournR (`3f74d41`). |
+| F2 | The seed. | `git show agentic/feature/harden-review-branch:launcher/apps/json_settings_builder.py` → `_move_span` `:396-406`, `ROISelectionDialog` `:409-690` (`values()` at `:682`), `edit_roi` `:1303-1348`. Upstream's copy (`upstream/exp-json-settings-builder` @ `3ce5e20`, `:337`/`:350`) differs in the dialog only by the `parse_math=False` title (`:452-458` in the hardened copy). **v2 CORRECTION (P2 / D1):** authors of the lifted lines are **Mathieu Doucet (`f5513c7`, `8191e49`, `1e692c7`, `ab22307`) and the fork's hardening commit `65c83d9`** (8 lines, the `parse_math=False` title — credited as the source SHA). v1 also named welbournR (`3f74d41`); the Integrator measured `git log -L 396,690:launcher/apps/json_settings_builder.py agentic/feature/harden-review-branch` → only `65c83d9`, `ab22307`, `1e692c7`, `8191e49`, `f5513c7`, and `git blame -w -M -C` → 0 lifted lines from `3f74d41` (whose hunks are the constants, `read_nexus_metadata` and the tab). The v1 line was read from PR #197's author list, not measured on the lifted range — **the plan's error, carried into the module docstring and `b041aa2`'s body.** |
 | F3 | What the web report draws. | `src/lr_reduction/web_report.py:505-509` (XY, Y-TOF, counts per Y, counts per X, TOF distribution); overlays: peak, background, low-res range, TOF range (`:582-591`, `:617-628`). |
 | F4 | Where the dialog's bugs actually live. | Reference review F1 (8 of 13 per-angle arrays grow), F2 (truncating write to the live autoreduce file), F4 (`DetResFn` offers `'none'`) are in `JSONSettingsBuilderTab` / `GLOBAL_FIELDS` (`:187-188`, `:693-…`), not in `ROISelectionDialog`. F3 (geometry and band literals: `N_Y = 304`, `N_X = 256` `:131-132`, `MODERATOR_DETECTOR_DISTANCE` `:141`, `252.78`) and the mathtext exposure **are** in the dialog's path. |
 | F5 | #197's default background can write a file the reducer dies on. | `default_bkg_roi` (`:386-393`) clamps with `max(0, …)`; one zero in a `BkgROI` entry makes `_background_roi_sorter` return `None` (data plan F6) → `TypeError` at `nr_reduction_calc.py:511`. |
@@ -94,7 +134,7 @@ applies what the dialog reports. Names fixed for the tests: `select_roi_button`,
 |---|---|
 | B1 | "Select ROI" sits after "Remove angle" and is enabled exactly when the Angles table has a current row. The row is captured **at the click** and passed explicitly; nothing later consults the selection. |
 | B2 | The row's file is `config.NEXUSpathRB / f"REF_L_{RBnum[row]}.nxs.h5"` when `RBnum[row]` is set and the file exists; otherwise a file dialog asks for it (start directory: the resolved NeXus directory, else the last one used). A cancelled dialog does nothing. A read failure is reported in the panel (`@guarded`), never fatal, never a modal box. |
-| B3 | Five plots: XY image and Y-vs-TOF image (colour, log norm, colorbar), then counts per Y, per TOF, per X. Image arrays are `roi_estimate.xy_image` / `y_tof_image` unmodified; `origin="lower"`, extent on pixel centres, aspect left to the data. |
+| B3 | Five plots: XY image and Y-vs-TOF image (colour, log norm, colorbar), then counts per Y, per TOF, per X. Image arrays are `roi_estimate.xy_image` / `y_tof_image` unmodified; `origin="lower"`, extent on pixel centres, aspect left to the data. **v2 (B3′, from advisory A1):** each axis opens on its data — the Y-TOF image's x limits are the TOF edges (`tof_edges[0]`, `tof_edges[-1]`), the TOF profile's likewise, the X profile's `0 … n_x − 1`; an overlay artist (`axvspan`, `axhspan`) never widens an axis's limits (v1's `axvspan(0, 1)` pulled x = 0 into the Y-TOF axis, so run 231801 opened near −3 000 µs with events from 8 000 µs). Pinned by V18. |
 | B4 | Overlays show what the reduction will use: the peak rows; the **two background bands from `roi_estimate.background_bands`** (so `[a, b, 0, 0]` draws `(a, y_min)` and `(y_max, b)`, not one band across the peak); `data_x_range`; the reduction's TOF window when the row has one. Every overlay appears on every plot that has its axis. |
 | B5 | A background entry the reducer cannot use (data plan F6), or none at all, is shown as "not set" with the reason in the dialog's status line — no bands drawn, no values invented. With `useBS` off for the row the bands are drawn and labelled "not subtracted". |
 | B6 | Lifted interaction: drag on the Y profile sets the peak, low or high background (radio selector), on the X profile the X range, on the TOF profile the view filter; entry boxes mirror and accept typed values; "Estimate the peak"; log toggle. |
@@ -106,31 +146,38 @@ applies what the dialog reports. Names fixed for the tests: `select_roi_button`,
 | B12 | No text built from file content is parsed as maths (`parse_math=False`), and the dialog's log axes and colorbars use a plain-text formatter (F7). The dialog is released with `deleteLater()`, never `destroy()`. |
 
 **How #197's bugs are closed.** F1: no private row model — one writer, `set_angle_field` (F6); pinned by E2.
-F2: the dialog and the slot open no file for writing; pinned by E4. F4: `GLOBAL_FIELDS` is not lifted;
+F2 (**v2 CORRECTION, P1 / B-1** — v1 read "the dialog and the slot open no file for writing; pinned by E4", which
+contradicted B2's "the last one used" and was copied into `select_roi`'s docstring): **the dialog writes nothing; the
+slot writes no settings file and no data file; the one thing it records is the folder a chosen run came from, in the
+launcher's QSettings (`roi_nexus_dir`), so the next file dialog opens there (B2)** — pinned by E4′, whose domain is
+*every file the slot can write*: after a Select ROI the only change on disk is that one QSettings key; `SettingsDocument.save`
+is not called; nothing new appears in the working directory or in the chosen run's folder. F4: `GLOBAL_FIELDS` is not lifted;
 `test_an_enumerated_editor_offers_the_declared_spellings` stays the pin. F3: no geometry, distance or band
 literal in `launcher/`; pinned by V12. F5 (this plan): the default background comes from the data layer,
 which refuses instead of clamping to 0. Mathtext: B12, pinned by V11.
 
-**Types and states each path acts on.**
+**Types and states each path acts on.** **v2:** every cell names the test that fails when it breaks (the v1 table
+declared the `None` peak cell and the `useBS` `None`/`[]` cell with no pin — B-3, B-4; a cell without a test is a
+claim, not a behaviour).
 
 | Value at open | present | empty / short | `None` |
 |---|---|---|---|
-| `RB_Ymin[row]`, `RB_Ymax[row]` (per-angle int) | spins and overlays | column shorter than the row → treated as `None` (`angle_row`) | spins at "not set"; no peak overlay; OK unavailable until both are set |
-| `BkgROI[row]` (per-angle list of 4 int) | per data plan §3: 0 zeros → two bands; 2 zeros → peak-adjacent bands | `[]`, wrong length, 1/3/4 zeros → B5 | B5 |
-| `data_x_range` (scalar list of 2 int — **not** per angle) | X overlay and spins | wrong length → reported in the status line; X spins start at the full detector; written only if edited | same |
-| `tof_min[row]`, `tof_max[row]` (per-angle float, µs) | TOF-window overlay | the column may be `[]` (reducer default) → no overlay | no overlay |
-| `useBS[row]` (per-angle bool / 1 / 0) | label only | `[]` → reducer default is on | treated as on |
-| `RBnum[row]` (runtime-owned int) | file lookup | absent → ask | ask |
-| events | images and profiles | zero events → empty plots, Estimate refuses | n/a |
+| `RB_Ymin[row]`, `RB_Ymax[row]` (per-angle int) | spins and overlays (V5) | column shorter than the row → treated as `None` (`angle_row`; E2's short leg) | spins at "not set"; **no peak overlay — every `overlays["peak"]` artist hidden until both edges are set (V15′ `None` leg; M18)**; OK unavailable until both are set (V15) |
+| `BkgROI[row]` (per-angle list of 4 int) | per data plan §3: 0 zeros → two bands; 2 zeros → peak-adjacent bands (V3) | `[]`, wrong length, 1/3/4 zeros → B5 (V14) | B5 (V14) |
+| `data_x_range` (scalar list of 2 int — **not** per angle) | X overlay and spins (V5; drag V4′ X leg) | wrong length → reported in the status line; X spins start at the full detector; written only if edited (the Developer's `test_a_data_x_range_that_is_not_two_pixels_…`) | same |
+| `tof_min[row]`, `tof_max[row]` (per-angle float, µs) | TOF-window overlay (the Developer's `test_the_reductions_tof_window_is_drawn_…`) | the column may be `[]` (reducer default) → no overlay | no overlay |
+| `useBS[row]` (per-angle bool / 1 / 0) | label only (the Developer's `…does_not_subtract_is_drawn_and_labelled` 0/False legs) | `[]` → reducer default is on — **"not subtracted" absent (V16 `[]` leg; M19)** | **treated as on — "not subtracted" absent (V16 `None` leg; M19)** |
+| `RBnum[row]` (runtime-owned int) | file lookup (E6) | absent → ask (E6) | ask (E6) |
+| events | images and profiles (V1, V2) | zero events → empty plots, Estimate refuses (the Developer's `test_a_run_without_events_…`) | n/a |
 
 ## 4. Files to change
 
 | File | Change |
 |---|---|
-| `launcher/apps/roi_dialog.py` | New. `_move_span` and `ROISelectionDialog` lifted from F2's lines, re-seated on `RunEvents` and the data layer; two image axes added. Module docstring names PR #197, the source SHA and its authors (A5). Lift commit first (verbatim lines, not yet wired), then the changes, so the diff against the seed is reviewable. |
-| `launcher/apps/settings_editor.py` | `select_roi_button`; a `@guarded` slot; the row→file lookup (B2). |
-| `launcher/tests/test_roi_dialog.py` | New: V1–V15. Events are built in memory through the real `RunEvents`, never a mock. |
-| `launcher/tests/test_settings_editor.py` | E1–E8. |
+| `launcher/apps/roi_dialog.py` | New. `_move_span` and `ROISelectionDialog` lifted from F2's lines, re-seated on `RunEvents` and the data layer; two image axes added. Module docstring names PR #197, the source SHA and its authors (A5). Lift commit first (verbatim lines, not yet wired), then the changes, so the diff against the seed is reviewable. **v2:** the docstring's author list per F2's correction (D1; one sentence says `b041aa2`'s body names `3f74d41` in error); B3′ (the Y-TOF x limits in `_reset_limits`; no overlay widens an axis); the ±30 margin (`:572`) and the TOF step 100 (`:268`) named; the two #197 comments (`:140`, `:170`) cite a test or say inferred (D6/D7, §8.5). |
+| `launcher/apps/settings_editor.py` | `select_roi_button`; a `@guarded` slot; the row→file lookup (B2). **v2:** `select_roi`'s docstring per F2's correction (B-1): "no settings or data file is written; the folder a chosen run came from is remembered in the launcher's QSettings (`roi_nexus_dir`, B2) — E4". One `f"REF_L_{run}.nxs.h5"` in the slot (D3's two local copies become one name). |
+| `launcher/tests/test_roi_dialog.py` | New: V1–V15. Events are built in memory through the real `RunEvents`, never a mock. **v2:** V4′, V6′, V7′, V11′, V15′, V16, V17, V18 (§6′). |
+| `launcher/tests/test_settings_editor.py` | E1–E8. **v2:** E4′, E9 (§6′). |
 
 ## 5. Failure-mode matrix
 
@@ -217,6 +264,29 @@ def test_select_roi_writes_the_row_it_was_opened_for(monkeypatch, events):
     assert doc.get("BkgROI")[1] == [137, 149, 0, 0]  # untouched in the dialog, so not rewritten
 ```
 
+### 6′. v2 — the tests the rejection names (each RED on `791bdbe` under its §7′ mutation, GREEN after)
+
+The Developer's v1 names are kept where a test is extended (the Integrator's reviewers cite them); new tests take
+the next V/E number. "Gesture" keeps §6's meaning: `QTest.mouseClick` on the real button, a press–move–release on
+the canvas through the existing `drag` helper, a `QTimer` driving the real modal — never `.reject()`, `.accept()`,
+`.emit()` or a callback called by hand.
+
+| # | Test (v1 name where extended) | What it asserts | Reds under |
+|---|---|---|---|
+| **E4′** | `test_select_roi_writes_no_file` — domain widened to *every file the slot can write* | with the file dialog returning a run in `tmp_path/nexus/` and `exec_` → Rejected: `SettingsDocument.save` not called; **the only change on disk after the click + `tab.settings.sync()` is the QSettings key `roi_nexus_dir`** (snapshot `QSettings.allKeys()`/values before and after — exactly one key differs, to the run's folder); `tmp_path` (cwd) and `tmp_path/nexus/` hold the same set of files as before | M28 (the slot writes a file into cwd or beside the run); M29 (the slot writes a second QSettings key) |
+| **V11′** | `test_file_text_and_log_ticks_never_reach_the_math_parser` — two draws | draw 1 at the opening limits, draw 2 with one profile's y axis `set_ylim(20, 80)` (inside one decade — what the toolbar's zoom does) and drawn again; after **each** draw, for the three log profiles and both colorbars' axes: no `get_xticklabels(minor=True)`, `get_yticklabels(minor=True)`, major label or `get_offset_text()` text contains `$`; the title leg unchanged | M11 (major formatter removed); **M17 (`:87` minor formatter deleted — 48 mathtext minor labels on the zoomed draw)**; **M17b (only the colorbar's minor formatter removed — must red on its own, not through a pyparsing warning)** |
+| **V15′** | `test_ok_is_unavailable_for_an_inverted_peak_or_a_partial_background` — `RB_Ymin=None` leg (or a new `test_an_unset_peak_draws_no_overlay_until_both_edges_are_set`) | open with `RB_Ymin=None`, `RB_Ymax=155`: every artist in `dialog.overlays["peak"]` on `y_axis`, `xy_axis`, `ytof_axis` has `get_visible() is False`; set the low spin → still hidden; set the high spin → visible on all three, edges equal the spins | **M18 (`:538` `_move("peak", peak)` → `_move("peak", self._spin_values(self.peak_spins))` — a band from −1 to 155 appears)** |
+| **V16** | `test_a_background_the_reducer_does_not_subtract_is_drawn_and_labelled` gains `use_bs=None` and `use_bs=[]`-row legs (via `doc.set("useBS", [])` → `angle_row(0)["useBS"] is None`, the reachable route) | the status line **does not** contain "not subtracted"; the bands are drawn; the existing `0`/`False` legs still say "not subtracted" | **M19 (`:216` `!= 0` → `bool(...)`)** |
+| **V4′** | `test_dragging_on_the_y_profile_sets_the_chosen_range` gains X and TOF legs (or `test_dragging_on_the_x_and_tof_profiles_sets_the_range_and_the_filter`) | `drag(dialog, dialog.x_axis, 70, 180)` → `x_spins` read `[70, 180]`, the X overlay's edges on every axis with an X axis equal them, `dialog.changes() == {"data_x_range": [70, 180]}`; `drag(dialog, dialog.tof_axis, t1, t2)` → `tof_spins` read `[t1, t2]`, the profiles and the XY image are rebuilt from the filtered events (V2's equality against `xy_image(events, tof_range=…)`), `dialog.changes() == {}` | **M20 (`_x_range_selected` → `pass`)**, **M21 (`_tof_range_selected` → `pass`)**, **M22 (the two bodies swapped)** — each alone |
+| **V6′** | `test_cancel_reports_nothing` — presses the button | edit a spin, then `QTest.mouseClick(dialog.buttons.button(QDialogButtonBox.Cancel), LeftButton)` (the `QDialogButtonBox` at `:285` becomes `self.buttons`); `dialog.result() == Rejected`; `changes() == {}` after the dialog closes (what the slot reads) | **M23 (`:286` `rejected.connect(self.accept)`)** |
+| **V7′** | `test_ok_reports_only_what_changed` — presses the button | the same gesture on the Ok button; `result() == Accepted`; the three legs of v1 unchanged | **M24 (`:285` OK left unconnected)** |
+| **E9** | `test_the_real_modal_dialog_writes_as_its_buttons_are_pressed` (two legs: Cancel, OK) | **no `exec_` patch**: a `QTimer.singleShot` fires after the modal opens, finds the live `ROISelectionDialog` among `QApplication.topLevelWidgets()`, sets `peak_spins[0]` to 141, then clicks Cancel (leg 1) / Ok (leg 2) — as `scripts/roi-popout-acceptance.py` does; leg 1: `doc.to_dict()` unchanged; leg 2: `RB_Ymin[row] == 141`, nothing else written; the dialog is gone after `DeferredDelete` (E7's check) | M23, M24, M4 (result code ignored) — through the real modal path |
+| **V17** | `test_the_log_toggle_switches_every_profile` | `QTest.mouseClick(dialog.log_check, …)` → `get_yscale() == "linear"` on `y_axis`, `tof_axis`, `x_axis` after a draw; click again → `"log"` on all three **and** V11′'s label assertion holds (the plain formatters are re-applied) | **M25 (`:562` `set_yscale("log")` unconditionally)**; M25b (the formatters not re-applied after the toggle) |
+| **V18** | `test_the_profiles_and_the_ytof_image_open_on_their_data` | after open and draw: `tof_axis.get_xlim() == (tof_edges[0], tof_edges[-1])`, `x_axis.get_xlim() == (0, n_x − 1)`, **`ytof_axis.get_xlim() == (tof_edges[0], tof_edges[-1])`** (B3′), `y_axis.get_xlim()` within the ±margin of the peak edges and inside `[0, n_y − 1]`; after a peak nudge and after a TOF filter change the Y-TOF and TOF limits are unchanged | **M26 (`:573-574` deleted — T1)**, **M27 (the Y-TOF `set_xlim` removed, or the overlays made with `axvspan(0, 1)` again — A1)** |
+
+**The commit body also quotes M13** (the battery row's code as run, verbatim) and its observed `-> N failed` — the
+Integrator's three forms gave 4 where the v1 body says 5; whichever the quoted code gives is the record.
+
 ## 7. Mutate-once gate (record each in the commit body as `<mutation> → <test> -> N failed`)
 
 | # | Mutation applied to the production code | Must red |
@@ -238,6 +308,26 @@ def test_select_roi_writes_the_row_it_was_opened_for(monkeypatch, events):
 | M15 | OK validation removed | V15 |
 | M16 | `deleteLater()` → `destroy()` | E7 |
 
+### 7′. v2 rows (added to the ledger battery script; each must red **alone**, N ≥ 1, in the commit body)
+
+| # | Mutation applied to the production code | Must red | Integrator's v1 observation |
+|---|---|---|---|
+| M17 | `roi_dialog.py:87` `axis.set_minor_formatter(LogFormatter(labelOnlyBase=True))` deleted | V11′ (zoomed draw, minor labels) | survived, 618 passed; 48 mathtext minor labels on run 231801 zoomed to 20–80 |
+| M17b | only the **colorbar** axes' minor formatter removed | V11′ (colorbar leg) | today reds only via a pyparsing warning in the empty-run test |
+| M18 | `:538` `self._move("peak", peak)` → `self._move("peak", self._spin_values(self.peak_spins))` | V15′ `None` leg | survived; a −1…155 band on three axes |
+| M19 | `:216` `values.get("useBS") != 0` → `bool(values.get("useBS"))` | V16 (`None` and `[]` legs) | survived; "not subtracted" shown for `None` |
+| M20 | `:317-318` `_x_range_selected` body → `pass` | V4′ X leg | survived |
+| M21 | `:320-321` `_tof_range_selected` body → `pass` | V4′ TOF leg | survived |
+| M22 | the two bodies swapped | V4′ both legs | survived |
+| M23 | `:286` `buttons.rejected.connect(self.reject)` → `.connect(self.accept)` | V6′, E9 Cancel leg | survived — Cancel would write the edits |
+| M24 | `:285` `buttons.accepted.connect(self.accept)` deleted | V7′, E9 OK leg | survived |
+| M25 | `:562` `axis.set_yscale("log" if log_scale else "linear")` → `axis.set_yscale("log")` | V17 | survived |
+| M25b | the plain formatters not re-applied after the toggle (the `_plain_log_ticks(axis.yaxis)` call after `set_yscale` removed, `:563-564`) | V17 second click + V11′ assertion | — |
+| M26 | `:573-574` (`tof_axis`/`x_axis` `set_xlim`) deleted | V18 | survived (T1) |
+| M27 | the Y-TOF `set_xlim` of B3′ removed (v1's state) | V18 Y-TOF leg | A1: the image fills 32 % of its panel |
+| M28 | the slot writes a file (`Path.cwd() / "roi.tmp"`, or beside the chosen run) after the dialog | E4′ | — (v1's E4 saw only `SettingsDocument.save`) |
+| M29 | the slot records a second QSettings key (e.g. `roi_last_run`) | E4′ | — |
+
 **Frame** (helpers introduced or re-pointed — one row per call site): `_move_span` — one row per overlay
 artist it moves (peak, low background, high background, X range, TOF filter/window, on each axes where the
 artist exists): swap `low`/`high` or move the wrong artist → the matching V5 parameter reds, alone; the
@@ -251,11 +341,16 @@ green is diagnosed before anything else is touched (L4).
    first); `pixi.lock` restored, not staged.
 2. `git diff --stat agentic/exp-review...feature/roi-popout-dialog` lists exactly the four files of §4. No
    `plans/`, `todo.md`, mutation battery or other ledger-shaped path; nothing under `src/`.
-3. Every row of §7 and the frame is in a commit body with its observed `<test> -> N failed`.
+3. Every row of §7, §7′ and the frame is in a commit body with its observed `<test> -> N failed`. **v2:** the seven
+   rows the Integrator ran (M17, M18, M19, M20–M22, M23/M24, M25, M26) each show N ≥ 1 in the v2 body; M13's row is
+   quoted as code with its count; the ledger battery script carries the new rows and its SHA is in the body.
 4. `grep -nE "304|256|15\.75|252\.7|h5py|get_lam_range" launcher/apps/roi_dialog.py` prints nothing; the
    editor's lookup carries the one file-name pattern of F9 and says where it comes from.
 5. Prescriptive comments and commit-body claims ("cannot write a file", "what is drawn is what the reducer
-   uses", "does not rebuild the figure") name the test that falsifies them, or are marked inferred.
+   uses", "does not rebuild the figure") name the test that falsifies them, or are marked inferred. **v2:** the two
+   docstring claims the gate falsified are re-read against their tests — `select_roi`'s "no file is opened for
+   writing" against E4′'s domain (B-1), the module docstring's author list against F2's measurement (D1) — and the
+   two #197 comments at `roi_dialog.py:140` and `:170` cite a test or say "inferred" (D7).
 6. ui-aspects review receives §3's states table and V2/V3/V11/V13/E2/E7 as the pins for: where the drawn
    data lives (`ax.images[0]`), faithful axes, `deleteLater()`, the active-row trap.
 7. **Deployment-shaped acceptance (Integrator, analysis node, `PIXI_CACHE_DIR` under the checkout):** start
@@ -287,6 +382,17 @@ green is diagnosed before anything else is touched (L4).
   written"; "keeps the images and moves only the overlay"; "an overlay, never a crop". → B4, B11, B8.
 - L6 (commit body of `65c83d9`): "this does NOT fix the reported traceback … the failure arrives via
   axis.py:_get_ticklabel_bboxes — a TICK LABEL". → B12's second half, V11's tick leg, §8.7.
+- **L7 (v2, from this rejection — the campaign's recurring lesson, in its GUI form):** a §3 cell, a B-row clause or a
+  docstring sentence that no test observes is a claim; the gate finds it by mutating the production line and watching
+  618 stay green. Three shapes recurred here: (i) **the gesture was replaced by its effect** — `reject()` called instead
+  of Cancel pressed, so wiring Cancel to `accept` survived; (ii) **the assertion read a subset of the domain** — major
+  tick labels but not minor or offset text; `SettingsDocument.save` but not "every file the slot can write"; (iii) **a
+  states-table cell had a mutation named and no test** (`None` peak, `useBS None/[]`). The v2 discipline: every §3 cell
+  names its test in the table itself; every B-row verb ("drag", "press", "toggle") has a gesture test per surface it
+  names (Y, X **and** TOF; Cancel **and** OK); every "no X" claim states its domain and the test enumerates the domain.
+- **L8 (v2, factual claims in docstrings):** an author list is a measurement (`git log -L`, `git blame -w -M -C` on
+  the lifted range), not a reading of a PR's contributor list — the plan carried `3f74d41` from the latter, and the
+  docstring and the lift commit repeated it (D1). A credit is a factual claim and sits under §8.5 like any other.
 
 ## 10. Assumptions and open questions (the plan proceeds under each default)
 
@@ -308,3 +414,25 @@ v1 — authored 2026-10-02 against `7b6d6b9` (staged behind `roi-popout-data` me
 forward at cut, under the stacking-by-file-overlap rule's clause (4) (posture `ec10742`; A-77): editor-side citations re-measured at
 `779f787`, data-contract names verified at `f424aec`, the harness fixtures re-located; the data plan's correction (the report's second image
 is Y-vs-TOF) already in S9.
+
+### v2 — 2026-10-05, after the Integrator's rejection of v1 @ `791bdbe` (`review/roi-popout-dialog` @ `b22c8df`; attempt 1 of 3)
+
+Rejection, verbatim (tag annotation): *"roi-popout-dialog v1 REJECTED — six declared behaviours untested, one false docstring claim. Review
+gate (ui-aspects, design, test). The pop-out works on real data: the gate is green (launcher 747, reduction 874), and the deployment-shaped
+acceptance on IPTS-36119 matched the run's stored web report (peak, background and x-range lines exact; XY and Y-TOF the same cells, report =
+raw x dead-time factor 1.002-1.018). It also opened every row, dragged and saved one peak, and showed no traceback. Reproduced here, each
+surviving with 618 passed: the minor log formatter deleted (mathtext on a zoomed profile); the peak overlay shown when RB_Ymin is None; useBS
+None read as off; the X and TOF drags dead; Cancel wired to accept; the log toggle stuck on log. Also: select_roi's "no file is opened for
+writing" is false (QSettings roi_nexus_dir). Work order: todo.md."* The work order (`b22c8df:todo.md`): B-1 (d) the docstring, B-2…B-7 (a/b)
+the six untested behaviours, M13's count to show, advisories A1–A8 (ui), D1–D8 (design), T1–T3 (test), and three plan corrections addressed to
+the Analyst: **P1** §3's F2 sentence contradicted B2 (B-1's source); **P2** F2's author list named `3f74d41`, which wrote none of the lifted
+lines (D1's source); **P3** V9's sparse-run threshold is the estimator's.
+
+What v2 changes: the "v2 — what changes and why" section after the canonical-copy line; §2 F2 corrected (P2); §3 B3′ (A1), the F2 sentence
+corrected (P1), the types table with a test in every cell; §4 per-file v2 notes; §6′ (E4′, V11′, V15′, V16, V4′, V6′, V7′, E9, V17, V18); §7′
+(M17–M29); §8.3 and §8.5 extended; §9 L7, L8. Unchanged: the Declared scope, §1, §5, §8.7, §10; the Base, the stack and the PR target — the
+Developer continues on `feature/roi-popout-dialog` @ `791bdbe` (both predecessors unmoved at dispatch: `f424aec`, `8ca43ce`). **Plan errors
+owned:** P1 and P2 were the plan's sentences, copied faithfully by the Developer into two docstrings and a commit body; v1's §3 table declared
+two cells with no test; §6 named gestures and then listed V6/V7 in a form a direct call could satisfy. **Analyst follow-ups filed from the
+advisories:** D2 (a Qt-free validator for the written background form) and D3's third `REF_L_{run}.nxs.h5` copy (`settings_document.py:159`)
+→ `roi-popout-data` follow-up todo; P3 → recorded as an advisory on the data slug (the Developer's `e0bba12`).
