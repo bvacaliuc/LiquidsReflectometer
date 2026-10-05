@@ -713,6 +713,15 @@ def test_lambda_range_is_recorded_per_position(env, runs):
         assert (r["config_lambda_min"], r["config_lambda_max"]) == ([2.7, 2.6, 2.5], [9.5, 9.5, 9.5]), name
 
 
+def test_a_first_call_for_a_later_position_records_null_at_the_gaps(env):
+    """Battery row 10 survived without this: the merge rebuilds gaps from its positions, so reduce()'s own gap
+    entries reach a file only when no merge runs, as in the first call of a sequence for a later position."""
+    reduce_runs(env, [R3])
+    for name, (header, _) in read_outputs(env.out).items():
+        r = records(header)
+        assert r["scale"][:2] == [None, None] and r["lambda_min"] == [None, None, 2.5], name
+
+
 def test_gap_records_null(env):
     """A position with no run has no applied factor and no range: null in the three records."""
     reduce_runs(env, [R1, R3])
@@ -730,9 +739,10 @@ def test_autoscale_off_records_the_authored_factor(env):
         assert records(header)["scale"] == AUTHORED, name
 
 
-def write_format2_file(out, run, nr_runs, scale, lam=(2.5, 9.5)):
+def write_format2_file(out, run, nr_runs, scale, lam=(2.5, 9.5), list_lines=False):
     """A partial file as M1 (header format 2) wrote it: positional logs, but the Scaling factors line holds the
-    writing call's list and the Lambda Range line its scalars."""
+    writing call's list and the Lambda Range line its scalars. With `list_lines`, the Lambda Range line parses as
+    per-position lists too: a format-2 file whose lines look like records, which only the marker can refuse."""
     seq = RUNS[run][0]
     q, r, dr, dq = synthetic_curve(seq - 1, reverse_q=False)
     entries = [e or None for e in nr_runs]
@@ -742,7 +752,8 @@ def write_format2_file(out, run, nr_runs, scale, lam=(2.5, 9.5)):
         f"NR_runs = {nr_runs}",
         f"Run Title: {json.dumps({'title': [title(e) if e else None for e in entries]})}",
         f"Scaling factors = {json.dumps({'scale_factor': scale})}",
-        f"Lambda Range = {lam[0]}Å to {lam[1]}Å",
+        (f"Lambda Range = {json.dumps({'lambda_min': [lam[0]] * len(nr_runs), 'lambda_max': [lam[1]] * len(nr_runs)})}"
+         if list_lines else f"Lambda Range = {lam[0]}Å to {lam[1]}Å"),
         f"Angles: {json.dumps(angles)}",
         "Header format: 2 (Run Title, Angles and NR_runs are indexed by sequence position)",
         "---" * 20,
@@ -754,16 +765,17 @@ def write_format2_file(out, run, nr_runs, scale, lam=(2.5, 9.5)):
     np.savetxt(out / partial_name(seq, run), np.column_stack((q, r, dr, dq)), header=head, delimiter="\t")
 
 
-@pytest.mark.parametrize("legacy", [False, True], ids=["format 2", "no marker"])
+@pytest.mark.parametrize("legacy", [False, "list lines", True], ids=["format 2", "format 2, list-shaped lines", "no marker"])
 def test_prior_without_format_3_does_not_vouch_then_heals_when_rereduced(env, capsys, legacy):
     """R2: before this slug, every writer put the writing call's list into every file, so no format-2 (or legacy)
     entry is provably the file's own. Such a prior gives null for its position's scale and range, with a notice,
     and the position heals when its run is reduced again."""
     for run in (R1, R2, R3):
-        if legacy:
+        if legacy is True:
             write_legacy_file(env.out, run, [R1, R2, R3], [R1, R2, R3])
         else:
-            write_format2_file(env.out, run, [R1, R2, R3], [1, 0.5, 0.25])
+            # "list lines" (battery row 4 survived without it): the records parse, so only the marker refuses them
+            write_format2_file(env.out, run, [R1, R2, R3], [1, 0.5, 0.25], list_lines=legacy == "list lines")
     reduce_runs(env, [R2])
     out = capsys.readouterr().out
     r = records(read_outputs(env.out)[COMBINED][0])
@@ -820,12 +832,20 @@ def test_template_style_caller_gets_no_format_3_marker(tmp_path):
     assert any(line.startswith("# Header format: 2") for line in lines)
     assert "# Scaling factors = {\"scale_factor\": [1.5]}" in lines
     assert "# Lambda Range = 2.5Å to 9.5Å" in lines
+    # a partial record set is no record set (frame F20): format 2 and today's lines, never a half format 3
+    save_reduced_data.save_results({"Q": q, "R": q, "dR": q, "dQ": q}, config, {**logs, "scale": [2.0]},
+                                   sname="partial")
+    partial = (tmp_path / "partial.dat").read_text().splitlines()
+    assert any(line.startswith("# Header format: 2") for line in partial)
+    assert "# Scaling factors = {\"scale_factor\": [1.5]}" in partial
 
 
-@pytest.mark.parametrize("runs", [[R1, R2, R3], [R3, R1, R2, R1]], ids=["in order", "out of order"])
+@pytest.mark.parametrize("runs", [[R1, R2, R3], [R3, R1, R2, R1], "one call"], ids=["in order", "out of order", "one call"])
 def test_eight_column_files_carry_the_same_records(env, runs):
-    for run in runs:
-        nrff.reduce_from_file([run], env.settings, EXPERIMENT, datapath=env.nexus, plot=False,
+    """The _8col files carry the 4-column files' records. "one call" reduces the whole sequence at once, with no
+    priors, so reduce()'s own 8-column files are the ones kept (frame rows F2 and F4 survived without it)."""
+    for call in ([[R1, R2, R3]] if runs == "one call" else [[run] for run in runs]):
+        nrff.reduce_from_file(call, env.settings, EXPERIMENT, datapath=env.nexus, plot=False,
                               override_params={"Spath": env.out, "subname": "autoreduction", "save8col": True},
                               check_for_prior=True)
     outputs = read_outputs(env.out)
@@ -861,6 +881,8 @@ def test_nr_runs_header_round_trips_numpy_integers(tmp_path):
 
     path = save([np.int64(R1), None, "221474"], "numpy")
     assert nrff.read_prior_header(path)["NR_runs"] == [R1, None, R3]
-    for bad in (3.5, "x"):
+    path = save([float(R1), np.int32(R2)], "integral")  # an integral float is a whole run number (frame F18)
+    assert nrff.read_prior_header(path)["NR_runs"] == [R1, R2]
+    for bad in (3.5, "x", True):  # True is an int subclass, not a run number (frame F17)
         with pytest.raises(ValueError, match="run number"):
             save([bad], f"bad-{bad}")
