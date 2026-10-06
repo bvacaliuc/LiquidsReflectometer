@@ -1,6 +1,6 @@
 # Escalation: `roi-popout-dialog` — rejected three times at the review gate; production right on real data every time; the retry cap is reached
 
-**Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (R2) · **Status:** ESCALATED 2026-10-06 (attempt 3 of N = 3 rejected at
+**Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (R2) · **Status:** **RESOLVED 2026-10-06 — the human chose Option A** (`requests/roi-popout-dialog-cap-extension.md`, M-43: one cap extension, v4 tests-only scoped by §4; plan v4 dispatched as `triage/roi-popout-dialog-v4`; the escalate tag is retired with the dispatch — this file stays the canonical record of the decision and §4 is v4's checklist) — was: ESCALATED 2026-10-06 (attempt 3 of N = 3 rejected at
 `21a7367`, `review/roi-popout-dialog` @ `ad3558c`, I-50) · **Decision owner:** the human (one cap extension is delegable to a proxy "only
 after the Integrator's decompose recommendation has been considered and the reason written in the posture line" — posture §envelope; the
 posture declares **no proxy**, so the extension is the human's; a second extension is never delegable) · **Canonical record:** this file (ledger

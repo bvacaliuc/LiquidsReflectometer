@@ -1,7 +1,7 @@
 # Plan: `roi-popout-dialog` — "Select ROI" beside Add/Remove: #197's dialog lifted onto `SettingsDocument`, with the web report's two detector images
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (refs `triage/roi-popout-dialog`,
-`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** **ESCALATED 2026-10-06** — v3 @ `21a7367` REJECTED at the retry cap (`review/roi-popout-dialog` @ `ad3558c`, I-50: five declared clauses unpinned — RBnum on Cancel, LogNorm, colorbars, "all angles", a truncating write vs the 0-byte fixture; production right); the record and the human's options are `plans/roi-popout-dialog-escalate.md`; the annotated tag `review/roi-popout-dialog-escalate` is on the fork — was: READY — **v3 (attempt 3 of N = 3 — the last)** — v2 REJECTED 2026-10-05 at `e017a97` (`review/roi-popout-dialog` @ `088686c`: "a document save from the slot and a forced aspect go unasserted" — two test-only pins, both gaps v1 also had; everything of v2 closed, gate green, §8.7 PASS again) — **v3 does exactly three things**: E4′/E9 made able to see a document save (B-1, with M30 and the docstring's domain), V2 asserts `get_aspect() == "auto"` (B-2, with M31), E9's `give_up` timer stopped (A-1); the Developer continues on `feature/roi-popout-dialog` @ `e017a97` (predecessors unmoved: `f424aec`, `8ca43ce`); see "v3" below and the Revision history — v1 REJECTED 2026-10-05 at `791bdbe`
+`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** READY — **v4 (attempt 4 of N = 4 — N extended once by the human, Option A, `requests/roi-popout-dialog-cap-extension.md`; a v5 or any scope change is a second extension and is the human's)** — tests only, scoped by `plans/roi-popout-dialog-escalate.md` §4: the five I-50 pins and the four "unpinned?" clauses settled by mutation, plus the one-line I-50 advisories; the Developer continues on `feature/roi-popout-dialog` @ `ad3558c` (= `21a7367` + the Integrator's `todo.md`; predecessors unmoved: `f424aec`, `8ca43ce`); the Integrator gates with the §4 table as its checklist — a verdict per row; a rejection of v4 → escalate again, never a v5 without the human — was: ESCALATED 2026-10-06 — v3 @ `21a7367` REJECTED at the retry cap (`review/roi-popout-dialog` @ `ad3558c`, I-50: five declared clauses unpinned — RBnum on Cancel, LogNorm, colorbars, "all angles", a truncating write vs the 0-byte fixture; production right); the record and the human's options are `plans/roi-popout-dialog-escalate.md`; the annotated tag `review/roi-popout-dialog-escalate` is on the fork — was: READY — **v3 (attempt 3 of N = 3 — the last)** — v2 REJECTED 2026-10-05 at `e017a97` (`review/roi-popout-dialog` @ `088686c`: "a document save from the slot and a forced aspect go unasserted" — two test-only pins, both gaps v1 also had; everything of v2 closed, gate green, §8.7 PASS again) — **v3 does exactly three things**: E4′/E9 made able to see a document save (B-1, with M30 and the docstring's domain), V2 asserts `get_aspect() == "auto"` (B-2, with M31), E9's `give_up` timer stopped (A-1); the Developer continues on `feature/roi-popout-dialog` @ `e017a97` (predecessors unmoved: `f424aec`, `8ca43ce`); see "v3" below and the Revision history — v1 REJECTED 2026-10-05 at `791bdbe`
 (the Integrator's `review/roi-popout-dialog` @ `b22c8df`: "six declared behaviours untested, one false docstring claim"; production right on real
 data, the gate green; see Revision history) — **v2 is a tests-and-wording revision plus two cheap advisories (A1, D1)**: the Developer continues
 on `feature/roi-popout-dialog` @ `791bdbe` (predecessors unmoved: `feature/roi-popout-data` @ `f424aec`, K2's PASS tip `8ca43ce` merged forward
@@ -32,10 +32,62 @@ recorded), and merges both predecessors forward before every `qa/` push; the Int
 §Resolution), charter §3 row, the reference's #197 review (`plan/contrib/review-exp-json-settings-builder/`)
 and T1 findings R5/R7/R8/R14 (`plan/roi-selector/plan.md`).
 
-Canonical copy: ledger `plans/roi-popout-dialog-plan.md`; the copy on `triage/roi-popout-dialog-v3` is
+Canonical copy: ledger `plans/roi-popout-dialog-plan.md`; the copy on `triage/roi-popout-dialog-v4` is
 byte-identical at dispatch.
 
-## v3 — the last attempt: two pins and one timer (read this first; everything else stands)
+## v4 — the human's one extension: close the audit table (read this first; everything else stands)
+
+**Authority.** `[human, 2026-10-06 (to the Administrator, for the Analyst): "I concur with the recommendation and would like to go with 'A —
+one cap extension; v4 = tests only, scoped by §4's table: as recommended.'"]` (`requests/roi-popout-dialog-cap-extension.md`, M-43). One
+extension, v4 only. The decompose check was considered and declined (posture line of 2026-10-06; I-50's "Smallest completion": one commit in
+the slug's two test files, no production line).
+
+**Scope = `plans/roi-popout-dialog-escalate.md` §4**, nothing else. Three groups; the Developer settles every row **by mutation first** (apply
+the row's mutation to `ad3558c`'s production, run the two test files; a survivor gets the named test, a red is credited to the test that
+caught it — the commit body says which, per row).
+
+### Group 1 — the five I-50 pins (each survived v3 with 628 passed)
+
+| # | Clause | Test (the Integrator's fix text, made concrete) | Mutation |
+|---|---|---|---|
+| **P1** | B2 / §5 "a cancelled dialog leaves the document unchanged, incl. `RBnum`" | **E4″** (both legs) and **E6** (each leg) end with `assert doc.to_dict() == before` — except E4″'s accepted leg, where only the edited `RB_Ymin[row]` differs; `before` is taken after the fixture, before the click | **M32** `_events_for_row`'s asked-for branch: after `self.settings.setValue("roi_nexus_dir", …)` add `self.document.set_angle_field(row, "RBnum", 999)` → survived (`RBnum [None, None, None] → [999, None, None]` after Cancel; the panel "No problems found") |
+| **P2** | B3 "log norm" | **V2″**: `isinstance(dialog.xy_axis.images[0].norm, LogNorm)` and the same for `ytof_axis`, after open and after a draw | **M33** `_norm` returns `Normalize(vmin=1, …)` (and the ui reviewer's `Normalize(vmin=0, …)`) → survived |
+| **P3** | B3 "colorbar" per image, beside its own image; B12 "colorbars use a plain-text formatter" (V11′'s colorbar leg is vacuous without this) | **V2″**: `len(dialog.figure.axes) == 7`; each image's `colorbar.ax in figure.axes`; placement by bbox — the XY colorbar's `x0` lies between `xy_axis.get_position().x1` and `ytof_axis.get_position().x0`, the Y-TOF colorbar's `x0` right of `ytof_axis.get_position().x1` (after a draw) | **M34** the colorbar loop body in `_build_images` → `pass` (5 axes for 7); **M34b** the loop's two `(image, axis)` pairs swapped → both survived |
+| **P4** | B9 "labelled 'all angles'" on `data_x_range` | **E8** (or V7′): the x-range label's `text()` contains `"all angles"` | **M35** `"x range, all angles (data_x_range):"` → `"x range (data_x_range):"` → survived |
+| **P5** | F2 no truncating write to the chosen run (#197's F2, exactly) | **E4″**: the run fixture holds ≥ 1 byte (`run.write_bytes(b"\x89HDF")`, say) **and** the disk snapshot is `(name, size, mtime_ns)` — a 0 → 0-byte truncation is then visible either way; **E9′** the same snapshot shape | **M36** `_events_for_row`: after `load_event_pixels`, `open(path, "w").close()` → survived against the 0-byte fixture |
+
+### Group 2 — the four "unpinned?" clauses of the audit (settle by mutation; credit or pin)
+
+| # | Clause | Mutation to apply first | If it survives: the test |
+|---|---|---|---|
+| **C1** | B8 "the view filter starts at the chopper band when the run has a chopper log, else the full span" | **M37** the filter's opening value set to the full span regardless of the chopper log | `test_the_view_filter_opens_on_the_chopper_band_when_the_run_has_one`: events built with a chopper log → `tof_spins` read `lambda_to_tof(chopper_lambda_range(...))` (the data layer's numbers, not literals); events without → the full span (`tof_edges[0]`, `tof_edges[-1]`) |
+| **C2** | B9 "then `refresh_angles`, `refresh_scalars`, `refresh_report`" | **M38** the three `refresh_*` calls removed from the slot (one row each if any reds alone) | `test_select_roi_refreshes_the_table_the_scalars_and_the_report`: after an accepted edit, the Angles table cell shows the new `RB_Ymin`, the scalar editor shows the new `data_x_range` (E8 may already pin this leg — credit it), and the report text contains the new value |
+| **C3** | B11 "images are recomputed only when their own inputs change" (XY: the view filter; Y-TOF: the X range) | **M39** `_values_changed` recomputes both images on every change | `test_a_peak_nudge_recomputes_no_image`: `monkeypatch` a counter around `roi_estimate.xy_image` / `y_tof_image`; a peak nudge → both counts unchanged; a TOF filter change → `xy_image` +1, `y_tof_image` +0; an X-range change → `y_tof_image` +1, `xy_image` +0 |
+| **C4** | §5 "row index no longer valid at OK → reported in the panel; must not: a write past the end" | **M40** the slot's row-count check (if any) removed, so `set_angle_field(row, …)` is reached with `row ≥ n_angles` | `test_a_row_removed_while_the_dialog_is_open_is_reported_not_written`: `exec_` replaced by a function that `doc.remove_angle(row)` then returns Accepted with an edit → the panel reports the row is gone; `doc.to_dict()` unchanged; **no column grows** (the F6 pad must not create a phantom row) |
+
+### Group 3 — the I-50 one-line advisories (in the same commits; no production line)
+
+- **A-i (deferred save):** E4″ and E9′ call `QTest.qWait(0)` (or `QApplication.processEvents()`) *before* the disk and `calls` asserts, so a save
+  posted with `QTimer.singleShot(0, …)` is seen. **M41** the slot posts `QTimer.singleShot(0, lambda: self.document.save(...))` → must red.
+- **A-ii (aspect after an interaction):** V4′'s TOF-drag leg (or V2″) re-asserts `get_aspect() == "auto"` on both image axes after the drag.
+  **M42** `set_aspect("equal")` inside `_update` after a filter change → must red.
+- **A-iii (docstring scope):** `select_roi`'s docstring says exactly what each test watches — "E4 watches `SettingsDocument.save`, the panel, the
+  working directory, the run's folder and the QSettings store; E9 the panel and the working directory" — no union phrased as "every".
+- **A-iv (V14 legs):** `test_an_unusable_background_is_shown_as_not_set_with_its_reason` gains the `[]`, 3-number, 3-zero and 4-zero legs
+  (coverage of the stated types-table cell; they share the tested raise path, so no new mutation row — say so in the body).
+- **A-v (battery provenance):** the commit body cites the ledger battery script's SHA *after* it is pushed, and the Integrator's clones fetch it
+  before reproducing (I-50 "Battery provenance").
+
+### v4 recipe
+
+RED by mutation for every Group 1/2 row and A-i/A-ii (apply, see the new or credited test red, restore; record `M<n> → <test> -> N failed`,
+N ≥ 1, in the commit body — and for Group 2 say "credited to <test>" or "pinned by <new test>" per row). GREEN with `ad3558c`'s production plus
+the docstring. The whole battery (§7, §7′, M30–M42) again. **Before `qa/`:** run the audit table top to bottom — every row of
+`plans/roi-popout-dialog-escalate.md` §4 has a verdict (pinned by `<test>`, with the mutation that proves it) — and put the table, filled, in the
+commit body; the Integrator gates row by row against it. Merge the predecessors forward if they moved; gate; `qa/`. **A rejection of v4
+escalates again** (second extension = the human's); there is no v5 on this seat's authority.
+
+## v3 — two pins and one timer (everything else stands)
 
 The Integrator reproduced two mutations in a `git archive` copy of `e017a97`, each **surviving with 628 passed** (the slug's
 two test files; 79 + 549). Both are gaps v1 also had and v2 did not close; neither was raised at v1 (the Integrator's
@@ -361,6 +413,18 @@ Integrator's three forms gave 4 where the v1 body says 5; whichever the quoted c
 | M29 | the slot records a second QSettings key (e.g. `roi_last_run`) | E4′ | — |
 | **M30 (v3)** | `settings_editor.py`: after `self.refresh_report()` in `select_roi`, `self.document.save(Path.cwd() / "roi-settings.json")` | E4″, E9′ | **survived v2 with 628 passed and wrote a 1 484-byte settings JSON into the cwd** — the raising stub was swallowed by `@guarded` |
 | **M31 (v3)** | `roi_dialog.py:404` `"aspect": "auto"` → `"aspect": "equal"` | V2′ | **survived v2 with 628 passed**; Y-TOF axes box 273 × 221 px → 273 × 1 px |
+| **M32 (v4)** | the lookup's asked-for branch writes `RBnum` (`set_angle_field(row, "RBnum", 999)`) | E4″, E6 (`doc.to_dict()` unchanged) | **survived v3 with 628 passed** (I-50 B-1) |
+| **M33 (v4)** | `_norm` → `Normalize(vmin=1, …)` (and `vmin=0`) | V2″ | **survived v3** (I-50 B-2) |
+| **M34 (v4)** | the colorbar loop body → `pass` (5 axes for 7) | V2″ | **survived v3** (I-50 B-3) |
+| **M34b (v4)** | the two `(image, axis)` colorbar pairs swapped | V2″ (placement by bbox) | **survived v3** (I-50 B-3) |
+| **M35 (v4)** | `"x range, all angles (data_x_range):"` → `"x range (data_x_range):"` | E8 / V7′ | **survived v3** (I-50 B-4) |
+| **M36 (v4)** | `_events_for_row`: `open(path, "w").close()` after `load_event_pixels` | E4″ (≥ 1-byte fixture; `(size, mtime_ns)` snapshot) | **survived v3** against the 0-byte fixture (I-50 B-5) |
+| **M37 (v4)** | the view filter opens on the full span regardless of the chopper log | C1's test (or credited) | audit candidate |
+| **M38 (v4)** | the slot's three `refresh_*` calls removed | C2's test (or credited; E8 for the scalar leg) | audit candidate |
+| **M39 (v4)** | `_values_changed` recomputes both images on every change | C3's test (or credited) | audit candidate |
+| **M40 (v4)** | the slot's row-count check removed (write reached with `row ≥ n_angles`) | C4's test (or credited) | audit candidate |
+| **M41 (v4)** | the save posted via `QTimer.singleShot(0, …)` | E4″ / E9′ after `qWait(0)` | I-50 advisory (deferred save) |
+| **M42 (v4)** | `set_aspect("equal")` inside `_update` after a filter change | V4′ TOF-drag leg / V2″ | I-50 advisory (aspect after an interaction) |
 
 **Frame** (helpers introduced or re-pointed — one row per call site): `_move_span` — one row per overlay
 artist it moves (peak, low background, high background, X range, TOF filter/window, on each axes where the
@@ -379,7 +443,9 @@ green is diagnosed before anything else is touched (L4).
    rows the Integrator ran (M17, M18, M19, M20–M22, M23/M24, M25, M26) each show N ≥ 1 in the v2 body; M13's row is
    quoted as code with its count; the ledger battery script carries the new rows and its SHA is in the body. **v3:** M30 and M31 each
    show N ≥ 1 with the test named; the body states that the Integrator's two reproduction commands (the `document.save` line after
-   `refresh_report()`; `"aspect": "equal"`) were run against the v3 tree and each red.
+   `refresh_report()`; `"aspect": "equal"`) were run against the v3 tree and each red. **v4:** M32–M42 each show N ≥ 1 with the test
+   named (Group 2 rows say "credited to" or "pinned by"); the filled §4 audit table of `plans/roi-popout-dialog-escalate.md` is in the
+   commit body — one verdict per row — and the Integrator's gate reads it row by row.
 4. `grep -nE "304|256|15\.75|252\.7|h5py|get_lam_range" launcher/apps/roi_dialog.py` prints nothing; the
    editor's lookup carries the one file-name pattern of F9 and says where it comes from.
 5. Prescriptive comments and commit-body claims ("cannot write a file", "what is drawn is what the reducer
@@ -499,6 +565,17 @@ owned:** P1 and P2 were the plan's sentences, copied faithfully by the Developer
 two cells with no test; §6 named gestures and then listed V6/V7 in a form a direct call could satisfy. **Analyst follow-ups filed from the
 advisories:** D2 (a Qt-free validator for the written background form) and D3's third `REF_L_{run}.nxs.h5` copy (`settings_document.py:159`)
 → `roi-popout-data` follow-up todo; P3 → recorded as an advisory on the data slug (the Developer's `e0bba12`).
+
+### v4 — 2026-10-06, the human's one cap extension (Option A of `plans/roi-popout-dialog-escalate.md` §5; `requests/roi-popout-dialog-cap-extension.md`, M-43)
+
+Authority, verbatim: `[human, 2026-10-06 (to the Administrator, for the Analyst): "I have read lr_reduction:analysis/exp-review-fixes branch the
+file plans/roi-popout-dialog-escalate.md about the disposition of the 'roi-popout-dialog'. I concur with the recommendation and would like to go
+with "A — one cap extension; v4 = tests only, scoped by §4's table: as recommended. Please file my decision in the ledger and inform the Analyst
+of the bounded extension to v4."]` N becomes 4 for this slug only; v4 is attempt 4 of 4; a v5 or any scope change is a second extension and the
+human's. The decompose check (posture §envelope) was considered and declined — the reason is written in the posture line of 2026-10-06 and in
+the escalation record §5. What v4 changes: the "v4" section after the canonical-copy line (Groups 1–3, the recipe); §7′ M32–M42; §8.3. Nothing
+else moves: scope, §1–§5, §8.7, §10, the Base, the stack (#44 + `8ca43ce`), the PR target; the Developer continues on
+`feature/roi-popout-dialog` @ `ad3558c`. The escalation record stays canonical for the decision; its §4 table is v4's checklist and the gate's.
 
 ### Escalation — 2026-10-06, after the Integrator's rejection of v3 @ `21a7367` (`review/roi-popout-dialog` @ `ad3558c`; attempt 3 of 3 — the cap)
 
