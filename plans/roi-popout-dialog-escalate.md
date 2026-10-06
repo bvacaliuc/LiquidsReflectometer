@@ -1,6 +1,6 @@
 # Escalation: `roi-popout-dialog` — rejected three times at the review gate; production right on real data every time; the retry cap is reached
 
-**Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (R2) · **Status:** **RESOLVED 2026-10-06 — the human chose Option A** (`requests/roi-popout-dialog-cap-extension.md`, M-43: one cap extension, v4 tests-only scoped by §4; plan v4 dispatched as `triage/roi-popout-dialog-v4`; the escalate tag is retired with the dispatch — this file stays the canonical record of the decision and §4 is v4's checklist) — was: ESCALATED 2026-10-06 (attempt 3 of N = 3 rejected at
+**Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (R2) · **Status:** **ESCALATED AGAIN 2026-10-06 — v4 (the human's one extension) REJECTED at `e964955` (`review/roi-popout-dialog` @ `dc28b9a`, I-54): one block, tests only — C1's credited test cannot see the band's composition; production right for the fourth time. A second extension is the human's alone; see §0 below** — earlier: RESOLVED 2026-10-06 — the human chose Option A (`requests/roi-popout-dialog-cap-extension.md`, M-43: one cap extension, v4 tests-only scoped by §4; plan v4 dispatched as `triage/roi-popout-dialog-v4`; the escalate tag is retired with the dispatch — this file stays the canonical record of the decision and §4 is v4's checklist) — was: ESCALATED 2026-10-06 (attempt 3 of N = 3 rejected at
 `21a7367`, `review/roi-popout-dialog` @ `ad3558c`, I-50) · **Decision owner:** the human (one cap extension is delegable to a proxy "only
 after the Integrator's decompose recommendation has been considered and the reason written in the posture line" — posture §envelope; the
 posture declares **no proxy**, so the extension is the human's; a second extension is never delegable) · **Canonical record:** this file (ledger
@@ -8,6 +8,49 @@ posture declares **no proxy**, so the extension is the human's; a second extensi
 the fork points at the rejected tip `ad3558c` · **Plan:** `plans/roi-popout-dialog-plan.md` v3 (`f868c6e`) · **Branch:**
 `feature/roi-popout-dialog` @ `ad3558c` (= `21a7367` + the Integrator's `todo.md`), stacked on `feature/roi-popout-data` @ `f424aec` (#44) with
 K2's tip `8ca43ce` merged forward · **Human-visible state:** no draft PR exists for this slug; #44 (its base) is open at the human's gate.
+
+## 0. Second escalation (2026-10-06): v4 rejected on one block — the decision is again the human's
+
+**What happened.** v4 did what plan v4 asked: every row settled by mutation first, the five I-50 pins written (M32–M36 red, 8/1/1/1/1/1/2),
+Group 2's four candidates credited to existing tests that red under their mutations (M37–M40), the one-line advisories folded, the filled
+audit table in the commit body, gate 761/874, the §8.7 acceptance on IPTS-36119 **passing for the fourth time with identical numbers**
+(sha256 `ee0475b3…`). The Integrator (I-54) re-ran every v3/v4 battery row and reproduced every count. **One block remains:** C1 — "the view
+filter starts at the chopper band when the run has a chopper log" — was credited to E10, whose stubs of `chopper_lambda_range` and
+`lambda_to_tof` **ignore their arguments** (`lambda _path: (2.5, 9.5)`; `lambda _band, _start: (12000.4, 31000.6)`), so E10 sees *that* a band
+arrives, never *which*. An argument-order slip in the slot (`settings_editor.py:1217`, `lambda_to_tof(meta["start_time"], chopper_lambda_range(path))`)
+survives with 632 passed; on run 231801 it turns the production band (10 550.0, 37 621.7) µs into `None` (a `TypeError` swallowed by the slot's
+`except`), and the filter silently opens on the full span for every run with a chopper log.
+
+**Why the credit was wrong — the Analyst's gap, owned.** Plan v4's Group 2 rule was "apply the row's mutation; a red is credited to the test that
+caught it". M37 (*the filter opens on the full span regardless of the chopper log*) reds E10, because E10 does check that a band arrives. But
+C1's clause fixes **two** things — that a band is used, and **which** band (the data layer's composition of λ-range and start time) — and one
+mutation varied only the first. A credit by mutation is only as strong as the mutation set: **every dimension a clause fixes needs a mutation
+that varies it** (here the argument order, I-54's proposed M43). The plan's own C1 text asked for "the data layer's numbers, not literals"; the
+credit rule let a test with literal stubs satisfy it. L13 below.
+
+**What remains (I-54 "Next"):** *one* test change — E10's metadata leg either uses a run with a chopper log built with the repo's own NeXus
+builder (`_write_nexus` in `tests/test_roi_estimate.py`) and the real functions, **or** its stubs assert their arguments and return values derived
+from them — plus the M43 battery row (the argument swap, must red alone). No production line. A-1 (LogNorm after an interaction), A-3
+(`to_dict()` in the C4 test) and A-7 (one `files()` helper, `qWait(0)`) are one-liners if taken in the same pass.
+
+### Options (the robust one first)
+
+| Option | What happens | Risk | Cost |
+|---|---|---|---|
+| **A2 — a second extension; v5 = the one test + M43 (+ A-1, A-3, A-7) (recommended)** | plan v5 names the single clause, both acceptable test shapes, and M43 as the proof; the Developer continues on `feature/roi-popout-dialog` @ `dc28b9a`; the Integrator re-gates the table — every other row already holds | a fifth gate finds another dimension of another clause — the audit table now has a verdict and a mutation set per row, so the surface is small and named; **a v6 would again be the human's** | the smallest round of the five (one test, one battery row, one gate); the human's second extension is "never delegable" — it must be the human's own line |
+| **B — merge-as-is: the Integrator opens the draft PR on #44 from `e964955`, the C1 pin as a follow-up todo** | the dialog lands with #44; the one pin → `todo-roi-popout-dialog-c1-band-composition.md` → a `fix/` slug next campaign | an argument-order or wrong-key slip in the slot would open the filter on the full span unseen (no message) — a silent degradation, not a wrong number written; a `[human]` line reclassifying an in-scope block as advisory is required (the envelope lets no proxy loosen inside declared scope) | zero build time; a rule exception on the record |
+| **D — stop** | the branch stays unmerged; item 9 waits for the next campaign | the data layer (#44) merges alone and is useful | none now |
+
+**Recommendation: A2.** The remaining defect is exactly one test's blindness to one dimension; production has been right at every gate; the
+table is complete except this cell. Decompose check: nothing to decompose — the work is one test and one battery row.
+
+### Tag text (`review/roi-popout-dialog-escalate`, re-created)
+
+> roi-popout-dialog ESCALATED AGAIN (v4 @ e964955 rejected, review @ dc28b9a, I-54; the human's one extension used): one block — C1's
+> credited test (E10) stubs the data layer with argument-ignoring lambdas, so an argument-order slip in the slot survives (632 passed) and the
+> filter would open on the full span silently; production right for the fourth time (acceptance 53 ok, sha256 ee0475b3…). Remaining: one test
+> change (E10's metadata leg: a real chopper-log run via _write_nexus, or argument-asserting stubs) + battery row M43. Decision: the human's
+> alone (a second extension is never delegable). Record: ledger plans/roi-popout-dialog-escalate.md §0 (options A2 recommended / B / D).
 
 ## 1. What the human is deciding
 
@@ -120,6 +163,12 @@ recipe unchanged: RED by mutation, GREEN, the whole battery, the Integrator's co
   finding what no round had named. A cap is a measure of specification completeness as much as of build quality.
 - **L12 — the right escalation record is a decision table with the audit attached**, so the human's extension decision is informed by *what
   remains* (a finite list) rather than by *how many times it failed*.
+
+- **L13 (second escalation, 2026-10-06 — a credit by mutation is only as strong as its mutation set):** Group 2's rule "a red is credited to
+  the test that caught it" let E10 — whose stubs ignore their arguments — stand for C1, because the one mutation applied (M37) varied only
+  *whether* a band is used, not *which*. A clause that fixes several things needs a mutation per thing it fixes (M37 **and** M43); a test credited
+  through stubs must have stubs that assert their inputs or derive their outputs from them, else it pins presence, not composition. The plan's
+  own C1 text said "the data layer's numbers, not literals" and the credit rule did not enforce it.
 
 ## 8. Tag text (`review/roi-popout-dialog-escalate`, annotated, idempotent)
 
