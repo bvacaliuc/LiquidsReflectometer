@@ -1,7 +1,7 @@
 # Plan: `roi-popout-dialog` — "Select ROI" beside Add/Remove: #197's dialog lifted onto `SettingsDocument`, with the web report's two detector images
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (refs `triage/roi-popout-dialog`,
-`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** **ESCALATED AGAIN 2026-10-06** — v4 @ `e964955` REJECTED (`review/roi-popout-dialog` @ `dc28b9a`, I-54: one block, C1's band composition unpinned — E10's stubs ignore their arguments; production right for the fourth time); the human's one extension is used; a v5 is a second extension and the human's alone — `plans/roi-popout-dialog-escalate.md` §0 — was: READY — **v4 (attempt 4 of N = 4 — N extended once by the human, Option A, `requests/roi-popout-dialog-cap-extension.md`; a v5 or any scope change is a second extension and is the human's)** — tests only, scoped by `plans/roi-popout-dialog-escalate.md` §4: the five I-50 pins and the four "unpinned?" clauses settled by mutation, plus the one-line I-50 advisories; the Developer continues on `feature/roi-popout-dialog` @ `ad3558c` (= `21a7367` + the Integrator's `todo.md`; predecessors unmoved: `f424aec`, `8ca43ce`); the Integrator gates with the §4 table as its checklist — a verdict per row; a rejection of v4 → escalate again, never a v5 without the human — was: ESCALATED 2026-10-06 — v3 @ `21a7367` REJECTED at the retry cap (`review/roi-popout-dialog` @ `ad3558c`, I-50: five declared clauses unpinned — RBnum on Cancel, LogNorm, colorbars, "all angles", a truncating write vs the 0-byte fixture; production right); the record and the human's options are `plans/roi-popout-dialog-escalate.md`; the annotated tag `review/roi-popout-dialog-escalate` is on the fork — was: READY — **v3 (attempt 3 of N = 3 — the last)** — v2 REJECTED 2026-10-05 at `e017a97` (`review/roi-popout-dialog` @ `088686c`: "a document save from the slot and a forced aspect go unasserted" — two test-only pins, both gaps v1 also had; everything of v2 closed, gate green, §8.7 PASS again) — **v3 does exactly three things**: E4′/E9 made able to see a document save (B-1, with M30 and the docstring's domain), V2 asserts `get_aspect() == "auto"` (B-2, with M31), E9's `give_up` timer stopped (A-1); the Developer continues on `feature/roi-popout-dialog` @ `e017a97` (predecessors unmoved: `f424aec`, `8ca43ce`); see "v3" below and the Revision history — v1 REJECTED 2026-10-05 at `791bdbe`
+`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** READY — **v5 (attempt 5 of N = 5 — the human's second extension, A2; a v6 to N = 6 is pre-authorised under three conditions read off the Integrator's v5 verdict — see "v5" below; a v7 is the human's)** — scope = `plans/roi-popout-dialog-escalate.md` §0 "What remains": the one test (E10's metadata leg) + battery row M43 + I-54's advisories A-1, A-3, A-7; the Developer continues on `feature/roi-popout-dialog` @ `dc28b9a` (= `e964955` + the Integrator's `todo.md`); predecessors `f424aec` (#44) and `8ca43ce` unmoved at dispatch — **if #44 merges while v5 builds**, the Developer merges `agentic/exp-review` (then containing #44) forward before `qa/` and the Integrator opens the draft PR `--base exp-review` (the stack is one branch shorter; V1-37) — was: ESCALATED AGAIN 2026-10-06 — v4 @ `e964955` REJECTED (`review/roi-popout-dialog` @ `dc28b9a`, I-54: one block, C1's band composition unpinned — E10's stubs ignore their arguments; production right for the fourth time); the human's one extension is used; a v5 is a second extension and the human's alone — `plans/roi-popout-dialog-escalate.md` §0 — was: READY — **v4 (attempt 4 of N = 4 — N extended once by the human, Option A, `requests/roi-popout-dialog-cap-extension.md`; a v5 or any scope change is a second extension and is the human's)** — tests only, scoped by `plans/roi-popout-dialog-escalate.md` §4: the five I-50 pins and the four "unpinned?" clauses settled by mutation, plus the one-line I-50 advisories; the Developer continues on `feature/roi-popout-dialog` @ `ad3558c` (= `21a7367` + the Integrator's `todo.md`; predecessors unmoved: `f424aec`, `8ca43ce`); the Integrator gates with the §4 table as its checklist — a verdict per row; a rejection of v4 → escalate again, never a v5 without the human — was: ESCALATED 2026-10-06 — v3 @ `21a7367` REJECTED at the retry cap (`review/roi-popout-dialog` @ `ad3558c`, I-50: five declared clauses unpinned — RBnum on Cancel, LogNorm, colorbars, "all angles", a truncating write vs the 0-byte fixture; production right); the record and the human's options are `plans/roi-popout-dialog-escalate.md`; the annotated tag `review/roi-popout-dialog-escalate` is on the fork — was: READY — **v3 (attempt 3 of N = 3 — the last)** — v2 REJECTED 2026-10-05 at `e017a97` (`review/roi-popout-dialog` @ `088686c`: "a document save from the slot and a forced aspect go unasserted" — two test-only pins, both gaps v1 also had; everything of v2 closed, gate green, §8.7 PASS again) — **v3 does exactly three things**: E4′/E9 made able to see a document save (B-1, with M30 and the docstring's domain), V2 asserts `get_aspect() == "auto"` (B-2, with M31), E9's `give_up` timer stopped (A-1); the Developer continues on `feature/roi-popout-dialog` @ `e017a97` (predecessors unmoved: `f424aec`, `8ca43ce`); see "v3" below and the Revision history — v1 REJECTED 2026-10-05 at `791bdbe`
 (the Integrator's `review/roi-popout-dialog` @ `b22c8df`: "six declared behaviours untested, one false docstring claim"; production right on real
 data, the gate green; see Revision history) — **v2 is a tests-and-wording revision plus two cheap advisories (A1, D1)**: the Developer continues
 on `feature/roi-popout-dialog` @ `791bdbe` (predecessors unmoved: `feature/roi-popout-data` @ `f424aec`, K2's PASS tip `8ca43ce` merged forward
@@ -32,10 +32,40 @@ recorded), and merges both predecessors forward before every `qa/` push; the Int
 §Resolution), charter §3 row, the reference's #197 review (`plan/contrib/review-exp-json-settings-builder/`)
 and T1 findings R5/R7/R8/R14 (`plan/roi-selector/plan.md`).
 
-Canonical copy: ledger `plans/roi-popout-dialog-plan.md`; the copy on `triage/roi-popout-dialog-v4` is
+Canonical copy: ledger `plans/roi-popout-dialog-plan.md`; the copy on `triage/roi-popout-dialog-v5` is
 byte-identical at dispatch.
 
-## v4 — the human's one extension: close the audit table (read this first; everything else stands)
+## v5 — the human's second extension: one test, one battery row, three one-liners (read this first; everything else stands)
+
+**Authority.** `[human, 2026-10-06 (to the Administrator, for the Analyst; the wording the Advisor reviewed in V1-36): "A2 — a second extension, N = 5; v5 = the one test (E10's metadata leg: a real chopper-log run via _write_nexus, or stubs that assert their arguments) + battery row M43, plus I-54's advisories A-1, A-3, A-7; scope = plans/roi-popout-dialog-escalate.md §0 \"What remains\". In addition I pre-authorize one further extension to N = 6 (a v6), which the Analyst may dispatch on the Integrator's v5 verdict without a further line from me, if and only if that verdict (a) requires no production line, (b) reports the §8.7 acceptance passing with identical numbers, and (c) names only test-side pins of clauses already in §4's table. Any other finding, or a v7, comes back to me."]` (`requests/roi-popout-dialog-cap-extension.md` §"Second extension", M-46; the posture line of 2026-10-06, second entry.)
+
+**Scope = `plans/roi-popout-dialog-escalate.md` §0 "What remains"**, nothing else; no production line.
+
+| # | Clause / item | What v5 does | Proof (battery row, red alone, N ≥ 1) |
+|---|---|---|---|
+| **Q1** | C1 — "the view filter starts at the chopper band when the run has a chopper log" — pinned **on the band's composition**, not its presence | E10's metadata leg, **either** (i) built on a run **with a chopper log** written by the repo's own NeXus builder (`_write_nexus` in `tests/test_roi_estimate.py`) and the **real** `chopper_lambda_range` / `lambda_to_tof`, asserting `tof_spins == lambda_to_tof(chopper_lambda_range(path), start_time)` computed by the data layer from that run; **or** (ii) stubs that **assert their arguments** (the path; then the λ band it returned; then a `start_time` string) and return values **derived** from them, so a swap or a wrong key changes the result | **M43** — the argument swap at `settings_editor.py:1217`: `lambda_to_tof(meta["start_time"], chopper_lambda_range(path))` (survived v4 with 632 passed; on run 231801 the band (10 550.0, 37 621.7) µs → `None`); **M43b** — `meta["start_time"]` → a wrong key (the test reviewer's variant) |
+| **Q2** | I-54 A-1 — `LogNorm` after an interaction (P2 pinned it at open and after a draw only) | V4′'s drag legs (or V2″) assert `isinstance(image.norm, LogNorm)` on both images **after** the TOF drag and the X drag | **M44** — `set_norm(Normalize(...))` on the XY image inside `_update` after a filter change (survived v4) |
+| **Q3** | I-54 A-3 — the C4 test asserts `n_angles == 2` and `RB_Ymin == [130, 140]`, not the plan's `doc.to_dict()` | the removed-row test ends with `doc.to_dict() == before` (the one check that guards every write) | M40 (already red; stays red) |
+| **Q4** | I-54 A-7 — hygiene in the two test files | one `files()` snapshot helper shared by E4″ and E9′; `QTest.qWait(0)` / `processEvents()` as the plan wrote (not `qWait(20)` ×2), or a named helper; the "no problem" check (`"Could not complete"` absent) as one shared constant; E4's headline docstring says what it watches (`tmp_path`), not "every file the slot can write" (I-54 A-6, same lines) | — (refactor; the existing rows M28–M36, M41 stay red) |
+
+**Not in v5** (I-54's other advisories, to the PR body): A-2 (the plain colorbar formatter after a filter change — bound to U-a), A-4 (E8 reads
+`  - data_x_range:`, not the new value — a one-liner the Developer may take if it costs nothing, else PR body), A-5 (E9′ cannot see a truncated
+run because it stubs `_events_for_row` — E4″ carries P5; PR body).
+
+**v5 recipe.** RED first: M43 (and M43b) against `dc28b9a`'s production red the rewritten E10 leg; M44 reds V4′/V2″; restore. GREEN with
+`dc28b9a`'s production (no production line) — only the two test files move. The whole battery again (§7, §7′, M30–M44), each row
+`<mutation> → <test> -> N failed`, N ≥ 1, in the commit body; the **filled §4 audit table** again in the body, with C1's row now reading
+"pinned by E10 (metadata leg) — M37, M43, M43b". Merge the predecessors forward if they moved (if `exp-review` now contains #44, merge
+`agentic/exp-review` instead and say so); gate; `qa/`.
+
+**What happens at the v5 verdict (the human's pre-authorisation, read off the Integrator's text).** PASS → the draft PR (on #44, or on
+`exp-review` if #44 has merged). REJECT → the Analyst reads the verdict against three conditions and **may dispatch a v6 without a further
+line only if all three hold**: (a) *no production line required*; (b) *the §8.7 acceptance reported passing with identical numbers*; (c) *every
+block is a test-side pin of a clause already in §4's table* (`plans/roi-popout-dialog-escalate.md`). Any other finding — a production change,
+a changed acceptance number, a clause outside the table — and any v7, go back to the human (an escalation record, the annotated tag). The
+Analyst writes the three readings, quoting the verdict, in the v6 Revision-history entry.
+
+## v4 — the human's one extension: close the audit table (everything else stands)
 
 **Authority.** `[human, 2026-10-06 (to the Administrator, for the Analyst): "I concur with the recommendation and would like to go with 'A —
 one cap extension; v4 = tests only, scoped by §4's table: as recommended.'"]` (`requests/roi-popout-dialog-cap-extension.md`, M-43). One
@@ -425,6 +455,9 @@ Integrator's three forms gave 4 where the v1 body says 5; whichever the quoted c
 | **M40 (v4)** | the slot's row-count check removed (write reached with `row ≥ n_angles`) | C4's test (or credited) | audit candidate |
 | **M41 (v4)** | the save posted via `QTimer.singleShot(0, …)` | E4″ / E9′ after `qWait(0)` | I-50 advisory (deferred save) |
 | **M42 (v4)** | `set_aspect("equal")` inside `_update` after a filter change | V4′ TOF-drag leg / V2″ | I-50 advisory (aspect after an interaction) |
+| **M43 (v5)** | `settings_editor.py:1217` argument swap: `lambda_to_tof(meta["start_time"], chopper_lambda_range(path))` | E10 metadata leg (Q1) | **survived v4 with 632 passed** (I-54 B-1); the band → `None`, the filter opens on the full span silently |
+| **M43b (v5)** | `meta["start_time"]` → a wrong key | E10 metadata leg (Q1) | I-54 (test reviewer): survives the same way |
+| **M44 (v5)** | `set_norm(Normalize(...))` on the XY image inside `_update` after a filter change | V4′ drag legs / V2″ (Q2) | I-54 A-1: survived v4 |
 
 **Frame** (helpers introduced or re-pointed — one row per call site): `_move_span` — one row per overlay
 artist it moves (peak, low background, high background, X range, TOF filter/window, on each axes where the
@@ -445,7 +478,8 @@ green is diagnosed before anything else is touched (L4).
    show N ≥ 1 with the test named; the body states that the Integrator's two reproduction commands (the `document.save` line after
    `refresh_report()`; `"aspect": "equal"`) were run against the v3 tree and each red. **v4:** M32–M42 each show N ≥ 1 with the test
    named (Group 2 rows say "credited to" or "pinned by"); the filled §4 audit table of `plans/roi-popout-dialog-escalate.md` is in the
-   commit body — one verdict per row — and the Integrator's gate reads it row by row.
+   commit body — one verdict per row — and the Integrator's gate reads it row by row. **v5:** M43, M43b, M44 each show N ≥ 1; C1's row
+   in the table reads "pinned by E10 (metadata leg) — M37, M43, M43b"; no production file in the diff against `dc28b9a`.
 4. `grep -nE "304|256|15\.75|252\.7|h5py|get_lam_range" launcher/apps/roi_dialog.py` prints nothing; the
    editor's lookup carries the one file-name pattern of F9 and says where it comes from.
 5. Prescriptive comments and commit-body claims ("cannot write a file", "what is drawn is what the reducer
@@ -565,6 +599,13 @@ owned:** P1 and P2 were the plan's sentences, copied faithfully by the Developer
 two cells with no test; §6 named gestures and then listed V6/V7 in a form a direct call could satisfy. **Analyst follow-ups filed from the
 advisories:** D2 (a Qt-free validator for the written background form) and D3's third `REF_L_{run}.nxs.h5` copy (`settings_document.py:159`)
 → `roi-popout-data` follow-up todo; P3 → recorded as an advisory on the data slug (the Developer's `e0bba12`).
+
+### v5 — 2026-10-06, the human's second extension (A2) with a conditional v6 pre-authorised
+
+Authority, verbatim: `[human, 2026-10-06 (to the Administrator, for the Analyst; the wording the Advisor reviewed in V1-36): "A2 — a second extension, N = 5; v5 = the one test (E10's metadata leg: a real chopper-log run via _write_nexus, or stubs that assert their arguments) + battery row M43, plus I-54's advisories A-1, A-3, A-7; scope = plans/roi-popout-dialog-escalate.md §0 \"What remains\". In addition I pre-authorize one further extension to N = 6 (a v6), which the Analyst may dispatch on the Integrator's v5 verdict without a further line from me, if and only if that verdict (a) requires no production line, (b) reports the §8.7 acceptance passing with identical numbers, and (c) names only test-side pins of clauses already in §4's table. Any other finding, or a v7, comes back to me."]` N = 5 for this slug (N = 6 only under the three conditions, read off the Integrator's v5 verdict by the Analyst
+and quoted in the v6 entry if used); a v7 is the human's. What v5 changes: the "v5" section (Q1–Q4, the recipe, the verdict rule); §7′ M43, M43b,
+M44; §8.3; the Status and Base notes (the #44-merges-mid-build case per V1-37). Nothing else moves. The Developer continues on
+`feature/roi-popout-dialog` @ `dc28b9a`.
 
 ### Second escalation — 2026-10-06, after the Integrator's rejection of v4 @ `e964955` (`review/roi-popout-dialog` @ `dc28b9a`; attempt 4 of 4, the human's one extension)
 
