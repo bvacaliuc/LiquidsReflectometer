@@ -1,7 +1,7 @@
 # Plan: `roi-popout-dialog` — "Select ROI" beside Add/Remove: #197's dialog lifted onto `SettingsDocument`, with the web report's two detector images
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `roi-popout-dialog` (refs `triage/roi-popout-dialog`,
-`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** READY — **v3 (attempt 3 of N = 3 — the last)** — v2 REJECTED 2026-10-05 at `e017a97` (`review/roi-popout-dialog` @ `088686c`: "a document save from the slot and a forced aspect go unasserted" — two test-only pins, both gaps v1 also had; everything of v2 closed, gate green, §8.7 PASS again) — **v3 does exactly three things**: E4′/E9 made able to see a document save (B-1, with M30 and the docstring's domain), V2 asserts `get_aspect() == "auto"` (B-2, with M31), E9's `give_up` timer stopped (A-1); the Developer continues on `feature/roi-popout-dialog` @ `e017a97` (predecessors unmoved: `f424aec`, `8ca43ce`); see "v3" below and the Revision history — v1 REJECTED 2026-10-05 at `791bdbe`
+`feature/roi-popout-dialog`, `qa/roi-popout-dialog`) · **Status:** **ESCALATED 2026-10-06** — v3 @ `21a7367` REJECTED at the retry cap (`review/roi-popout-dialog` @ `ad3558c`, I-50: five declared clauses unpinned — RBnum on Cancel, LogNorm, colorbars, "all angles", a truncating write vs the 0-byte fixture; production right); the record and the human's options are `plans/roi-popout-dialog-escalate.md`; the annotated tag `review/roi-popout-dialog-escalate` is on the fork — was: READY — **v3 (attempt 3 of N = 3 — the last)** — v2 REJECTED 2026-10-05 at `e017a97` (`review/roi-popout-dialog` @ `088686c`: "a document save from the slot and a forced aspect go unasserted" — two test-only pins, both gaps v1 also had; everything of v2 closed, gate green, §8.7 PASS again) — **v3 does exactly three things**: E4′/E9 made able to see a document save (B-1, with M30 and the docstring's domain), V2 asserts `get_aspect() == "auto"` (B-2, with M31), E9's `give_up` timer stopped (A-1); the Developer continues on `feature/roi-popout-dialog` @ `e017a97` (predecessors unmoved: `f424aec`, `8ca43ce`); see "v3" below and the Revision history — v1 REJECTED 2026-10-05 at `791bdbe`
 (the Integrator's `review/roi-popout-dialog` @ `b22c8df`: "six declared behaviours untested, one false docstring claim"; production right on real
 data, the gate green; see Revision history) — **v2 is a tests-and-wording revision plus two cheap advisories (A1, D1)**: the Developer continues
 on `feature/roi-popout-dialog` @ `791bdbe` (predecessors unmoved: `feature/roi-popout-data` @ `f424aec`, K2's PASS tip `8ca43ce` merged forward
@@ -499,3 +499,15 @@ owned:** P1 and P2 were the plan's sentences, copied faithfully by the Developer
 two cells with no test; §6 named gestures and then listed V6/V7 in a form a direct call could satisfy. **Analyst follow-ups filed from the
 advisories:** D2 (a Qt-free validator for the written background form) and D3's third `REF_L_{run}.nxs.h5` copy (`settings_document.py:159`)
 → `roi-popout-data` follow-up todo; P3 → recorded as an advisory on the data slug (the Developer's `e0bba12`).
+
+### Escalation — 2026-10-06, after the Integrator's rejection of v3 @ `21a7367` (`review/roi-popout-dialog` @ `ad3558c`; attempt 3 of 3 — the cap)
+
+Rejection, verbatim (tag annotation): *"roi-popout-dialog v3 REJECTED (attempt 3 of 3, the cap) — five declared clauses unpinned; production
+right. Review gate (ui-aspects, design, test). v3 closes v2's two items (M30 -> 2, M31 -> 1), and every earlier survivor reds. The gate is green
+(launcher 757, reduction 874), and the §8.7 acceptance on IPTS-36119 passes for the third time with identical numbers. Five declared clauses
+still have no test that can fail; each survives with 628 passed, reproduced here: RBnum written by the lookup, even on Cancel; Normalize instead
+of LogNorm; the colorbars removed (or swapped); the "all angles" label; a truncating write to the 0-byte run fixture. All were latent since v1.
+The fix is about six assertions and one fixture byte, with no production change. The retry cap is reached, so this goes to the Analyst's
+escalation and the human. Work order: todo.md."* No v4 is cut: the canonical record, the clause-by-clause pin audit and the human's options
+(A: one cap extension for a tests-only v4 — recommended; B: merge-as-is with the five pins as a follow-up, a rule exception; C: decompose — not
+recommended; D: stop) are in `plans/roi-popout-dialog-escalate.md`.
