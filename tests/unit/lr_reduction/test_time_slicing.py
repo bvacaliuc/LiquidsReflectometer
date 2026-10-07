@@ -185,9 +185,11 @@ def test_invalid_windows_raise_before_reading_events(tmp_path, monkeypatch, star
         BP.load_and_extract(path, starts, ends)
 
 
-def test_scalars_are_one_window(run_file):
-    """T4b: a window given as two numbers is the one-window list."""
-    scalars = BP.load_and_extract(run_file, 2.0, 5.0)
+@pytest.mark.parametrize("one", [float, np.array], ids=["numbers", "0-d arrays"])
+def test_scalars_are_one_window(run_file, one):
+    """T4b: a window given as two numbers is the one-window list. A 0-d array is a number: reduce_time_slices'
+    arithmetic on entry/duration makes them."""
+    scalars = BP.load_and_extract(run_file, one(2.0), one(5.0))
     lists = BP.load_and_extract(run_file, [2.0], [5.0])
     for a, b in zip(scalars[:5], lists[:5]):
         np.testing.assert_array_equal(a, b)

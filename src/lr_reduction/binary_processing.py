@@ -60,8 +60,8 @@ def time_windows(start_times, end_times):
     The time windows to read, as (start, end) pairs in the order given, or None for the whole run.
 
     Times are seconds from the run's first pulse (event_time_zero). A window is half-open, start <= t < end; the one
-    that reaches the run's end is closed there (see event_time_filter). Two numbers are one window. Windows may be
-    disjoint or overlap: the selection concatenates them and deduplicates nothing.
+    that reaches the run's end is closed there (see event_time_filter). Two numbers (or 0-d arrays) are one window.
+    Windows may be disjoint or overlap: the selection concatenates them and deduplicates nothing.
 
     :raises ValueError: one of the lists missing, lists of unequal length, an empty list (None is the spelling of
         "the whole run"), or a start not before its end. Raised before anything is read.
@@ -70,8 +70,8 @@ def time_windows(start_times, end_times):
         return None
     if start_times is None or end_times is None:
         raise ValueError("start_times and end_times must either both be provided or both be None.")
-    starts = list(start_times) if isinstance(start_times, (list, tuple, np.ndarray)) else [start_times]
-    ends = list(end_times) if isinstance(end_times, (list, tuple, np.ndarray)) else [end_times]
+    starts = [start_times] if np.ndim(start_times) == 0 else list(start_times)  # a number, or a 0-d array: one window
+    ends = [end_times] if np.ndim(end_times) == 0 else list(end_times)
     if len(starts) != len(ends):
         raise ValueError("Start and end times for time slices must be the same length.")
     if not starts:
