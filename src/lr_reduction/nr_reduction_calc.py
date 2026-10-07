@@ -118,6 +118,8 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
         plot: (optional) show the NR plot on completion
         eight_col: (optional) allows override of saving out the 8 column data, otherwise read from the config.
         save_pdf_summary: (optional) allows save of PDF plot summary for diagnostics
+        start_times, end_times: (optional) time windows to reduce instead of each whole run, in seconds from the run's
+            first pulse (binary_processing.time_windows); the headers written name them. The config is not changed.
 
         Returns
         -------
@@ -126,6 +128,9 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
         """
         Q, R, dR, dQ = [], [], [], []
         L, T, dL, dT = [], [], [], []
+        # The time window this call reads, for the headers (save_fn.save_results): a record of the call, as the
+        # scale and range records are, never a write into the shared config (R4/R5).
+        time_window = None if start_times is None and end_times is None else (start_times, end_times)
         if not eight_col:
             eight_col = self.config.save8col
 
@@ -189,9 +194,6 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
             used_theta_vals["ThCen"].append(np.round(log_vals["ThCen"], 3))
             used_theta_vals['title'].append(self.log_values['title'])
 
-            self.config.start_times = start_times
-            self.config.end_times = end_times
-
             Q.append(result['q'])
             R.append(result['r'])
             dR.append(result['dr'])
@@ -210,9 +212,9 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
         if save_all:
             # save out individual parts once all runs are reduced, so each header lists every run of the set
             for i, rb_num, result_out in partial_results:
-                save_fn.save_results(result_out, self.config, used_theta_vals, sname=f"{self.config.Sname}_{i+1}_{rb_num}{self.config.subname}")
+                save_fn.save_results(result_out, self.config, used_theta_vals, sname=f"{self.config.Sname}_{i+1}_{rb_num}{self.config.subname}", time_window=time_window)
                 if eight_col:
-                    save_fn.save_results(result_out, self.config, used_theta_vals, sname=f"{self.config.Sname}_{i+1}_{rb_num}{self.config.subname}", eight_column=True)
+                    save_fn.save_results(result_out, self.config, used_theta_vals, sname=f"{self.config.Sname}_{i+1}_{rb_num}{self.config.subname}", eight_column=True, time_window=time_window)
 
         # Combine results for all settings
         Q_combined = np.concatenate(Q)
@@ -230,9 +232,9 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
                            'T': T_combined[idx], 'L': L_combined[idx], 'dT': dT_combined[idx], 'dL': dL_combined[idx]}
 
         if save or save_all:    #TODO: fix the saving parts here this is messy!
-            save_fn.save_results(combine_results, self.config, used_theta_vals, full=True, sname=f"{self.config.Sname}_combined{self.config.subname}")
+            save_fn.save_results(combine_results, self.config, used_theta_vals, full=True, sname=f"{self.config.Sname}_combined{self.config.subname}", time_window=time_window)
             if eight_col:
-                save_fn.save_results(combine_results, self.config, used_theta_vals, eight_column=True, full=True, sname=f"{self.config.Sname}_combined{self.config.subname}")
+                save_fn.save_results(combine_results, self.config, used_theta_vals, eight_column=True, full=True, sname=f"{self.config.Sname}_combined{self.config.subname}", time_window=time_window)
         # TODO: Decide whether to keep in here or have as a separate part after the reduciton....?
         # Always create this last figure and store into the output just have optional show.
         fig, ax = plt.subplots()
