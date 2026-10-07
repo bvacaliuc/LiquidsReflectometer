@@ -292,7 +292,7 @@ def get_log_values(fname):
         #log_values["distance_sample_detector"] = f['entry/DASlogs/BL4B:CS:Autoreduce:Sequence:DistanceSampleDetector/value'][0]
         #log_values["template_id"] = f['entry/DASlogs/BL4B:CS:Autoreduce:Sequence:TemplateId/value'][0]
     except Exception as e:  # noqa: BLE001 -- tolerate any missing/odd DASlog entry; partial log_values is the intended behavior
-        print(f'Cannot process {fname} b/c {e} fails to extract')
+        logger.warning("Cannot process %s because %s fails to extract", fname, e)
         pass
     # Get slit gap openings.
     log_values["siY"]=np.array(f['entry/DASlogs/BL4B:Mot:si:Y:Gap:Readback/average_value'][0])
@@ -309,13 +309,13 @@ def get_log_values(fname):
     try:
         log_values["coordinates"] = f['entry/DASlogs/BL4B:CS:Mode:Coordinates/value'][0] # This is one that shows earth vs beam center 0=earth; 1=beam
     except:
-        print("Older run doesn't include coordinates PV")
+        logger.info("Older run doesn't include coordinates PV")
         pass
 
     try:
         log_values["incident_theta"] = f['entry/DASlogs/BL4B:CS:BeamToEarthCenterAngleOffset/value'][0]
     except:
-        print("Older run doesn't include Beam-Earth centered angle, set to default 4.0deg")
+        logger.info("Older run doesn't include Beam-Earth centered angle, set to default 4.0deg")
         log_values["incident_theta"] = 4.0
 
     # TODO: check if we need any of the other chopper parts.
@@ -325,7 +325,7 @@ def get_log_values(fname):
     try:
         log_values["chopper_mod"]=np.array(f['entry/DASlogs/BL4B:Chop:Skf2:ChopperModerator/value'][0])
     except:
-        print("Run missing the chopper moderator log value")
+        logger.warning("Run missing the chopper moderator log value")
         pass
     log_values['emission_mod_distance'] = np.array(f['entry/DASlogs/BL4B:Det:TH:DlyDet:BasePath/value'][0]) * 1000
     off =np.array(f['entry/DASlogs/BL4B:Chop:Skf2:ChopperOffset/value'][0]) # 114.0

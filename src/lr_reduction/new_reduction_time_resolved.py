@@ -1,5 +1,6 @@
 # New reduction time slicing
 
+import logging
 from pathlib import Path
 
 import h5py
@@ -9,6 +10,8 @@ from matplotlib.colors import LogNorm
 
 import lr_reduction.binary_processing as BP
 import lr_reduction.new_reduction_from_file as reduction
+
+logger = logging.getLogger(__name__)
 
 
 def run_folders(settings_file, experiment_id, datapath=None, savepath=None):
@@ -74,7 +77,7 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
             subname = f"slice_{ii+1}of{num_slices}"
         else:
             subname = f"{subname_input}_slice_{ii+1}of{num_slices}"
-        print('starting number', ii+1, starts[ii], stops[ii])
+        logger.info("Slice %d of %d: %s to %s s", ii + 1, num_slices, starts[ii], stops[ii])
         try:
             slice_outputs, _ = reduce_time_list(run, settings_file, experiment_id,
                                             starts=[starts[ii]], ends=[stops[ii]], savepath=savepath,
@@ -83,7 +86,7 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
         except ValueError as error:  # the slice's own report, naming its window: the other slices still run
             failures.append(str(error))
             continue
-        print('finished', ii+1, starts[ii], stops[ii])
+        logger.info("Slice %d of %d reduced", ii + 1, num_slices)
         all_outputs.extend(slice_outputs)
         mid_point = (stops[ii] - starts[ii]) / 2 + starts[ii]
         mid_points.append(mid_point)
@@ -125,7 +128,7 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
     failures = []
     # run the looped reduction
     for slice_idx in range(len(starts)):
-        print("starting:", slice_idx, starts[slice_idx], ends[slice_idx])
+        logger.info("Window %d: %s", slice_idx, window_text(starts[slice_idx], ends[slice_idx]))
         span_start, span_end = window_span(starts[slice_idx], ends[slice_idx])
         if not subname_input:
             subname = f"slice_{int(span_start)}_{int(span_end)}"
@@ -140,7 +143,7 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
         except (ValueError, RuntimeError) as error:  # this window only; reported with the others below
             failures.append(f"window {window_text(starts[slice_idx], ends[slice_idx])}: {error}")
             continue
-        print("finish:", slice_idx, starts[slice_idx], ends[slice_idx])
+        logger.info("Window %d reduced", slice_idx)
 
         all_results, _, _, _ = output
         flat_results = flatten_reduced_results(all_results)
@@ -151,7 +154,7 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
         mid_point = (span_end - span_start) / 2 + span_start
         mid_points.append(mid_point)
         store_outputs.append(flat_results)
-        print(len(store_outputs))
+        logger.debug("%d windows reduced so far", len(store_outputs))
 
     if failures:
         raise ValueError(f"No reduced result data for run {run} in " + "; ".join(failures))
