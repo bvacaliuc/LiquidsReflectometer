@@ -1,7 +1,7 @@
 # Plan: `noqa-sweep` — every `noqa` tag classified; dead ones removed; mislabelled blankets made precise; masked defects routed
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `noqa-sweep` (refs `triage/noqa-sweep`, `feature/noqa-sweep`, `qa/noqa-sweep`) ·
-**Status:** READY — v1 (attempt 1 of N = 3) — **DISPATCHED 2026-10-07 (A-111)** on the posture's trigger (take line (3): `time-slicing-reconcile`'s draft PR open — I-66, PR #48); the original triggers (`editor-sections` #40 and `test-suite-warnings` #41 merged) also met; **re-sealed at dispatch** — see "Re-seal at dispatch" below (the ruff measurements F2/F3 are the Developer's first act, per §2's "re-run at dispatch") ·
+**Status:** READY — **v2 (attempt 2 of N = 3)** — v1 REJECTED 2026-10-07 at `3275fc4` (I-67; the record is `plans/noqa-sweep-v1-rejection.md` **on the ledger** — the fork's `pixi-lock-check` pre-push guard refused the Integrator's rejection commit `53f9728`, so there is no `review/` tag and `qa/noqa-sweep` @ `3275fc4` stands unconsumed; **one block, B-1:** the committed `pixi.lock` is stale against `pyproject.toml` once `RUF100` is added to `select` — `pyproject.toml` is also the pixi self-package manifest; everything else passed — comments-only by tokenize on 17 files, same(masked) vs #48 in all 8 scenarios, 50 tags classified, battery 17 rows red, security and design PASS) — **v2 = N5 restated as N5′: `RUF100` is enabled where ruff runs in this repository (the pre-commit `ruff-check` hook's `args` and U2's call); `pyproject.toml` is NOT edited; the lock is untouched; plus D-2's one-sentence correction in the findings doc. No production line, no tag change.** The Developer continues on `feature/noqa-sweep` @ `3275fc4` — v1 was **DISPATCHED 2026-10-07 (A-111)** on the posture's trigger (take line (3): `time-slicing-reconcile`'s draft PR open — I-66, PR #48); the original triggers (`editor-sections` #40 and `test-suite-warnings` #41 merged) also met; **re-sealed at dispatch** — see "Re-seal at dispatch" below (the ruff measurements F2/F3 are the Developer's first act, per §2's "re-run at dispatch") ·
 **Base (clause (4)):** **`agentic/feature/time-slicing-reconcile` @ `4e5987a`** — the reduction stack's tip (#34 → #46 → #48; it contains #42 merged forward) — **with `agentic/feature/roi-popout-dialog` @ `18059cc` merged forward at cut** (the editor/ROI stack's tip: #43 → #45 → #47 on #44; the trial merge of the two tips is **conflict-free**, measured 2026-10-07) and before every `qa/` push; every open feature branch is thereby in the sweep's tree — the sweep classifies the files the intake adds lines to (the human's reason). Overlap census at `exp-review` `c39efe9`: the sweep's tag-bearing files ∩ the reduction stack {`binary_processing.py`, `nr_reduction_calc.py`, `save_reduced_data.py`, `direct_beam_maker.py`, `time_resolved.py` (new)} ∩ the editor/ROI stack {`settings_editor.py`, `roi_dialog.py` (new)} ∩ #42 ∅ · **PR target:** `feature/time-slicing-reconcile` on the fork, **draft** (the Integrator names the full stack and the merged-forward ROI stack; **clause (3a)** → `exp-review` if the base's tip is an ancestor of `exp-review` at open) ·
 **Review domains:** design, security (block) · **Kind:** library + launcher, **not reduction-path** (no expression changes; a
 tag's removal or re-spelling changes no behaviour — a defect found behind a tag is **not fixed here**, §3 N4) ·
@@ -10,8 +10,9 @@ needed or if they are masking an underlying defect in the code"]` via `requests/
 
 ## Declared scope
 
-**Files in:** the 17 files holding a `noqa` tag at `2324e5c` (F1's list — re-listed at dispatch), `pyproject.toml` (`[tool.ruff.lint]`
-`select` gains `RUF100`), a new `plans/noqa-sweep-findings.md` **on the ledger** (the Developer writes it beside the learning file;
+**Files in:** the 17 files holding a `noqa` tag at `2324e5c` (F1's list — re-listed at dispatch), **`.pre-commit-config.yaml` (v2: the
+`ruff-check` hook's `args` gain `--extend-select, RUF100`; v1's `pyproject.toml` `select` edit is withdrawn — I-67 B-1, that file is the pixi
+self-package manifest and any edit to it stales `pixi.lock`)**, a new `plans/noqa-sweep-findings.md` **on the ledger** (the Developer writes it beside the learning file;
 the PR body carries the table).
 
 **Behaviours in** (N1–N5, §3). **Explicitly OUT:** fixing any defect a tag turns out to mask (each becomes a child leaf with
@@ -34,6 +35,60 @@ list and the `launcher/**` per-file ignore (their rationale stands; this slug re
 | F4 | The remaining **20 live, code-scoped tags** each silence a rule that would otherwise fire: `BLE001` ×10 in `src/` (`nr_reduction_calc.py:350`, `web_report.py:203,208,244`, `binary_processing.py:160`, `direct_beam_maker.py:192`, `gravity_correction.py:74`, `save_reduced_data.py:128`, `new_reduce_REF_L.py:217`, `reduce_REF_L.py:175`), `ARG001` ×4, `ARG002` ×1, `N801` ×2, `E402` ×3, `F841` ×1 (`test_settings_document.py:945`, a walrus whose target is intentionally unused). Whether each carries a **reason** on the line or nearby is part of the sweep (N2). | F1 − F2 − F3's five; re-derived at dispatch. |
 | F5 | The repo's stated contract for a blind except in library code: "carry per-line noqa **with the reason**". | `pyproject.toml:263-270`. |
 | F6 | `scripts/**` is **excluded from ruff** (`pyproject.toml:242` `exclude = ["notebooks/**", "**/*.ipynb", "scripts/**", "tests/data/**"]`), so the three `E402` tags in `scripts/test/measure_fit_path_dependence.py:25-27` are dead by construction — ruff never reads the file, which is also why `RUF100` did not list them (F2). Dead count by measure + construction: **13**. | Read at `2324e5c`. |
+
+## v2 — the lock, not the sweep (read this first; everything else stands)
+
+**The rejection** (I-67; `plans/noqa-sweep-v1-rejection.md` — the fork's own pre-push guard, `scripts/pixi_lock_check.sh`, refused the
+Integrator's rejection commit `53f9728`, so the work order is carried on the ledger and no `review/` tag exists), in its own words:
+*"REJECT, one block: the committed `pixi.lock` is not up to date with the committed `pyproject.toml`. The sweep itself passes every check.
+It changes comments only, all 50 tags are classified, both reviews pass, and reduction output is byte-identical. But its one non-comment
+line, `RUF100` added to `[tool.ruff.lint] select`, changes `pyproject.toml`, and the lock was not brought along with it. On this tree,
+`pixi install --locked` fails, and re-locking pulls a newer `regex`. The base passes both."* Measured at `3275fc4`: `pixi install --locked`
+→ exit 1 (`lock-file not up-to-date with the workspace`); `bash scripts/pixi_lock_check.sh` → exit 1 (drift: `regex` 2026.9.3 → 2026.9.29);
+the base `4e5987a` passes both. Reachable: CI's `setup-pixi` (`test_and_deploy.yml:44`) installs `--locked` and would refuse the tree; the
+shared deploy's plain `pixi install` would re-solve and deploy a `regex` the review never saw.
+
+**The Analyst's call between the two routes I-67 names: route (ii) — keep `pyproject.toml` unchanged; enable `RUF100` where ruff is run.**
+Why not route (i), a re-lock with `regex` held: `pyproject.toml` is the editable self-package's manifest, so *any* edit to it changes the
+manifest hash and forces a re-solve; holding `regex` at the base's version is a hand-managed exception to the repository's push-time contract
+("a push never carries dependency drift"), the lock must stay format v6 for analysis.sns.gov's older pixi, and the gate's own `pixi run`
+re-locked the Integrator's checkout as a side effect — that coupling is the debt, and a comments-only sweep has no reason to carry it.
+Where ruff runs in this repository (verified at `3275fc4`): **the pre-commit hook `ruff-check`** (`.pre-commit-config.yaml:20-26`,
+`astral-sh/ruff-pre-commit` rev `v0.15.0`, `args: [--fix, --exit-non-zero-on-fix]`) — **no CI step runs ruff** (`test_and_deploy.yml` installs
+pixi and runs the tests) and there is no `ruff.toml`. So "the repository's selection carries `RUF100`" is stated honestly as: **the hook's
+args carry it, and U2 runs the same command.**
+
+**N5′ (replaces N5).** *Fail loudly from now on: `RUF100` is enabled wherever this repository runs ruff — the pre-commit `ruff-check` hook's
+`args` become `[--fix, --exit-non-zero-on-fix, --extend-select, RUF100]`, and U2's test shells out with the same `--extend-select RUF100` —
+so a tag that goes dead (a rule later ignored, a line later fixed) fails the hook and the test instead of lingering. `pyproject.toml` is
+**not** edited (I-67 B-1). Stated limit: a developer who runs a bare `ruff check` outside the hook does not get `RUF100`; the PR body says so,
+and moving the selection into `pyproject.toml` is a one-line follow-up for a slug that re-locks deliberately.* The two global-`ignore`
+entries that make tags dead today (`E722`, `N815`) are still not changed.
+
+**What else moves with N5′:** §4's `pyproject.toml` row → `.pre-commit-config.yaml`; §5's common row reads `ruff check --extend-select RUF100`;
+§7's last row → "`RUF100` dropped from the hook's args → U2's 'hook selection' leg reds"; §8.1 adds I-67's lock checks; §9's third bullet
+reads "`RUF100` where ruff runs". **U2 gains a second leg** (U2b): the test reads `.pre-commit-config.yaml`, finds the `ruff-check` hook and
+asserts `--extend-select` + `RUF100` are in its `args` — the leg that makes "the pre-commit would not see dead tags" a failing-capable claim
+(L7). I-67's S-5 (U2's `subprocess.run` has no `timeout`) is taken in passing: `timeout=300`.
+
+**D-2 (the seed's correction, I-67):** in `plans/noqa-sweep-findings.md`, child leaf 2's sentence "The defaults agree … so it shows only
+when a settings file makes them differ" is wrong for the direct-beam path — `Direct_Beam` defaults to `tofbin=50` and `tof_step=100`
+(`direct_beam_maker.py:52, 56`) and passes `tof_step` at `:160`, so the ignored `tof_step` matters there even at the defaults. One sentence,
+corrected on the ledger by the Developer; the PR body's copy follows.
+
+**v2 recipe (no production line, no tag change, no lock change).** On `feature/noqa-sweep` @ `3275fc4`: (1) revert the `pyproject.toml`
+hunk (`git diff 4e5987a..<tip> -- pyproject.toml` empty); (2) `.pre-commit-config.yaml`: the `ruff-check` hook's `args` gain
+`--extend-select, RUF100`; (3) `tests/test_noqa_tags.py`: U2's ruff call carries `--extend-select RUF100` and `timeout=300`; U2b added, RED
+first with the arg absent; (4) in a **clean worktree** of the tip: `pixi install --locked` → 0 and `bash scripts/pixi_lock_check.sh` → 0,
+`git status --porcelain pixi.lock` empty afterwards — all three in the commit body (I-67: "add a check that would have caught this");
+(5) `pre-commit run ruff-check --all-files` green (the hook with `RUF100` is now the lint); (6) the battery's two tables again, with two rows
+added — "`--extend-select RUF100` dropped from the hook's args → U2b reds" and "`RUF100` dropped from U2's ruff call → U2 passes only if a dead
+tag is also re-added; record it as the pair" — each `<mutation> → <test> -> N failed`, N ≥ 1; (7) D-2's sentence on the ledger; (8) merge the
+predecessors forward if they moved (`feature/time-slicing-reconcile`, `feature/roi-popout-dialog`); gate; **retag `qa/noqa-sweep`** (the v1 tag
+at `3275fc4` is the Developer's to move, with the usual record). The push going through the fork's guard is itself the proof that B-1 is closed.
+
+**Advisory D-1** (a later bare `# noqa: BLE001` passes CI — reasons are enforced only by the one-off U1) and D-3/D-4, S-1–S-4 ride the PR body
+as I-67 wrote them; none is taken here (N4: a classifier slug).
 
 ## Re-seal at dispatch (2026-10-07, A-111) — the census on the dispatch tree (`4e5987a` + `18059cc` merged), by `grep`; ruff's RUF100 pass is the Developer's first act
 
@@ -68,7 +123,7 @@ records both.
 | N2 | **Dead tags are removed** (F2's ten by measure + F6's three by construction, re-measured at dispatch), and nothing else on those lines changes. |
 | N3 | **Blanket directives are made precise:** each `# noqa <CODE>` without a colon becomes `# noqa: <the rule that actually fires>` **with a one-clause reason** (F5's contract) — for the five `web_report.py` excepts, `BLE001` and why that handler must not raise — or, if no rule fires on the line, the tag is removed (F3's two). A blanket `# noqa` with no code never survives the sweep. |
 | N4 | **A tag that masks a defect is a finding, not a fix.** If reading the guarded code shows the suppressed rule was pointing at a real problem (a blind except swallowing an error the caller needs; an unused variable that was meant to be used; an argument the function should honour), the row says so with the evidence, the tag **stays as it is** in this slug, and a child leaf is proposed in the findings doc (`Seed:` the row) for the Analyst to plan — behaviour change rides its own slug and its own gate. |
-| N5 | **Fail loudly from now on:** `RUF100` joins the ruff `select`, so a tag that goes dead (a rule later ignored, a line later fixed) fails lint instead of lingering; the pre-commit `ruff check` and the gate both see it. The two global-`ignore` entries that make tags dead today (`E722`, `N815`) are **not** changed — their rationale is the config's. |
+| N5 | **(v1 wording — superseded by N5′ in the "v2" section: `RUF100` where ruff runs, `pyproject.toml` untouched.)** ~~**Fail loudly from now on:** `RUF100` joins the ruff `select`~~, so a tag that goes dead (a rule later ignored, a line later fixed) fails lint instead of lingering; the pre-commit `ruff check` and the gate both see it. The two global-`ignore` entries that make tags dead today (`E722`, `N815`) are **not** changed — their rationale is the config's. |
 
 **Types and states** (per tag): rule ∈ {selected and firing, selected and not firing, ignored globally, ignored per-file, never
 selected} × spelling ∈ {`# noqa: CODE`, `# noqa CODE` (blanket), `# noqa` (blanket), multi-code} × reason ∈ {on the line, in a
@@ -91,7 +146,7 @@ Integrator checks every row against it.
 | File | Change |
 |---|---|
 | the 17 tag-bearing files | per N2/N3 — tag lines only; **no statement changes** |
-| `pyproject.toml` | `select` += `"RUF100"` |
+| `.pre-commit-config.yaml` (**v2**; was `pyproject.toml` `select` += `"RUF100"` — withdrawn, I-67 B-1) | the `ruff-check` hook's `args` gain `--extend-select, RUF100` |
 | `plans/noqa-sweep-findings.md` (ledger) | N1's table |
 | tests | U1–U4 |
 
@@ -99,7 +154,8 @@ Integrator checks every row against it.
 
 | Class | Case | Required outcome |
 |---|---|---|
-| common | `ruff check` at the feature tip | green with `RUF100` selected |
+| common | `ruff check --extend-select RUF100` at the feature tip (**v2**: as the hook runs it) | green |
+| common | `pixi install --locked` and `scripts/pixi_lock_check.sh` in a clean worktree of the tip (**v2**, I-67) | both exit 0; `pixi.lock` unmodified after the gate |
 | common | `pixi run test-reduction` | identical results and warnings to the base — nothing but comments changed |
 | edge | a `web_report.py` blind except that swallows an error the report page needs | **finding** (N4), tag kept, child leaf proposed — not fixed here |
 | edge | a tag whose rule is ignored globally but which documents intent (`N801` on a class name the scientists know) | dead by ruff's measure → removed; the intent, if worth keeping, becomes a plain comment |
@@ -112,7 +168,8 @@ Integrator checks every row against it.
 | # | Test | RED at the base |
 |---|---|---|
 | U1 | the findings table's row count equals the tag count at the base (a test that greps the base's listing committed beside the doc and compares) | no doc |
-| U2 | `ruff check --select RUF100` (plus the repo's selection) over `src launcher tests scripts` reports nothing (a pytest that shells out, like the pre-commit hook) | 10 findings |
+| U2 | `ruff check --extend-select RUF100` (the repo's selection plus `RUF100`, **v2**: exactly the hook's command) over `src launcher tests scripts` reports nothing (a pytest that shells out, like the pre-commit hook; `timeout=300`, I-67 S-5) | 10 findings |
+| U2b (**v2**) | `.pre-commit-config.yaml`'s `ruff-check` hook has `--extend-select` and `RUF100` in its `args` (the test parses the YAML) | the arg absent |
 | U3 | no `# noqa` without a colon-separated code remains (`grep -rnE '#\s*noqa(\s|$)(?!:)'`-equivalent in Python) | 7 blankets |
 | U4 | **the diff is comments-only:** every changed line in the 17 files differs from the base only in its `# noqa…` comment — a test that walks `git diff <base>` for those files and asserts code-token equality (strip the comment, compare) | — (guard) |
 
@@ -125,11 +182,14 @@ Integrator checks every row against it.
 | a blanket re-spelled to a rule that does not fire | U2 |
 | a row dropped from the findings table | U1 |
 | a guarded statement edited along the way | U4 |
-| `RUF100` not added to `select` | U2's "repo selection" leg (the pre-commit would not see dead tags) |
+| `--extend-select RUF100` dropped from the hook's args (**v2**; was "`RUF100` not added to `select`") | U2b (the pre-commit would not see dead tags) |
+| `RUF100` dropped from U2's ruff call (**v2**) | U2 goes blind — record the pair: with a dead tag re-added, U2 must still red only while the arg is present |
 
 ## 8. Acceptance criteria
 
-1. Gate: `pixi run test-reduction` zero; `ruff check` green with `RUF100`.
+1. Gate: `pixi run test-reduction` zero; `ruff check --extend-select RUF100` green, as the hook runs it (**v2**). **In a clean worktree of the tip:
+   `pixi install --locked` exits 0 and `bash scripts/pixi_lock_check.sh` exits 0; `pixi.lock` is unmodified after the gate run — a re-lock is a
+   finding, not a fix (I-67 B-1). `git diff <base>..<tip> -- pyproject.toml pixi.lock` is empty.**
 2. §6 RED→GREEN; §7 per row.
 3. The findings table is in the PR body; every "masking a defect" row names its proposed child leaf; the Analyst plans those
    leaves after the merge (they are the human's to add to the charter — the PR body lists them as proposals).
@@ -141,8 +201,11 @@ Integrator checks every row against it.
 
 - The termination rule: out-of-scope findings → advisories or a child leaf — N4 makes this slug a *classifier*, so its gate is crisp.
 - `pyproject.toml:263-270`: the repo already states the contract for a blind except ("noqa with the reason"); the sweep enforces it.
-- Detection complete, resolution minimal (CPKT design framing): `RUF100` in `select` detects every future dead tag; the sweep
+- Detection complete, resolution minimal (CPKT design framing): `RUF100` where ruff runs (**v2**: the hook's args; was "in `select`") detects every future dead tag; the sweep
   resolves only what is mechanical (dead, blanket) and routes the rest.
+- **L16 (v2):** before declaring an edit to a config file, ask *what else reads this file* — `pyproject.toml` here is both ruff's config and
+  the pixi self-package manifest, so a one-token lint change stales the lock; the plan's §2 should have measured `pixi install --locked` on
+  the intended edit. The repository's guard found it, as a guard should; the plan should not have needed it to.
 
 ## 10. Assumptions and open questions
 
@@ -152,6 +215,16 @@ Integrator checks every row against it.
 | A2 | Whether to turn the five `web_report.py` blind excepts into narrower excepts. | **Not here** (N4). If the security reviewer finds a swallowed error a caller needs, that is a child leaf. |
 
 ## Revision history
+
+### v2 — 2026-10-07, after the Integrator's rejection of v1 @ `3275fc4` (I-67; ledger-carried record `plans/noqa-sweep-v1-rejection.md`; attempt 1 of 3)
+
+Rejection quoted in full in the "v2" section. One block (B-1: the committed lock vs the committed manifest); the sweep itself passed every
+check. What v2 changes: N5 → N5′ (`RUF100` where ruff runs — the pre-commit hook's args and U2; `pyproject.toml` untouched); U2b and S-5's
+timeout; §4, §5, §7, §8.1, §9 accordingly; D-2's sentence in the findings doc; L16. **Plan error owned:** N5 declared a `pyproject.toml` edit
+without asking what else reads that file — it is the pixi self-package manifest, so the edit staled `pixi.lock`; the route choice (ii over a
+hand-held re-lock) is the Analyst's, as I-67 left it. Unchanged: scope, Base (`4e5987a` + `18059cc` forward), the PR target, N1–N4, the
+findings table, every tag disposition. The Developer continues on `feature/noqa-sweep` @ `3275fc4`; the stale `qa/noqa-sweep` tag is theirs
+to move at v2.
 
 v1 — **dispatched 2026-10-07 (A-111)** on the posture trigger (the intake's draft PR #48 open, I-66), stacked under clause (4) on `feature/time-slicing-reconcile` @ `4e5987a` with `feature/roi-popout-dialog` @ `18059cc` merged forward at cut (conflict-free), re-sealed by grep census (ruff's pass the Developer's first act). Authored 2026-10-04 against `exp-review` @ `2324e5c` (`[human, 2026-10-04, PR #37 comment]`, couriered; A-46), **staged** behind
 `editor-sections` and `test-suite-warnings` merged; the tag census (F1–F4) measured with ruff 0.15.11's `RUF100` before authoring.
