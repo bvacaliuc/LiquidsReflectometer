@@ -1,3 +1,6 @@
+import logging
+from pathlib import Path
+
 import h5py
 import numpy as np
 from scipy.special import lambertw
@@ -8,6 +11,9 @@ from scipy.special import lambertw
 
 # TODO: link up the parts that are self. from copying across.
 
+logger = logging.getLogger(__name__)
+
+
 def convert_to_binary(fname, lowres, collapse_x = True, tofbin=50, tofmax=100000, tofmin=0, deadtime=4.2, tof_step=100, n_y=304, n_x=256, start_times=None, end_times=None):  # noqa: ARG001 -- collapse_x documented as planned/not implemented; callers pass it
     '''
     Main function for converting to load the file, apply the dead-time correction and obtain y vs tof data (non-event).
@@ -17,9 +23,12 @@ def convert_to_binary(fname, lowres, collapse_x = True, tofbin=50, tofmax=100000
     :param collapse_x: planned option to keep the x-pixel direction but not implemented. True sums over x-pixels in the lowres range.
     :param tofbin: default bin size for tof histogramming
     :param tofmax: default max tof for histogramming (mainly important for non-standard chopper configurations)
-    :param start_times: default None. Allows list of start times for event filtering on time. Must match length of stop_times.
-    :param stop_times: default None. Allows list of stop times for event filtering on time. Must match length of start_times.
-    :return: tof_array, y_tof_corr, error_array_corr
+    :param start_times: default None, the whole run. The start of each time window, in seconds from the run's first
+        pulse (see load_and_extract and time_windows). Must match the length of end_times.
+    :param end_times: default None. The end of each time window. Must match the length of start_times.
+    :return: tof_array, y_tof_corr, error_array_corr, log_values, DTC
+    :raises ValueError: when no pulse read has proton charge (a window after the run or between two pulses, or a
+        run without beam): there is nothing to normalise by.
     '''
     # Include option to collapse along the x-pixel direction between the min/max bounds
     # Assume wksp has had the DTC applied.
@@ -27,128 +36,154 @@ def convert_to_binary(fname, lowres, collapse_x = True, tofbin=50, tofmax=100000
     # Example using the h5py to extract info as can be easier to manipulate that mantid wksp
     e_offset, event_id, error_event_offset, pcharge, cPc, log_values = load_and_extract(fname, start_times=start_times, end_times=end_times)
 
-    pGood=len(cPc[cPc != 0])
-    print('pGood', pGood)
-    print('number events', len(e_offset))
-    # TODO: work out where to put this
-    if pGood < 1:
-        print('There are no good counts in this run.')
-        return
+    if not np.any(cPc != 0):
+        raise ValueError(f"No proton charge in {Path(fname).name}{describe_windows(start_times, end_times)}: "
+                         "nothing to reduce")
 
-    else:
-        tof_array, DTC, error_counts = get_deadtime_correction(error_event_offset, e_offset, cPc, tofbin, tofmax, tofmin, deadtime=deadtime, tof_step=tof_step)
-        tof_array, y_tof, error_array = get_y_tof(tof_array, event_id, e_offset, lowres, pcharge, n_y, n_x)
+    tof_array, DTC, error_counts = get_deadtime_correction(error_event_offset, e_offset, cPc, tofbin, tofmax, tofmin, deadtime=deadtime, tof_step=tof_step)
+    tof_array, y_tof, error_array = get_y_tof(tof_array, event_id, e_offset, lowres, pcharge, n_y, n_x)
 
 
-        #y_tof_collapse = np.sum(y_tof, axis=0)
-        # Apply the dead-time correction
-        y_tof_corr = y_tof * DTC
-        error_array_corr = error_array * DTC
-        y_tof_corr = np.nan_to_num(y_tof_corr, nan=0)
-        error_array_corr = np.nan_to_num(error_array_corr, nan=0)
+    #y_tof_collapse = np.sum(y_tof, axis=0)
+    # Apply the dead-time correction
+    y_tof_corr = y_tof * DTC
+    error_array_corr = error_array * DTC
+    y_tof_corr = np.nan_to_num(y_tof_corr, nan=0)
+    error_array_corr = np.nan_to_num(error_array_corr, nan=0)
 
-        tof_array = tof_array / 1000
-        return tof_array, y_tof_corr, error_array_corr, log_values, DTC
+    tof_array = tof_array / 1000
+    return tof_array, y_tof_corr, error_array_corr, log_values, DTC
+
+
+def time_windows(start_times, end_times):
+    '''
+    The time windows to read, as (start, end) pairs in the order given, or None for the whole run.
+
+    Times are seconds from the run's first pulse (event_time_zero). A window is half-open, start <= t < end; the one
+    that reaches the run's end is closed there (see event_time_filter). Two numbers are one window. Windows may be
+    disjoint or overlap: the selection concatenates them and deduplicates nothing.
+
+    :raises ValueError: one of the lists missing, lists of unequal length, an empty list (None is the spelling of
+        "the whole run"), or a start not before its end. Raised before anything is read.
+    '''
+    if start_times is None and end_times is None:
+        return None
+    if start_times is None or end_times is None:
+        raise ValueError("start_times and end_times must either both be provided or both be None.")
+    starts = list(start_times) if isinstance(start_times, (list, tuple, np.ndarray)) else [start_times]
+    ends = list(end_times) if isinstance(end_times, (list, tuple, np.ndarray)) else [end_times]
+    if len(starts) != len(ends):
+        raise ValueError("Start and end times for time slices must be the same length.")
+    if not starts:
+        raise ValueError("Empty start and end time lists hold no window; None reads the whole run.")
+    for start, end in zip(starts, ends):
+        if start >= end:
+            raise ValueError(f"Start time ({start}) must be less than end time ({end}).")
+    return list(zip(starts, ends))
+
+
+def describe_windows(start_times, end_times):
+    '''" for the time window(s) [a, b), ..." for messages, or "" for the whole run.'''
+    windows = time_windows(start_times, end_times)
+    if windows is None:
+        return ""
+    return " for the time window(s) " + ", ".join(f"[{start}, {end})" for start, end in windows)
+
 
 def load_and_extract(fname, start_times = None, end_times = None):
     '''
     Load the nexus file and extract the relevant arrays using h5py.
 
+    With start_times and end_times, only the pulses inside the time windows are kept (time_windows says what a window
+    is; event_time_filter selects). The windows are checked before the file is opened.
+
     :param fname: File to load
-    :return: e_offset, event_id, error_event_offset, pcharge
+    :param start_times: default None, the whole run; else the windows' starts, seconds from the run's first pulse
+    :param end_times: default None; else the windows' ends
+    :return: e_offset, event_id, error_event_offset, pcharge, cPC, log_values. For the whole run pcharge is the run's
+        total as the file records it (entry/proton_charge), as before time slicing; for windows it is the sum of the
+        selected pulses' charge.
     '''
-    # Example using the h5py to extract info as can be easier to manipulate that mantid wksp
-    f = h5py.File(fname, 'r')
-
-    e_offset = np.array(f['entry/bank1_events/event_time_offset'][:]) # TOF
-    event_id = np.array(f['entry/bank1_events/event_id'][:]) # position on detector
-    event_time = np.array(f['entry/bank1_events/event_time_zero'][:]) # pulses ms
-    event_index = np.array(f['entry/bank1_events/event_index'][:]) # which number is max in that pulse
-
-    error_event_offset = np.array(f['entry/bank_error_events/event_time_offset'][:]) # error TOF
-    error_event_time = np.array(f['entry/bank_error_events/event_time_zero'][:]) # error pulses ms
-    error_event_index = np.array(f['entry/bank_error_events/event_index'][:]) # error index
-
-    #pcharge=np.array(f['entry/proton_charge'][:])
-    # This is single value. TODO: streamline so don't need this and the previous log.
-    cPC=np.array(f['entry/DASlogs/proton_charge/value'][:])
-    pcharge=[np.sum(cPC)] # test this change
+    windows = time_windows(start_times, end_times)
+    with h5py.File(fname, 'r') as f:
+        e_offset = np.array(f['entry/bank1_events/event_time_offset'][:]) # TOF
+        event_id = np.array(f['entry/bank1_events/event_id'][:]) # position on detector
+        error_event_offset = np.array(f['entry/bank_error_events/event_time_offset'][:]) # error TOF
+        cPC=np.array(f['entry/DASlogs/proton_charge/value'][:]) # the charge of each pulse
+        if windows is None:
+            # This is single value. TODO: streamline so don't need this and the previous log.
+            pcharge=np.array(f['entry/proton_charge'][:])
+        else:
+            pulses = {
+                "event_time": np.array(f['entry/bank1_events/event_time_zero'][:]), # pulses, s
+                "event_index": np.array(f['entry/bank1_events/event_index'][:]), # each pulse's first event
+                "error_event_time": np.array(f['entry/bank_error_events/event_time_zero'][:]), # error pulses, s
+                "error_event_index": np.array(f['entry/bank_error_events/event_index'][:]), # each error pulse's first event
+                "charge_time": np.array(f['entry/DASlogs/proton_charge/time'][:]), # the charge log's pulses, s
+            }
 
     log_values = get_log_values(fname)
 
-    if start_times is not None or end_times is not None:
-        print('Processing with time filter.')
-        if start_times is None or end_times is None:
-            raise ValueError("start_times and end_times must either both be provided or both be None.")
-
-        if not isinstance(start_times, list):
-            start_times = [start_times]
-        if not isinstance(end_times, list):
-            end_times = [end_times]
-
-        if len(start_times) != len(end_times):
-            raise ValueError("Start and end times for time slices must be the same length.")
-
-        masked_e_offset, masked_event_id, masked_e_offset_error, masked_cPC = event_time_filter(start_times, end_times, event_time, event_id,
-                                                                                                 e_offset,event_index, error_event_time,
-                                                                                                 error_event_offset, error_event_index, cPC)
-        masked_pcharge = [np.sum(masked_cPC)]
-        return masked_e_offset, masked_event_id, masked_e_offset_error, masked_pcharge, masked_cPC, log_values
-
-    else:
+    if windows is None:
         return e_offset, event_id, error_event_offset, pcharge, cPC, log_values
 
+    logger.info("Processing with time filter: %s%s", Path(fname).name, describe_windows(start_times, end_times))
+    masked_e_offset, masked_event_id, masked_e_offset_error, masked_cPC = event_time_filter(
+        start_times, end_times, pulses["event_time"], event_id, e_offset, pulses["event_index"],
+        pulses["error_event_time"], error_event_offset, pulses["error_event_index"], cPC, pulses["charge_time"])
+    masked_pcharge = np.array([np.sum(masked_cPC)])
+    return masked_e_offset, masked_event_id, masked_e_offset_error, masked_pcharge, masked_cPC, log_values
+
+
+def _pulse_range(pulse_times, start, end):
+    '''
+    The pulses of a window, as indices [first, stop): those with start <= t < end. The window that reaches the run's
+    end is closed there: an end at or after the last pulse's time takes the last pulse too, so contiguous windows
+    ending at the run's duration partition every pulse.
+    '''
+    if len(pulse_times) == 0:
+        return 0, 0
+    first = int(np.searchsorted(pulse_times, start, side="left"))
+    if end >= pulse_times[-1]:
+        return first, len(pulse_times)
+    return first, int(np.searchsorted(pulse_times, end, side="left"))
+
+
+def _event_range(event_index, n_events, first, stop):
+    '''The events of pulses [first, stop): from the first pulse's first event to the next pulse's first event.'''
+    begin = event_index[first] if first < len(event_index) else n_events
+    end = event_index[stop] if stop < len(event_index) else n_events
+    return int(begin), int(end)
+
+
 def event_time_filter(start_times, end_times, event_time, event_id, e_offset, event_index,
-                       error_event_time, error_event_offset, error_event_index, cPC):
+                       error_event_time, error_event_offset, error_event_index, cPC, charge_time):
+    '''
+    The events, error events and pulse charges of the time windows, concatenated in the order of the windows.
+
+    Each is selected by the same predicate on its own pulse times (start <= t < end, closed at the run's end; see
+    _pulse_range): the detector events by event_time_zero and event_index, the error events by their bank's, and the
+    charge by the proton-charge log's own times. A pulse in two overlapping windows is taken twice.
+
+    :return: masked_e_offset, masked_event_id, masked_e_offset_error, masked_cPC
+    '''
     masked_event_id = []
     masked_e_offset = []
     masked_e_offset_error = []
     masked_cPC = []
 
-    # Find the event time zero pulse, then event index that follows this, apply these masks to the TOF and position
+    for start, end in time_windows(start_times, end_times):
+        first, stop = _pulse_range(event_time, start, end)
+        begin, finish = _event_range(event_index, len(event_id), first, stop)
+        masked_event_id.append(event_id[begin:finish])
+        masked_e_offset.append(e_offset[begin:finish])
 
-    # Loop over all starts/ends
-    for start, end in zip(start_times, end_times):
-        # Check that start is before end.
-        if start >= end:
-            raise ValueError(
-                f"Start time ({start}) must be less than end time ({end})."
-            )
+        first, stop = _pulse_range(error_event_time, start, end)
+        begin, finish = _event_range(error_event_index, len(error_event_offset), first, stop)
+        masked_e_offset_error.append(error_event_offset[begin:finish])
 
-        # Normal events
-        start_idx = np.searchsorted(event_time, start, side="right")
-        stop_idx = np.searchsorted(event_time, end, side="right")
-
-        # find in the event index
-        if start != 0:
-            start_event = event_index[start_idx] - 1
-        else:
-            start_event = event_index[start_idx]
-        try:
-             stop_event = event_index[stop_idx] - 1
-        except IndexError:
-            stop_event = event_index[-1] - 2 # Not sure why might be left/right search, but ok to lose 1 event at this stage. #TODO: fix this properly.
-
-        # TODO: need to check on +/- values
-        # write some proper tests to check aren't losing single events on edges or duplicating them
-
-        masked_event_id.append(event_id[start_event:stop_event])
-        masked_e_offset.append(e_offset[start_event:stop_event])
-        masked_cPC.append(cPC[start_idx:stop_idx])
-
-        # Error events
-        error_start_idx = np.searchsorted(error_event_time, start, side="right")
-        error_stop_idx = np.searchsorted(error_event_time, end, side="right")
-        if start != 0:
-            error_start_event = error_event_index[error_start_idx] - 1
-        else:
-            error_start_event = error_event_index[error_start_idx]
-        try:
-            error_stop_event = error_event_index[error_stop_idx] - 1
-        except IndexError:
-            error_stop_event = error_event_index[-1] - 2 # Not sure why might be left/right search, but ok to lose 1 event at this stage. #TODO: fix this properly.
-
-        masked_e_offset_error.append(error_event_offset[error_start_event:error_stop_event])
+        first, stop = _pulse_range(charge_time, start, end)
+        masked_cPC.append(cPC[first:stop])
 
     # Concatenate them back into one.
     masked_event_id = np.concatenate(masked_event_id)
