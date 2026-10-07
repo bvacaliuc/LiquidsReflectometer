@@ -66,6 +66,23 @@ dataset-path lookup is `todo-nexus-event-paths-time-indexed` (next campaign); `n
 | F9 | The campaign's name for a run's file: `nr_reduction_calc.py` `self.config.NEXUSpathRB / f"REF_L_{rb_num}.nxs.h5"`; `nr_reduction_config.py` (override, else `<IPTS>/nexus`). The contribution hard-codes `/SNS/REF_L/<ipts>/nexus` in `reduce_time_slices` — the third spelling (`todo-roi-popout-data-followups-from-dialog-gate` D3 counts the others). | `roi-popout-dialog-plan.md` F9; `new_reduction_time_resolved.py:19-20`. |
 | F10 | Environment and harness. | `pixi run test-reduction` (launcher first); `launcher/tests/conftest.py` `isolated_qapp`, `no_qmessagebox` (autouse: `QDialog.exec_` → Accepted; a `QMessageBox` in a test is a failure), `no_qfiledialog`; reduction tests `tests/unit/lr_reduction/`; the `_write_nexus` builder (`tests/unit/lr_reduction/test_roi_estimate.py`) writes `bank1_events` with `event_time_zero`/`event_index` — reusable for T1–T3 fixtures (**verify at dispatch that it writes `event_index` and `bank_error_events`; extend it if not — the extension is this slug's**). |
 
+### Post-dispatch CORRECTIONS (2026-10-07, A-102 — from the Developer's working notes N1–N6, `plans/time-slicing-reconcile-learning.md` §0; additive, scope unchanged)
+
+| # | What the Developer measured that §2 did not say | Decision (the plan's, consistent with its own §3/§10) |
+|---|---|---|
+| N1 | Without windows the snapshot changes `pcharge` from `entry/proton_charge` to `[sum(DASlogs cPC)]` ("test this change") — equal to 9 digits on the eight real runs, **not byte-identical by construction**. | **T1a's "byte-identical" governs:** the no-window path keeps the base's `entry/proton_charge`; the windowed path sums the selected pulses' `cPC` (T1/T2). The two sources' equality on real runs is recorded (a fact for the numerical-diagnostics reviewer), not relied on. |
+| N2 | `convert_to_binary` returns `None` when no pulse has charge; every caller unpacks it (a `TypeError`, wrapped as "Failed to compute binary data"). | T4c's "a window after the run selects nothing — reported, not a crash": the empty selection raises a clear `ValueError` naming the window **before** the unpack; the pre-existing no-charge `None` is not this slug's (a todo if the Developer wants it on the record). |
+| N3 | Two `NRReductionConfig` defaults (`start_times`, `end_times`) would add two keys to **every** output's Config line (the header serialises `config.__dict__`) — against §10 A3 and acceptance 2. | **The window travels as a runtime record** (M2's R4/R5 pattern — as the scale and the λ range do), **not** as config defaults; §4's `nr_reduction_config.py` row becomes "no new defaults"; T6b's "no write into the caller's config" stands; today's headers stay byte-identical (A3). |
+| N4 | `reduce_time_list` names a slice with `int(starts[i])`, which raises for the nested windows its own comment allows. | A3's "several windows in one call" (T3) must name the pack: `slice_{int(first_start)}_{int(last_end)}` for a nested list, or the caller's `subname`; the Developer's call, recorded in the docstring and T5a. |
+| N5 | The Cd sort (F7) is already the base's (`create_db` sorts by Cd at `ae5ce0e`). | T7a asserts the **override**; T7b asserts the sort is the base's, unchanged; §7 M15 (sort removed) stays — it reds T7b now. |
+| N6 | The snapshot calls `_reduce_single_run(i, rb_num, start_times=…, end_times=…)`; the existing physics stubs (`test_prior_combination.py`) take `(self, i, rb_num)`. | The stubs gain the two keywords (test-only); the stub mirrors the real signature as M2's did. |
+| F10 | `_write_nexus` lives in `test_roi_estimate.py`, which is #44's and **not on this stack**. | A builder of this slug's own in `test_time_slicing.py` (a second builder until a shared test-support module exists — `todo-roi-popout-data-followups-from-dialog-gate` / I-56 A-5 already ask for one). |
+
+Also measured by the Developer on the eight real runs (the test-data submodule): `entry/proton_charge` = `sum(DASlogs/proton_charge/value)` to
+9 digits; one charge entry per pulse, at the pulses' times, the error bank on the same pulses; `event_time_zero` starts at 0.0 s (A7 holds); **the
+last pulse sits exactly at `entry/duration` in 3 of 8 runs and can hold events (179932: `event_index[-1]` = 300086 of 300088)** — so T2's closed
+last window is not a corner case, and the snapshot's `event_index[-1] − 2` fallback drops real events.
+
 ## 3. Design — behaviours, not code (the contribution's intent, made testable)
 
 | # | Behaviour |
