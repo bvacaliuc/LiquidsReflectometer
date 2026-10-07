@@ -263,13 +263,14 @@ def plot_kinetic(output_list, run, times, show=True):
     ax[0].set_xlabel('Q [1/' + Angstrom + ']')
 
     # create the colour map. Store the data into a 2D array and plot with imshow
-    if not store_dr:
+    if not store_r:
         raise ValueError("No reduced data available for kinetic plot")
 
-    Z = np.array([np.asarray(arr) for arr in store_dr], dtype=float)
+    # The colour map is R, slice by slice, as its colour bar says (the contribution mapped dR under the label "R")
+    Z = np.array([np.asarray(arr) for arr in store_r], dtype=float)
     mask = np.isfinite(Z) & (Z > 0)
     if not np.any(mask):
-        raise ValueError("No positive dR values available for kinetic plot")
+        raise ValueError("No positive R values available for kinetic plot")
 
     q_vals = np.asarray(store_q[0], dtype=float)
     y_vals = np.asarray(times, dtype=float)
