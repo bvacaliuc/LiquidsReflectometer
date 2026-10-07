@@ -8,6 +8,7 @@ record their arguments (the library has its own tests): this file is about the t
 
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from qtpy import QtCore, QtWidgets
 from qtpy.QtTest import QTest
@@ -136,6 +137,39 @@ def test_the_inputs_round_trip_through_qsettings(tab):
         assert (reopened.start_times_edit.text(), reopened.end_times_edit.text()) == ("0, 80", "80, 136")
     finally:
         reopened.close()
+
+
+def test_the_tab_draws_into_its_own_canvas(isolated_qapp, monkeypatch, boxes):  # noqa: ARG001
+    """T8'a (I-62 A-1): a reduction's kinetic plot is drawn into the tab's own figure, on the tab's own canvas, so pan and
+    zoom act on it and it fills the canvas, and no pyplot figure is left behind: after two Reduces the figure and the
+    canvas are the ones the tab was built with, and pyplot holds no more figures than before."""
+    from matplotlib import pyplot as plt
+
+    from launcher.apps import time_resolved
+    from lr_reduction import new_reduction_time_resolved as nrtr
+
+    q = np.geomspace(0.01, 0.1, 5)
+    outputs = [[{"Q": q, "R": (k + 1) * 1e-3 * np.ones(5), "dR": 1e-5 * np.ones(5), "dQ": 0.02 * q}] for k in range(2)]
+
+    def reduce(*_args, figure=None, show_plots=True, **_kwargs):
+        # The library's own plot, into the figure the tab gives it (or, given none, a figure of its own)
+        return outputs, nrtr.plot_kinetic(outputs, 230001, times=[1.0, 2.0], show=show_plots, figure=figure)
+
+    monkeypatch.setattr(time_resolved, "reduce_time_slices", reduce)
+    widget = time_resolved.TimeResolvedTab()
+    figure, canvas = widget.figure, widget.canvas
+    before = len(plt.get_fignums())
+    try:
+        fill(widget)
+        for _ in range(2):
+            QTest.mouseClick(widget.process_btn, QtCore.Qt.LeftButton)
+        assert "Completed reduction: 2 output slice(s)" in panel(widget), panel(widget)
+        assert widget.figure is figure and canvas.figure is figure and figure.canvas is canvas
+        assert figure.axes and any(axes.images for axes in figure.axes), "the kinetic plot is in the tab's figure"
+        assert len(plt.get_fignums()) == before
+        assert boxes == []
+    finally:
+        widget.close()
 
 
 def test_a_stored_slice_count_that_is_not_a_number_keeps_the_default(tab):

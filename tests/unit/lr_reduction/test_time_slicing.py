@@ -14,6 +14,7 @@ No test may reach /SNS: every path is a tmp_path, and the config's /SNS default 
 import json
 import logging
 import re
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -52,18 +53,22 @@ def error_offsets_of(pulses):
     return [500.0 + p for p in pulses]
 
 
-def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=None, charge=None, seq=1):
+def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=None, charge=None, seq=1, counts=None,
+              duration=None):
     """A run's NeXus file: the logs reduce_from_file groups by, its duration and charge, and (unless `events` is
     False) the event and error-event banks with their pulse times and per-pulse indices. By default every bank has
     the same pulses, one error event per pulse and one charge entry per pulse, as on the real runs measured; a test
-    can give the error bank or the charge log pulses of their own."""
+    can give the error bank or the charge log pulses of their own, each pulse's number of events (`counts`, 0 for an
+    empty pulse), and entry/duration (float32, as on the real files). Pulse i's events have ids 100 i + k."""
     n = len(pulses)
+    counts = [PER_PULSE] * n if counts is None else list(counts)
     error_pulses = pulses if error_pulses is None else error_pulses
     charge_times = pulses if charge_times is None else charge_times
-    charge = CHARGE if charge is None else charge
+    charge = (np.arange(n) + 1.0) * 10.0 if charge is None else charge
+    duration = (pulses[-1] if n else 0.0) if duration is None else duration
     with h5py.File(path, "w") as f:
         f["entry/title"] = [b"slicing test"]
-        f["entry/duration"] = np.array([pulses[-1] if n else 0.0], dtype=np.float32)  # the last pulse at the end (REF_L_179932)
+        f["entry/duration"] = np.array([duration], dtype=np.float32)  # float32 on the real files (REF_L_184981)
         f["entry/proton_charge"] = np.array([TOTAL])
         logs = f.create_group("entry/DASlogs")
         logs["BL4B:CS:Autoreduce:Sequence:Num/value"] = np.array([seq])
@@ -73,14 +78,32 @@ def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=
         logs["proton_charge/value"] = charge
         logs["proton_charge/time"] = charge_times
         if events:
-            ids = np.array(ids_of(range(n)), dtype=np.int64)
+            ids = np.array([100 * i + k for i in range(n) for k in range(counts[i])], dtype=np.int64)
             f["entry/bank1_events/event_id"] = ids
             f["entry/bank1_events/event_time_offset"] = (1000.0 + ids).astype(np.float32)
             f["entry/bank1_events/event_time_zero"] = np.asarray(pulses, dtype=float)
-            f["entry/bank1_events/event_index"] = np.arange(n) * PER_PULSE
+            f["entry/bank1_events/event_index"] = np.concatenate([[0], np.cumsum(counts)[:-1]]).astype(np.int64) if n else []
             f["entry/bank_error_events/event_time_offset"] = (500.0 + np.asarray(error_pulses)).astype(np.float32)
             f["entry/bank_error_events/event_time_zero"] = np.asarray(error_pulses, dtype=float)
             f["entry/bank_error_events/event_index"] = np.arange(len(error_pulses))
+
+
+#: Runs shaped as real files are (I-62), each (pulses, events per pulse or None for three, entry/duration). The default run
+#: (integer pulses in order, the duration equal to the last pulse) has none of these irregularities.
+LAST_184981 = 76.780626  # REF_L_184981's last pulse; its float32 entry/duration, 76.78062439, rounds below it
+REAL_SHAPED = {
+    "float32 duration below the last pulse": (np.append(np.arange(0.0, 77.0), LAST_184981), None, LAST_184981),
+    "unsorted tail": (np.concatenate([np.arange(0.0, 17.0), [17.10, 10.72, 10.73]]), None, 17.2),
+    "empty pulses": (PULSES, [3, 0, 3, 0, 0, 3, 3, 0, 3, 0], PULSES[-1]),
+    "beam-off tail": (PULSES, None, 14.5),
+    "last pulse at the duration": (PULSES, None, PULSES[-1]),
+}
+
+
+def write_shaped(path, shape):
+    pulses, counts, duration = REAL_SHAPED[shape]
+    write_run(path, pulses=pulses, counts=counts, duration=duration)
+    return pulses
 
 
 @pytest.fixture(autouse=True)
@@ -173,14 +196,32 @@ def test_contiguous_slices_partition_the_run(run_file):
     assert sum((s[4].tolist() for s in slices), []) == CHARGE.tolist()
 
 
-@pytest.mark.parametrize("end", [9.0, 12.0], ids=["end at the last pulse", "end after the run"])
-def test_the_last_window_includes_the_last_pulse(run_file, end):
-    """T2b: the last window is closed at the run's end: an end at or after the last pulse's time selects through
-    the last pulse, its events included."""
+@pytest.mark.parametrize("end, pulses", [(9.0, [6, 7, 8]), (12.0, [6, 7, 8, 9])],
+                         ids=["end at the last pulse", "end after the run"])
+def test_the_file_read_is_half_open_at_every_end(run_file, end, pulses):
+    """T1'/T2' (B-3): at the file read every window is half-open, the last pulse's time included: [6, 9) leaves out
+    the pulse at 9 s, and an end past it takes it. A window that ends on the last pulse cannot tell there whether it
+    is the run's final window or the one before [9, ...); the slicing functions, which know every window, close the
+    final one (test_contiguous_slices_partition_every_real_shaped_run)."""
     _, event_id, error_offset, _, cpc, _ = BP.load_and_extract(run_file, [6.0], [end])
-    assert event_id.tolist() == ids_of([6, 7, 8, 9])
-    assert error_offset.tolist() == error_offsets_of([6, 7, 8, 9])
-    assert cpc.tolist() == CHARGE[6:10].tolist()
+    assert event_id.tolist() == ids_of(pulses)
+    assert error_offset.tolist() == error_offsets_of(pulses)
+    assert cpc.tolist() == CHARGE[pulses].tolist()
+
+
+def test_pulses_are_selected_by_their_own_time(tmp_path, monkeypatch):
+    """T1'a (B-2): a pulse belongs to a window by its own time, wherever it sits in the file. Here the last two pulses
+    go back in time (17.10 s, then 10.72 and 10.73 s, as on REF_L_198410): [10, 17) takes the pulses at 10 to 16 s and
+    the two at 10.72 and 10.73 s, in file order, and not the one at 17.10 s; the error bank and the charge alike."""
+    path = tmp_path / f"REF_L_{RUN}.nxs.h5"
+    pulses = write_shaped(path, "unsorted tail")
+    monkeypatch.setattr(BP, "get_log_values", lambda _fname: {})
+    inside = [i for i, t in enumerate(pulses) if 10.0 <= t < 17.0]
+    assert inside == [10, 11, 12, 13, 14, 15, 16, 18, 19]
+    _, event_id, error_offset, _, cpc, _ = BP.load_and_extract(path, [10.0], [17.0])
+    assert event_id.tolist() == ids_of(inside)
+    assert error_offset.tolist() == np.float32(500.0 + pulses[inside]).tolist()
+    assert cpc.tolist() == ((np.array(inside) + 1.0) * 10.0).tolist()
 
 
 @pytest.mark.parametrize("starts, ends, pulses", [
@@ -405,6 +446,10 @@ def slicing(tmp_path, monkeypatch):
     def fake_reduce_single_run(self, i, rb_num, save=True, start_times=None, end_times=None):  # noqa: ARG001
         calls.append({"window": (start_times, end_times), "subname": self.config.subname,
                       "Spath": Path(self.config.Spath), "nexus": Path(self.config.NEXUSpathRB)})
+        if start_times is not None and end_times is not None:  # what the real file read selects for this window
+            _, ids, errors, _, cpc, _ = BP.load_and_extract(
+                Path(self.config.NEXUSpathRB) / f"REF_L_{rb_num}.nxs.h5", start_times, end_times)
+            calls[-1]["selected"] = (ids.tolist(), errors.tolist(), cpc.tolist())
         for window, error in fail:
             if window == (start_times, end_times):
                 raise error
@@ -418,6 +463,7 @@ def slicing(tmp_path, monkeypatch):
         return result, self.config, self.log_values
 
     monkeypatch.setattr(NR_Reduction, "_reduce_single_run", fake_reduce_single_run)
+    monkeypatch.setattr(BP, "get_log_values", lambda _fname: {})
     return SimpleNamespace(nrtr=nrtr, nexus=nexus, out=out, calls=calls, fail=fail, settings=settings_for(tmp_path))
 
 
@@ -485,6 +531,67 @@ def test_nested_windows_are_one_slice_named_by_its_span(slicing, starts, ends):
     assert [call["subname"] for call in slicing.calls] == ["_slice_0_7"]
 
 
+def whole_run(path):
+    """Every event id, error event and pulse charge of the run, by the file read without a window."""
+    _, ids, errors, _, cpc, _ = BP.load_and_extract(path)
+    return ids.tolist(), errors.tolist(), cpc.tolist()
+
+
+def assert_partition(slices, whole):
+    """The slices' selections partition the run in every bank: each event and each error event exactly once, and the
+    charge of every pulse exactly once (the charges are multiples of 10, so the sums are exact)."""
+    ids, errors, cpc = whole
+    assert Counter(i for s in slices for i in s[0]) == Counter(ids)
+    assert Counter(e for s in slices for e in s[1]) == Counter(errors)
+    assert sum(c for s in slices for c in s[2]) == sum(cpc)
+
+
+@pytest.mark.parametrize("n", [1, 4, 10])
+@pytest.mark.parametrize("shape", list(REAL_SHAPED))
+def test_contiguous_slices_partition_every_real_shaped_run(slicing, shape, n):
+    """T2'a (B-1, B-2): reduce_time_slices' n windows over entry/duration partition the run in every bank, on every
+    real-shaped run: a float32 duration below the last pulse, a tail that goes back in time, empty pulses, a beam-off
+    tail, the last pulse at the duration. Each slice's selection is the real file read's, for the window it got."""
+    path = slicing.nexus / f"REF_L_{RUN}.nxs.h5"
+    write_shaped(path, shape)
+    slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, n, savepath=slicing.out,
+                                    datapath=slicing.nexus, plot_time=False)
+    assert len(slicing.calls) == n
+    assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
+
+
+@pytest.mark.parametrize("boundary", ["the latest pulse", "the last entry"])
+@pytest.mark.parametrize("shape", ["beam-off tail", "unsorted tail"])
+def test_a_boundary_on_the_last_pulse_does_not_duplicate_it(slicing, shape, boundary):
+    """T2'b (B-3): user windows [0, t) and [t, duration], with t the latest pulse's time (or the last entry's, which
+    differ on an unsorted tail), partition the run: the pulse at t is in the second window only. Only the final window
+    is closed; the first stays half-open although it ends on the last pulse."""
+    path = slicing.nexus / f"REF_L_{RUN}.nxs.h5"
+    pulses = write_shaped(path, shape)
+    t = float(max(pulses)) if boundary == "the latest pulse" else float(pulses[-1])
+    duration = float(np.float32(REAL_SHAPED[shape][2]))
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, t], [t, duration], savepath=slicing.out,
+                                  datapath=slicing.nexus, plot_time=False)
+    assert len(slicing.calls) == 2
+    assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
+
+
+@pytest.mark.parametrize("n", [1, 4])
+def test_the_final_window_takes_every_remaining_pulse_despite_float32_duration(slicing, n):
+    """T2'c (B-1): entry/duration is float32 and here rounds below the last pulse (76.78062439 against 76.780626, as on
+    REF_L_184981). The final window still takes the last pulse's events, its error event and its charge."""
+    path = slicing.nexus / f"REF_L_{RUN}.nxs.h5"
+    pulses = write_shaped(path, "float32 duration below the last pulse")
+    assert float(np.float32(LAST_184981)) < LAST_184981
+    slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, n, savepath=slicing.out,
+                                    datapath=slicing.nexus, plot_time=False)
+    last = len(pulses) - 1
+    ids, errors, cpc = slicing.calls[-1]["selected"]
+    assert set(ids_of([last])) <= set(ids)
+    assert float(np.float32(500.0 + LAST_184981)) in errors
+    assert (last + 1.0) * 10.0 in cpc
+
+
 def test_a_window_that_cannot_be_reduced_is_reported_and_the_others_are_reduced(slicing):
     """T4c (the slice): a window whose reduction fails (here as the real chain fails for a window with no charge:
     _make_binary_files' RuntimeError) is reported after every other window has been reduced and written; the error
@@ -550,6 +657,22 @@ def test_the_priors_re_saves_name_the_window(tmp_path, slicing):
     assert_one_window_line_and_the_marker(slicing.out)
 
 
+def test_the_kinetic_map_shows_r_and_says_so(slicing):
+    """T9'a (B-5): plot_kinetic's colour map is the slices' R, row by row in slice order, under a colour bar labelled
+    "R" (the offset panel beside it plots R). The contribution mapped dR there under the same label."""
+    q = np.geomspace(0.01, 0.1, 5)
+    outputs = [[{"Q": q, "R": (k + 1) * 1e-3 * np.ones(5), "dR": (k + 1) * 1e-5 * np.ones(5), "dQ": 0.02 * q}]
+               for k in range(3)]
+    figure = slicing.nrtr.plot_kinetic(outputs, RUN, times=[1.0, 2.0, 3.0], show=False)
+    try:
+        image = next(axes.images[0] for axes in figure.axes if axes.images)
+        np.testing.assert_array_equal(np.asarray(image.get_array()), [pack[0]["R"] for pack in outputs])
+        bar = image.colorbar
+        assert bar is not None and bar.ax.get_ylabel() == "R"
+    finally:
+        __import__("matplotlib.pyplot").pyplot.close(figure)
+
+
 def test_the_run_file_is_resolved_the_campaigns_way(tmp_path, slicing):
     """T5b (F9): the run's NeXus file and the output folder come from the reduction's own config, never a /SNS/REF_L
     literal: an explicit datapath, else the settings' NEXUSpathRB; savepath, else the settings' Spath. The module
@@ -597,6 +720,7 @@ def test_the_header_names_the_window_beside_the_marker(reducer, full):
 def test_reduce_does_not_write_windows_into_the_callers_config(slicing, reducer):
     """T6b: reduce() with a window leaves the caller's config without one (M2's R4/R5: what a call used is a record
     for its header, not a write into the shared config)."""
+    reducer.config.NEXUSpathRB = slicing.nexus  # the run the stub reads the window's selection from
     reducer.reduce(plot=False, start_times=[0.0], end_times=[3.0])
     assert getattr(reducer.config, "start_times", None) is None
     assert getattr(reducer.config, "end_times", None) is None

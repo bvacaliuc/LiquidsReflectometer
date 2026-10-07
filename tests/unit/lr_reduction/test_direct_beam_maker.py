@@ -28,7 +28,7 @@ class StopError(Exception):
 @pytest.fixture
 def maker(tmp_path, monkeypatch):
     """A Direct_Beam on tmp_path, whose log reads return LOGGED and whose first reduction is recorded."""
-    seen = {"logs": [], "atten": [], "reduced": []}
+    seen = {"logs": [], "atten": [], "reduced": [], "windows": []}
 
     def logs(fname):
         run = int(re.search(r"REF_L_(\d+)", str(fname)).group(1))
@@ -37,6 +37,7 @@ def maker(tmp_path, monkeypatch):
 
     def convert(fname, *args, **kwargs):  # noqa: ARG001
         seen["reduced"].append(int(re.search(r"REF_L_(\d+)", str(fname)).group(1)))
+        seen["windows"].append((kwargs.get("start_times"), kwargs.get("end_times")))
         raise StopError
 
     monkeypatch.setattr(BP, "get_log_values", logs)
@@ -52,20 +53,23 @@ def maker(tmp_path, monkeypatch):
     return beam, seen
 
 
-def test_cd_list_overrides_the_log_and_sorts_runs(maker, caplog):
+def test_cd_list_overrides_the_log_and_sorts_runs(maker, caplog, monkeypatch):
     """T7a: each run's Cd setting is cd_list's entry for it, in run order, not the log's; the runs are then reduced
-    in order of increasing Cd (here A first, the reverse of the logs' order), and the override is logged."""
+    in order of increasing Cd, and the override is logged. Here the logs put A first (A has no Cd) and cd_list
+    reverses them, so the run list is not in Cd order under the override and the sort has work to do (I-62 A-6)."""
+    monkeypatch.setitem(LOGGED, A, NONE)
+    monkeypatch.setitem(LOGGED, B, THICK)
     beam, seen = maker
     with caplog.at_level(logging.INFO, logger=dbm.__name__), pytest.raises(StopError):
-        beam.create_db([A, B], "db", plot=False, cd_list=[NONE, THICK])
-    assert seen["atten"] == [NONE, THICK]
-    assert seen["reduced"] == [A]
+        beam.create_db([A, B], "db", plot=False, cd_list=[THICK, NONE])
+    assert seen["atten"] == [THICK, NONE]
+    assert seen["reduced"] == [B]
     # The override's own record: a substring test would also match the test's tmp_path, named after the test
     overrides = [record.getMessage() for record in caplog.records
                  if record.name == dbm.__name__ and record.getMessage().startswith("Run ")
                  and "Atten from cd_list" in record.getMessage()]
-    assert overrides == [f"Run {A}: Atten from cd_list, {NONE}, in place of the log's",
-                         f"Run {B}: Atten from cd_list, {THICK}, in place of the log's"], overrides
+    assert overrides == [f"Run {A}: Atten from cd_list, {THICK}, in place of the log's",
+                         f"Run {B}: Atten from cd_list, {NONE}, in place of the log's"], overrides
 
 
 def test_without_cd_list_the_log_values_stand(maker):
@@ -85,4 +89,12 @@ def test_cd_list_of_the_wrong_length_raises(maker, cd_list):
     beam, seen = maker
     with pytest.raises(ValueError):
         beam.create_db([A, B], "db", plot=False, cd_list=cd_list)
-    assert seen == {"logs": [], "atten": [], "reduced": []}
+    assert seen == {"logs": [], "atten": [], "reduced": [], "windows": []}
+
+
+def test_create_db_reads_each_run_in_its_time_window(maker):
+    """create_db hands its time window to each run's read (I-62 A-5): a direct beam can be time-sliced too."""
+    beam, seen = maker
+    with pytest.raises(StopError):
+        beam.create_db([A, B], "db", plot=False, start_times=[0.0], end_times=[60.0])
+    assert seen["windows"] == [([0.0], [60.0])]
