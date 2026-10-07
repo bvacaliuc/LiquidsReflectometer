@@ -589,7 +589,7 @@ def generate_report_plots(workspace: MantidWorkspace, data_type: DataType, templ
             x_zoom_range=XY_PLOT_ZOOM_X_RANGE,
             y_zoom_range=XY_PLOT_ZOOM_Y_RANGE,
         )
-    except Exception:  # noqa E722
+    except Exception:  # noqa: BLE001 -- a plot that fails becomes a text placeholder; the report is still written
         logger.warning("  - Could not generate XY plot")
         xy_plot = _plotText("Could not generate XY plot")
 
@@ -627,7 +627,7 @@ def generate_report_plots(workspace: MantidWorkspace, data_type: DataType, templ
             x_zoom_range=YTOF_PLOT_ZOOM_X_RANGE,
             y_zoom_range=tof_zoom_range,
         )
-    except Exception:  # noqa E722
+    except Exception:  # noqa: BLE001 -- a plot that fails becomes a text placeholder; the report is still written
         logger.warning("  - Could not generate X-TOF plot")
         y_tof_plot = _plotText("Could not generate X-TOF plot")
 
@@ -655,7 +655,7 @@ def generate_report_plots(workspace: MantidWorkspace, data_type: DataType, templ
             x_label="Y pixel",
             y_label="Counts",
         )
-    except Exception:  # noqa E722
+    except Exception:  # noqa: BLE001 -- a plot that fails becomes a text placeholder; the report is still written
         logger.warning("  - Could not generate Y count distribution")
         peak_pixels = _plotText(
             "Could not generate Y count distribution"
@@ -684,7 +684,7 @@ def generate_report_plots(workspace: MantidWorkspace, data_type: DataType, templ
             x_label="X pixel",
             y_label="Counts",
         )
-    except Exception:  # noqa E722
+    except Exception:  # noqa: BLE001 -- a plot that fails becomes a text placeholder; the report is still written
         logger.warning("  - Could not generate X count distribution")
         low_res_profile = _plotText("Could not generate X count distribution")
 
@@ -702,7 +702,7 @@ def generate_report_plots(workspace: MantidWorkspace, data_type: DataType, templ
             x_label="TOF (ms)",
             y_label="Counts",
         )
-    except Exception:  # noqa E722
+    except Exception:  # noqa: BLE001 -- a plot that fails becomes a text placeholder; the report is still written
         logger.warning("  - Could not generate TOF distribution")
         tof_dist = _plotText(
             "Could not generate TOF distribution"
