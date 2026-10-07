@@ -46,12 +46,6 @@ class ReductionInterface(QTabWidget):
         self.addTab(self.file_batch_tab, "Batch file")
         self.setTabText(tab_id, "Batch file")
 
-        # Time-resolved reduction tab
-        tab_id += 1
-        self.time_resolved_tab = TimeResolvedTab()
-        self.addTab(self.time_resolved_tab, "Time resolved")
-        self.setTabText(tab_id, "Time resolved")
-
         ## ROI selector
         #tab_id += 1
         #self.roi_tab = ROISelector()
@@ -69,6 +63,12 @@ class ReductionInterface(QTabWidget):
         self.sld_tab = SLD()
         self.addTab(self.sld_tab, "SLD calculator")
         self.setTabText(tab_id, "SLD calculator")
+
+        # Time-resolved reduction tab, after the tabs that were there before it
+        tab_id += 1
+        self.time_resolved_tab = TimeResolvedTab()
+        self.addTab(self.time_resolved_tab, "Time resolved")
+        self.setTabText(tab_id, "Time resolved")
 
         ## Batch template reduction tab
         #tab_id += 1

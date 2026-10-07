@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from matplotlib.figure import Figure
-from qtpy import QtCore, QtWidgets
+from qtpy import QtCore
 from qtpy.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -11,7 +11,6 @@ from qtpy.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QSpinBox,
     QTextEdit,
@@ -22,21 +21,30 @@ from qtpy.QtWidgets import (
 try:
     from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
     from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
-except Exception:
+except ImportError:
     try:
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
         from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
-    except Exception:
+    except ImportError:
         FigureCanvas = None
         NavigationToolbar = None
 
+from launcher.app_identity import ensure_identity
+from launcher.apps.settings_editor import guarded
 from lr_reduction.new_reduction_time_resolved import reduce_time_list, reduce_time_slices
 
 
 class TimeResolvedTab(QWidget):
-    """Simple tab for time-resolved reflectivity reduction."""
+    """Simple tab for time-resolved reflectivity reduction.
+
+    As the launcher's other tabs do, it reports in its own panel (the log area): every input it cannot use, and every
+    error a reduction raises (the slots are guarded), never in a modal box. Reduce is disabled while a reduction runs.
+    """
 
     def __init__(self):
+        # Before any QSettings is constructed: QSettings derives its path from the application identity (as the
+        # settings editor does).
+        ensure_identity()
         super().__init__()
         self.setWindowTitle("Time-resolved reduction")
         self.settings = QtCore.QSettings()
@@ -99,11 +107,11 @@ class TimeResolvedTab(QWidget):
 
         buttons = QHBoxLayout()
         self.process_btn = QPushButton("Reduce")
-        self.process_btn.clicked.connect(self._run_reduction)
+        self.process_btn.clicked.connect(lambda _checked=False: self._run_reduction())
         buttons.addWidget(self.process_btn)
 
         self.save_fig_btn = QPushButton("Save figure")
-        self.save_fig_btn.clicked.connect(self._save_figure)
+        self.save_fig_btn.clicked.connect(lambda _checked=False: self._save_figure())
         buttons.addWidget(self.save_fig_btn)
         layout.addLayout(buttons)
 
@@ -143,7 +151,7 @@ class TimeResolvedTab(QWidget):
 
         try:
             self.num_slices_spin.setValue(int(self.settings.value("time_resolved_num_slices", self.num_slices_spin.value())))
-        except Exception:
+        except (TypeError, ValueError):  # a stored value that is not a number: keep the default
             pass
 
         self.start_times_edit.setText(self.settings.value("time_resolved_start_times", ""))
@@ -179,9 +187,14 @@ class TimeResolvedTab(QWidget):
         if path:
             self.output_edit.setText(path)
 
+    def report_problem(self, exc):
+        """Show a failure in the panel instead of letting it leave the slot (launcher.apps.settings_editor.guarded)."""
+        self.log_edit.append(f"ERROR: {type(exc).__name__}: {exc}")
+
+    @guarded
     def _save_figure(self):
-        if self.figure is None:
-            QMessageBox.warning(self, "No figure", "There is no figure to save yet.")
+        if self.figure is None or not self.figure.axes:
+            self.log_edit.append("There is no figure to save yet.")
             return
 
         path, _ = QFileDialog.getSaveFileName(
@@ -200,26 +213,48 @@ class TimeResolvedTab(QWidget):
         parts = [p.strip() for p in str(text).split(",") if p.strip()]
         return [float(p) for p in parts]
 
-    def _run_reduction(self):
+    def _request(self):
+        """The reduction the inputs ask for, or None once the panel has said what is missing or malformed."""
         run_text = self.run_edit.text().strip()
         if not run_text:
-            QMessageBox.warning(self, "Missing run", "Please enter a run number.")
-            return
+            self.log_edit.append("Please enter a run number.")
+            return None
 
         try:
             run_number = int(float(run_text))
         except ValueError:
-            QMessageBox.warning(self, "Bad run number", "Run number must be an integer.")
-            return
+            self.log_edit.append("Run number must be an integer.")
+            return None
 
         experiment_id = self.experiment_edit.text().strip()
         if not experiment_id:
-            QMessageBox.warning(self, "Missing experiment", "Please enter an experiment ID, e.g. IPTS-36776.")
-            return
+            self.log_edit.append("Please enter an experiment ID, e.g. IPTS-36776.")
+            return None
 
         settings_file = self.settings_edit.text().strip()
         if not settings_file:
-            QMessageBox.warning(self, "Missing settings", "Please choose a settings JSON file.")
+            self.log_edit.append("Please choose a settings JSON file.")
+            return None
+
+        request = {"run": run_number, "experiment_id": experiment_id, "settings_file": settings_file,
+                   "mode": self.mode_combo.currentText()}
+        if request["mode"] != "Number of slices":
+            starts = self._parse_float_list(self.start_times_edit.text())
+            ends = self._parse_float_list(self.end_times_edit.text())
+            if len(starts) == 0 or len(ends) == 0:
+                self.log_edit.append("Please provide at least one start and end time.")
+                return None
+            if len(starts) != len(ends):
+                self.log_edit.append("Start times and end times must have the same length.")
+                return None
+            request["starts"], request["ends"] = starts, ends
+        return request
+
+    @guarded
+    def _run_reduction(self):
+        self.log_edit.clear()
+        request = self._request()
+        if request is None:
             return
 
         savepath = self.output_edit.text().strip() or None
@@ -230,12 +265,13 @@ class TimeResolvedTab(QWidget):
 
         self.save_settings()
 
-        mode = self.mode_combo.currentText()
-        self.log_edit.clear()
+        run_number, experiment_id, settings_file = request["run"], request["experiment_id"], request["settings_file"]
         self.log_edit.append(f"Starting time-resolved reduction for run {run_number} in {experiment_id}")
 
+        # Synchronous on the GUI thread (§10 A4): Reduce is unavailable until it returns or raises.
+        self.process_btn.setEnabled(False)
         try:
-            if mode == "Number of slices":
+            if request["mode"] == "Number of slices":
                 n = self.num_slices_spin.value()
                 self.log_edit.append(f"Mode: split into {n} equal time slices")
                 output, plots = reduce_time_slices(
@@ -251,14 +287,7 @@ class TimeResolvedTab(QWidget):
                 )
                 self.log_edit.append(f"Slices processed: {len(output)}")
             else:
-                starts = self._parse_float_list(self.start_times_edit.text())
-                ends = self._parse_float_list(self.end_times_edit.text())
-                if len(starts) == 0 or len(ends) == 0:
-                    QMessageBox.warning(self, "Missing time ranges", "Please provide at least one start and end time.")
-                    return
-                if len(starts) != len(ends):
-                    QMessageBox.warning(self, "Mismatched time lists", "Start times and end times must have the same length.")
-                    return
+                starts, ends = request["starts"], request["ends"]
                 self.log_edit.append(f"Mode: custom time ranges ({len(starts)} slice(s))")
                 for s, e in zip(starts, ends):
                     self.log_edit.append(f"  -> processing time window: {s} to {e} s")
@@ -275,20 +304,18 @@ class TimeResolvedTab(QWidget):
                     show_plots=False,
                 )
                 self.log_edit.append(f"Custom windows processed: {len(output)}")
+        finally:
+            self.process_btn.setEnabled(True)
 
-            if plots is not None:
-                if self.canvas is not None and plots is not None:
-                    self.figure = plots
-                    self.canvas.figure = self.figure
-                    self.figure.tight_layout()
-                    self.canvas.draw_idle()
-                    self.log_edit.append("Updated embedded plot view")
+        if plots is not None:
+            if self.canvas is not None and plots is not None:
+                self.figure = plots
+                self.canvas.figure = self.figure
+                self.figure.tight_layout()
+                self.canvas.draw_idle()
+                self.log_edit.append("Updated embedded plot view")
 
-            self.log_edit.append(f"Completed reduction: {len(output)} output slice(s)")
-            QMessageBox.information(self, "Completed", f"Time-resolved reduction finished for run {run_number}.")
-        except Exception as exc:  # pragma: no cover - UI error reporting
-            self.log_edit.append(f"ERROR: {exc}")
-            QMessageBox.critical(self, "Reduction failed", str(exc))
+        self.log_edit.append(f"Completed reduction: {len(output)} output slice(s)")
 
 
 __all__ = ["TimeResolvedTab"]
