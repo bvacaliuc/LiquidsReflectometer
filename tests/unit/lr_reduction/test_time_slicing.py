@@ -473,12 +473,15 @@ def test_reduce_time_list_returns_a_pack_per_window_in_order(slicing):
     assert len(outputs) == 2 and plots is None
 
 
-def test_nested_windows_are_one_slice_named_by_its_span(slicing):
+@pytest.mark.parametrize("starts, ends", [([0.0, 5.0], [2.0, 7.0]), ([5.0, 0.0], [7.0, 2.0])],
+                         ids=["in order", "given out of order"])
+def test_nested_windows_are_one_slice_named_by_its_span(slicing, starts, ends):
     """T3 through reduce_time_list: a window entry may itself be a list of windows (the function's own comment), one
-    output slice concatenating them, named by its span. int() of the list raised (N4)."""
-    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [[0.0, 5.0]], [[2.0, 7.0]],
+    output slice concatenating them, named by its span: the earliest start and the latest end, whatever the order the
+    windows are given in. int() of the list raised (N4)."""
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [starts], [ends],
                                   savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
-    assert [call["window"] for call in slicing.calls] == [([0.0, 5.0], [2.0, 7.0])]
+    assert [call["window"] for call in slicing.calls] == [(starts, ends)]
     assert [call["subname"] for call in slicing.calls] == ["_slice_0_7"]
 
 

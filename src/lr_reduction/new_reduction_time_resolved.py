@@ -45,7 +45,8 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
     Function to reduce the data, splitting into the number of time slices
 
     The run is split into num_slices equal windows over its duration (entry/duration), the last closed at the run's
-    end, and each is reduced through reduce_time_list under the name slice_<i>of<n> (or <subname_input>_slice_<i>of<n>).
+    end, and each is reduced through reduce_time_list with slice_<i>of<n> (or <subname_input>_slice_<i>of<n>) as its
+    subname_input, so that slice's files carry slice_<i>of<n>_slice_<start>_<end>.
     The run's file and the output folder are resolved as the reduction resolves them (run_folders).
 
     :return: (outputs, plots): one flat list of reduced data per slice, and the kinetic plot (None without plot_time)
@@ -107,8 +108,9 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
     Reduce the run once per entry of starts/ends, in order.
 
     starts and ends are lists for each separate file. Each entry is one window (two numbers) or a list of windows
-    read as one slice (see binary_processing.time_windows), named by its span: slice_<first start>_<last end>, or
-    <subname_input>_slice_<...>. The run's file and the output folder are resolved as the reduction resolves them
+    read as one slice (see binary_processing.time_windows), named by its span, slice_<earliest start>_<latest end> in
+    whole seconds (truncated), or <subname_input>_slice_<...>. The run's file and the output folder are resolved as the
+    reduction resolves them
     (run_folders).
 
     :return: (outputs, plots): one flat list of reduced data per entry, in order, and the kinetic plot (None without
