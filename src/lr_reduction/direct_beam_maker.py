@@ -155,15 +155,10 @@ class Direct_Beam:  # noqa: N801 -- public API name; rename deferred (imported b
             fname = os.path.join(nexus_base, f'REF_L_{run}.nxs.h5')
             print(fname)
 
-            binary_return = BP.convert_to_binary(fname, self.low_res, collapse_x = True, tofbin=self.tofbin, tofmax=self.tofmax,
+            # A run (or window) without proton charge raises, naming itself (binary_processing.convert_to_binary)
+            tof_array, y_tof_corr, error_array_corr, log_values, DTC_corr = BP.convert_to_binary(fname, self.low_res, collapse_x = True, tofbin=self.tofbin, tofmax=self.tofmax,
                                                                                                  tofmin=self.tofmin, deadtime=self.deadtime, tof_step=self.tof_step,
                                                                                                  start_times=start_times, end_times=end_times)
-            if binary_return is None:
-                # TODO: fix this handling properly
-                print('Ending DB processing. No counts in run:', run)
-                return
-            else:
-                tof_array, y_tof_corr, error_array_corr, log_values, DTC_corr = binary_return
             T = tof_array * 1000
             DTC = DTC_corr
             y_tof_corr = np.flipud(y_tof_corr) # flip the y-axis to match the orientation of the detector
