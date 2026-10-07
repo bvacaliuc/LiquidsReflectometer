@@ -52,7 +52,7 @@ def error_offsets_of(pulses):
     return [500.0 + p for p in pulses]
 
 
-def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=None, charge=None):
+def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=None, charge=None, seq=1):
     """A run's NeXus file: the logs reduce_from_file groups by, its duration and charge, and (unless `events` is
     False) the event and error-event banks with their pulse times and per-pulse indices. By default every bank has
     the same pulses, one error event per pulse and one charge entry per pulse, as on the real runs measured; a test
@@ -66,7 +66,7 @@ def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=
         f["entry/duration"] = np.array([pulses[-1] if n else 0.0], dtype=np.float32)  # the last pulse at the end (REF_L_179932)
         f["entry/proton_charge"] = np.array([TOTAL])
         logs = f.create_group("entry/DASlogs")
-        logs["BL4B:CS:Autoreduce:Sequence:Num/value"] = np.array([1])
+        logs["BL4B:CS:Autoreduce:Sequence:Num/value"] = np.array([seq])
         logs["BL4B:CS:Autoreduce:Sequence:Id/value"] = np.array([SEQ_ID])
         logs["BL4B:Mot:ths.RBV/value"] = np.array([0.6])
         logs["BL4B:Mot:thi.RBV/value"] = np.array([0.6])
@@ -530,12 +530,20 @@ def test_a_window_with_no_reduced_data_is_reported(slicing, monkeypatch):
     assert "[0.0, 3.0)" in str(raised.value) and "no reduced result data" in str(raised.value), str(raised.value)
 
 
-def test_the_priors_re_saves_name_the_window(slicing):
-    """T6: a windowed reduction that combines with the files already in its folder (check_for_prior) rewrites them;
-    every file it writes names the window."""
-    nrff.reduce_from_file([RUN], slicing.settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
-                          override_params={"Spath": slicing.out}, check_for_prior=True,
-                          start_times=[0.0], end_times=[3.0])
+def test_the_priors_re_saves_name_the_window(tmp_path, slicing):
+    """T6: a windowed reduction that combines with the files already in its folder (check_for_prior, as autoreduction
+    does) rewrites them; every file it writes names the window. The sequence has two positions, reduced one after the
+    other, so the second reduction finds the first's file and re-saves both and the combined file."""
+    second = RUN + 1
+    write_run(slicing.nexus / f"REF_L_{second}.nxs.h5", seq=2)
+    two = {key: value * 2 for key, value in json.loads(slicing.settings.read_text()).items() if isinstance(value, list)}
+    settings = settings_for(tmp_path, **two)
+    for run in (RUN, second):
+        nrff.reduce_from_file([run], settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                              override_params={"Spath": slicing.out}, check_for_prior=True,
+                              start_times=[0.0], end_times=[3.0])
+    assert len(slicing.calls) == 2 and sorted(path.name for path in slicing.out.glob("*.dat")) == [
+        f"REFL_{SEQ_ID}_1_{RUN}.dat", f"REFL_{SEQ_ID}_2_{second}.dat", f"REFL_{SEQ_ID}_combined.dat"]
     assert_one_window_line_and_the_marker(slicing.out)
 
 

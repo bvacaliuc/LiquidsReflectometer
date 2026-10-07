@@ -60,7 +60,12 @@ def test_cd_list_overrides_the_log_and_sorts_runs(maker, caplog):
         beam.create_db([A, B], "db", plot=False, cd_list=[NONE, THICK])
     assert seen["atten"] == [NONE, THICK]
     assert seen["reduced"] == [A]
-    assert any(record.name == dbm.__name__ and "cd_list" in record.getMessage() for record in caplog.records)
+    # The override's own record: a substring test would also match the test's tmp_path, named after the test
+    overrides = [record.getMessage() for record in caplog.records
+                 if record.name == dbm.__name__ and record.getMessage().startswith("Run ")
+                 and "Atten from cd_list" in record.getMessage()]
+    assert overrides == [f"Run {A}: Atten from cd_list, {NONE}, in place of the log's",
+                         f"Run {B}: Atten from cd_list, {THICK}, in place of the log's"], overrides
 
 
 def test_without_cd_list_the_log_values_stand(maker):
