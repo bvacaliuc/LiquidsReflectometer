@@ -1,3 +1,4 @@
+import logging
 import os
 from pathlib import Path
 
@@ -6,6 +7,8 @@ from matplotlib import pyplot as plt
 
 import lr_reduction.binary_processing as BP
 import lr_reduction.nr_tools as tools
+
+logger = logging.getLogger(__name__)
 
 
 class Direct_Beam:  # noqa: N801 -- public API name; rename deferred (imported by callers)
@@ -83,12 +86,19 @@ class Direct_Beam:  # noqa: N801 -- public API name; rename deferred (imported b
         flip_atten: whether to flip the attenuator values (earlier runs had an issue in the log files)
         return_traces: whether to return the individual traces for each run in addition to the combined spectrum
         experiment_id: optional experiment ID to use for determining default paths (overrides instance-level ID)
+        cd_list: optional Cd attenuator setting for each run, in run order, replacing the runs' Atten logs: each entry is
+            what the Atten log holds (the four foil flags _extract_cd_values reads). One entry per run, else ValueError.
+            The runs are reduced in order of increasing Cd either way.
+        start_times, end_times: optional time windows to read of each run (binary_processing.time_windows)
 
         Returns:
         lam_out: array of wavelength values for the direct beam spectrum
         int_out: array of intensity values for the direct beam spectrum
         err_out: array of error values for the direct beam spectrum
         """
+
+        if cd_list is not None and len(cd_list) != len(run_list):
+            raise ValueError(f"cd_list needs one Atten setting per run: {len(cd_list)} for {len(run_list)} runs")
 
         # loop over the Cd spectra measurements
         LAM = []
@@ -126,9 +136,9 @@ class Direct_Beam:  # noqa: N801 -- public API name; rename deferred (imported b
             log_values = BP.get_log_values(fname)             # Just need the Atten log value at this point. But can use existing function
             # if cd_list provided then let this overwrite the log values
             # short-term fix, hopefully not needed long term, otherwise should put before the file load.
-            if cd_list:
+            if cd_list is not None:
                 log_values['Atten']=cd_list[ii]
-                print('Replacing attentuator list with provided input: ', cd_list)
+                logger.info("Run %s: Atten from cd_list, %s, in place of the log's", run, cd_list[ii])
 
             print(log_values['Atten'])
             # Need to split some parts out into separate functions if the logic is correct.
