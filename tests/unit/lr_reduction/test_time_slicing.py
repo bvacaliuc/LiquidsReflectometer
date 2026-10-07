@@ -97,13 +97,19 @@ REAL_SHAPED = {
     "unsorted tail": (np.concatenate([np.arange(0.0, 17.0), [17.10, 10.72, 10.73]]), None, 17.2),
     "empty pulses": (PULSES, [3, 0, 3, 0, 0, 3, 3, 0, 3, 0], PULSES[-1]),
     "beam-off tail": (PULSES, None, 14.5),
+    "beam-off tail, a quarter on the last pulse": (PULSES, None, 18.0),
     "last pulse at the duration": (PULSES, None, PULSES[-1]),
+    "charge log past the last event pulse": (PULSES, None, 9.5),
 }
+#: The banks other than the events, where a shape gives them pulses of their own: here the charge log has an entry after
+#: the last event pulse, so the run's end is the charge log's (read_run_end takes the latest over the three banks).
+SHAPED_BANKS = {"charge log past the last event pulse": {"charge_times": np.append(PULSES, 9.5),
+                                                         "charge": (np.arange(11) + 1.0) * 10.0}}
 
 
 def write_shaped(path, shape):
     pulses, counts, duration = REAL_SHAPED[shape]
-    write_run(path, pulses=pulses, counts=counts, duration=duration)
+    write_run(path, pulses=pulses, counts=counts, duration=duration, **SHAPED_BANKS.get(shape, {}))
     return pulses
 
 
@@ -506,6 +512,20 @@ def test_reduce_time_slices_makes_equal_windows_named_i_of_n(slicing, monkeypatc
     assert_one_window_line_and_the_marker(slicing.out)
 
 
+def test_the_figure_given_reaches_the_plot(slicing, monkeypatch):
+    """T8': the figure a caller gives (the tab's own) reaches plot_kinetic through reduce_time_slices and through
+    reduce_time_list."""
+    drawn = []
+    monkeypatch.setattr(slicing.nrtr, "plot_kinetic",
+                        lambda *_args, figure=None, **_kwargs: drawn.append(figure) or figure)
+    own = object()
+    slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, 2, savepath=slicing.out, datapath=slicing.nexus,
+                                    show_plots=False, figure=own)
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0], [3.0], savepath=slicing.out,
+                                  datapath=slicing.nexus, show_plots=False, figure=own)
+    assert drawn == [own, own]
+
+
 @pytest.mark.parametrize("n", [0, -1])
 def test_reduce_time_slices_needs_at_least_one_slice(slicing, n):
     """T5a: zero or a negative number of slices is a ValueError, before anything is reduced."""
@@ -580,6 +600,8 @@ def test_a_boundary_on_the_last_pulse_does_not_duplicate_it(slicing, shape, boun
                                   datapath=slicing.nexus, plot_time=False)
     assert len(slicing.calls) == 2
     assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
+    # both ends are as given: the first is not final, and the final one's end passes the last pulse already
+    assert [call["window"] for call in slicing.calls] == [(0.0, t), (t, duration)]
 
 
 def test_overlapping_windows_that_end_last_both_reach_the_run_end(slicing):
@@ -588,6 +610,36 @@ def test_overlapping_windows_that_end_last_both_reach_the_run_end(slicing):
     slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, 5.0], [9.0, 9.0], savepath=slicing.out,
                                   datapath=slicing.nexus, plot_time=False)
     assert [call["selected"][0] for call in slicing.calls] == [ids_of(range(10)), ids_of(range(5, 10))]
+
+
+def test_reduce_time_list_closes_its_final_window(slicing):
+    """T2' through reduce_time_list: user windows ending at the run's recorded duration, which rounds below the last
+    pulse (as on REF_L_184981), partition the run: the final one takes the last pulse."""
+    path = slicing.nexus / f"REF_L_{RUN}.nxs.h5"
+    write_shaped(path, "float32 duration below the last pulse")
+    duration = float(np.float32(LAST_184981))
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, 40.0], [40.0, duration],
+                                  savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
+    assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
+
+
+def test_a_nested_entrys_final_window_is_closed(slicing):
+    """T2'/T3: when a slice is a list of windows, the run's final window may be one of them: it is closed there too, and
+    the entry stays a list."""
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [[0.0, 5.0]], [[2.0, 9.0]], savepath=slicing.out,
+                                  datapath=slicing.nexus, plot_time=False)
+    assert [call["window"] for call in slicing.calls] == [([0.0, 5.0], [2.0, CLOSED_AT_9])]
+    assert slicing.calls[0]["selected"][0] == ids_of([0, 1, 5, 6, 7, 8, 9])
+
+
+def test_an_invalid_window_is_reported_with_the_others(slicing):
+    """T4/T4c through reduce_time_list: a window that is not valid ([5, 5)) is left out of the choice of the final
+    window and reported after the others have been reduced, with its window; it does not end the call."""
+    with pytest.raises(ValueError) as raised:
+        slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, 5.0, 3.0], [3.0, 5.0, 6.0],
+                                      savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
+    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (3.0, 6.0)]
+    assert "[5.0, 5.0)" in str(raised.value), str(raised.value)
 
 
 @pytest.mark.parametrize("n", [1, 4])
@@ -677,7 +729,10 @@ def test_the_kinetic_map_shows_r_and_says_so(slicing):
     q = np.geomspace(0.01, 0.1, 5)
     outputs = [[{"Q": q, "R": (k + 1) * 1e-3 * np.ones(5), "dR": (k + 1) * 1e-5 * np.ones(5), "dQ": 0.02 * q}]
                for k in range(3)]
+    pyplot = __import__("matplotlib.pyplot").pyplot
+    registered = len(pyplot.get_fignums())
     figure = slicing.nrtr.plot_kinetic(outputs, RUN, times=[1.0, 2.0, 3.0], show=False)
+    assert len(pyplot.get_fignums()) == registered, "a plot that is not shown leaves no pyplot figure (I-62 A-1)"
     try:
         image = next(axes.images[0] for axes in figure.axes if axes.images)
         np.testing.assert_array_equal(np.asarray(image.get_array()), [pack[0]["R"] for pack in outputs])

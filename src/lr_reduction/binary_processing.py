@@ -156,8 +156,6 @@ def event_mask(event_index, n_events, pulses):
     without events selects none.
     '''
     event_index = np.asarray(event_index, dtype=np.int64)
-    if len(event_index) == 0:
-        return np.zeros(n_events, dtype=bool)
     counts = np.diff(np.append(event_index, n_events))
     return np.repeat(np.asarray(pulses, dtype=bool), counts)
 
