@@ -80,12 +80,34 @@ def write_run(path, events=True):
 
 @pytest.fixture(autouse=True)
 def no_facility_paths(tmp_path, monkeypatch):
-    """The config's /SNS/REF_L default (NRReductionConfig.base_path) points into tmp_path here, so no test can read or
-    write the facility tree. A test that wrote under the default fails at teardown: every folder a test uses is given
-    explicitly. Only computing the default is harmless (reduce_from_file's hasattr() evaluates the path property)."""
+    """No test reads or writes the facility tree.
+    - The config's /SNS/REF_L default (NRReductionConfig.base_path) points into tmp_path. A test that wrote under it
+      fails at teardown: every folder a test uses is given explicitly. Only computing the default is harmless
+      (reduce_from_file's hasattr() evaluates the path property).
+    - A path spelled under /SNS in the code (the contribution's literals, a mutant restoring one) is refused before
+      the file is opened or written: h5py.File and numpy.savetxt raise for it. The attempt is recorded and read at
+      teardown, so a handler that catches the raise cannot hide it."""
     default = tmp_path / "facility-default"
     monkeypatch.setattr(NRReductionConfig, "base_path", property(lambda self: default / str(self.experiment_id)))
+    attempts, real_file, real_savetxt = [], h5py.File, np.savetxt
+
+    def refuse(path):
+        if str(path).startswith("/SNS"):
+            attempts.append(str(path))
+            raise AssertionError(f"a test reached the facility tree: {path}")
+
+    def guarded_file(name, *args, **kwargs):
+        refuse(name)
+        return real_file(name, *args, **kwargs)
+
+    def guarded_savetxt(fname, *args, **kwargs):
+        refuse(fname)
+        return real_savetxt(fname, *args, **kwargs)
+
+    monkeypatch.setattr(h5py, "File", guarded_file)
+    monkeypatch.setattr(np, "savetxt", guarded_savetxt)
     yield
+    assert attempts == [], f"the facility tree was reached: {attempts}"
     assert not default.exists(), sorted(str(path.relative_to(default)) for path in default.rglob("*"))
 
 
