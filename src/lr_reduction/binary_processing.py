@@ -178,35 +178,39 @@ def read_run_end(fname):
     return (max(latest) if latest else None), duration
 
 
-def final_window(windows, last_pulse, duration):
+def final_windows(windows, last_pulse, duration):
     '''
-    The index of the run's final window among windows ((start, end) pairs), or None. A window reaches the run's end
-    when its end is at or past the earlier of the run's last pulse time and its recorded duration (the float32 duration
-    can round below the last pulse). Of the windows that reach it, the final one is the one with the greatest end, the
-    last of them on a tie; a window list that stops short of the run's end has none.
+    The indices of the run's final window among windows ((start, end) pairs): those that reach the run's end and end
+    last. A window reaches the run's end when its end is at or past the earlier of the run's last pulse time and its
+    recorded duration (the float32 duration can round below the last pulse). Of the windows that reach it, the final
+    one ends last; windows that overlap and end together at that end are all final, each taking its share of the
+    run's last pulses (a pulse in two windows is taken twice). A window list that stops short of the run's end has
+    none. Contiguous windows have one.
     '''
     marks = [m for m in (last_pulse, duration) if m is not None]
     if not marks:
-        return None
+        return []
     reach = min(marks)
-    final = None
-    for i, (_start, end) in enumerate(windows):
-        if end >= reach and (final is None or end >= windows[final][1]):
-            final = i
-    return final
+    ends = [end for _start, end in windows if end >= reach]
+    if not ends:
+        return []
+    last = max(ends)
+    return [i for i, (_start, end) in enumerate(windows) if end == last]
 
 
 def close_final_window(windows, last_pulse, duration):
     '''
-    The windows, with the run's final window (final_window) closed at the run's end: if its end does not pass the
+    The windows, with the run's final window (final_windows) closed at the run's end: if its end does not pass the
     last pulse, it is moved just past it (numpy.nextafter), so its half-open selection takes every remaining pulse in
     every bank. Every other window is returned as given and stays half-open, even when its end equals the last pulse
     time, so contiguous windows partition the run: no pulse lost at the end, none taken twice.
     '''
     windows = [(start, end) for start, end in windows]
-    final = final_window(windows, last_pulse, duration)
-    if final is not None and last_pulse is not None and windows[final][1] <= last_pulse:
-        windows[final] = (windows[final][0], float(np.nextafter(last_pulse, np.inf)))
+    if last_pulse is None:
+        return windows
+    for i in final_windows(windows, last_pulse, duration):
+        if windows[i][1] <= last_pulse:
+            windows[i] = (windows[i][0], float(np.nextafter(last_pulse, np.inf)))
     return windows
 
 

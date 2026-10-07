@@ -582,6 +582,14 @@ def test_a_boundary_on_the_last_pulse_does_not_duplicate_it(slicing, shape, boun
     assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
 
 
+def test_overlapping_windows_that_end_last_both_reach_the_run_end(slicing):
+    """T2'/T3: two overlapping windows that end together at the run's last pulse are both final: each takes the pulses
+    in its own range, the last one included, so the overlap is counted twice as T3 says, and nothing is lost."""
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, 5.0], [9.0, 9.0], savepath=slicing.out,
+                                  datapath=slicing.nexus, plot_time=False)
+    assert [call["selected"][0] for call in slicing.calls] == [ids_of(range(10)), ids_of(range(5, 10))]
+
+
 @pytest.mark.parametrize("n", [1, 4])
 def test_the_final_window_takes_every_remaining_pulse_despite_float32_duration(slicing, n):
     """T2'c (B-1): entry/duration is float32 and here rounds below the last pulse (76.78062439 against 76.780626, as on
