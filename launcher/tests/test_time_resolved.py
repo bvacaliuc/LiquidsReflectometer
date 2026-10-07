@@ -138,6 +138,19 @@ def test_the_inputs_round_trip_through_qsettings(tab):
         reopened.close()
 
 
+def test_a_stored_slice_count_that_is_not_a_number_keeps_the_default(tab):
+    """T8: QSettings holds what was stored; a slice count that is not a number opens with the default, and the tab
+    opens."""
+    from launcher.apps import time_resolved
+
+    tab.widget.settings.setValue("time_resolved_num_slices", "many")
+    reopened = time_resolved.TimeResolvedTab()
+    try:
+        assert reopened.num_slices_spin.value() == 2
+    finally:
+        reopened.close()
+
+
 def test_the_launcher_carries_the_tab_after_the_others(isolated_qapp):  # noqa: ARG001
     """T8: the tab is reachable from the launcher, after the tabs that were there before it."""
     from launcher.apps.time_resolved import TimeResolvedTab

@@ -73,9 +73,10 @@ def test_without_cd_list_the_log_values_stand(maker):
     assert seen["reduced"] == [B]
 
 
-@pytest.mark.parametrize("cd_list", [[NONE], [NONE, THICK, NONE]], ids=["one short", "one too many"])
+@pytest.mark.parametrize("cd_list", [[NONE], [NONE, THICK, NONE], []], ids=["one short", "one too many", "empty"])
 def test_cd_list_of_the_wrong_length_raises(maker, cd_list):
-    """T7c: a cd_list that is not one entry per run is a ValueError, before any run is read."""
+    """T7c: a cd_list that is not one entry per run is a ValueError, before any run is read. An empty list is not
+    "no override": None is."""
     beam, seen = maker
     with pytest.raises(ValueError):
         beam.create_db([A, B], "db", plot=False, cd_list=cd_list)

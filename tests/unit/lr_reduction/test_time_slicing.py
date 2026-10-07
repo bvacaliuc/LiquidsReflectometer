@@ -52,30 +52,35 @@ def error_offsets_of(pulses):
     return [500.0 + p for p in pulses]
 
 
-def write_run(path, events=True):
+def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=None, charge=None):
     """A run's NeXus file: the logs reduce_from_file groups by, its duration and charge, and (unless `events` is
-    False) the event and error-event banks with their pulse times and per-pulse indices."""
-    n = len(PULSES)
+    False) the event and error-event banks with their pulse times and per-pulse indices. By default every bank has
+    the same pulses, one error event per pulse and one charge entry per pulse, as on the real runs measured; a test
+    can give the error bank or the charge log pulses of their own."""
+    n = len(pulses)
+    error_pulses = pulses if error_pulses is None else error_pulses
+    charge_times = pulses if charge_times is None else charge_times
+    charge = CHARGE if charge is None else charge
     with h5py.File(path, "w") as f:
         f["entry/title"] = [b"slicing test"]
-        f["entry/duration"] = np.array([PULSES[-1]], dtype=np.float32)  # the last pulse sits at the end (REF_L_179932)
+        f["entry/duration"] = np.array([pulses[-1] if n else 0.0], dtype=np.float32)  # the last pulse at the end (REF_L_179932)
         f["entry/proton_charge"] = np.array([TOTAL])
         logs = f.create_group("entry/DASlogs")
         logs["BL4B:CS:Autoreduce:Sequence:Num/value"] = np.array([1])
         logs["BL4B:CS:Autoreduce:Sequence:Id/value"] = np.array([SEQ_ID])
         logs["BL4B:Mot:ths.RBV/value"] = np.array([0.6])
         logs["BL4B:Mot:thi.RBV/value"] = np.array([0.6])
-        logs["proton_charge/value"] = CHARGE
-        logs["proton_charge/time"] = PULSES
+        logs["proton_charge/value"] = charge
+        logs["proton_charge/time"] = charge_times
         if events:
-            ids = np.array(ids_of(range(n)))
+            ids = np.array(ids_of(range(n)), dtype=np.int64)
             f["entry/bank1_events/event_id"] = ids
             f["entry/bank1_events/event_time_offset"] = (1000.0 + ids).astype(np.float32)
-            f["entry/bank1_events/event_time_zero"] = PULSES
+            f["entry/bank1_events/event_time_zero"] = np.asarray(pulses, dtype=float)
             f["entry/bank1_events/event_index"] = np.arange(n) * PER_PULSE
-            f["entry/bank_error_events/event_time_offset"] = (500.0 + PULSES).astype(np.float32)
-            f["entry/bank_error_events/event_time_zero"] = PULSES
-            f["entry/bank_error_events/event_index"] = np.arange(n)
+            f["entry/bank_error_events/event_time_offset"] = (500.0 + np.asarray(error_pulses)).astype(np.float32)
+            f["entry/bank_error_events/event_time_zero"] = np.asarray(error_pulses, dtype=float)
+            f["entry/bank_error_events/event_index"] = np.arange(len(error_pulses))
 
 
 @pytest.fixture(autouse=True)
@@ -226,6 +231,43 @@ def test_a_window_without_charge_is_a_named_error(run_file, start, end):
         BP.convert_to_binary(run_file, LOWRES, start_times=[start], end_times=[end])
     message = str(raised.value)
     assert run_file.name in message and str(start) in message and str(end) in message, message
+
+
+def test_a_window_after_the_run_selects_nothing(run_file):
+    """T4c (the selection): a window after the last pulse, or between two pulses, reads no event, no error event and
+    no charge; convert_to_binary then says so (above)."""
+    for start, end in [(20.0, 30.0), (2.25, 2.75)]:
+        e_offset, event_id, error_offset, pcharge, cpc, _ = BP.load_and_extract(run_file, [start], [end])
+        assert (len(e_offset), len(event_id), len(error_offset), len(cpc)) == (0, 0, 0, 0), (start, end)
+        assert np.asarray(pcharge).tolist() == [0.0]
+
+
+def test_a_run_without_pulses_reads_nothing(tmp_path, monkeypatch):
+    """A run that recorded no pulse: a window reads nothing (no IndexError on the empty pulse list), and the reduction
+    says there is no charge."""
+    path = tmp_path / f"REF_L_{RUN}.nxs.h5"
+    write_run(path, pulses=np.array([]), charge=np.array([]))
+    monkeypatch.setattr(BP, "get_log_values", lambda _fname: {})
+    _, event_id, error_offset, _, cpc, _ = BP.load_and_extract(path, [0.0], [5.0])
+    assert (len(event_id), len(error_offset), len(cpc)) == (0, 0, 0)
+    with pytest.raises(ValueError, match="No proton charge"):
+        BP.convert_to_binary(path, LOWRES, start_times=[0.0], end_times=[5.0])
+
+
+def test_each_bank_is_selected_by_its_own_pulse_times(tmp_path, monkeypatch):
+    """T1: the error events and the charge are selected by the window's predicate on their own pulse times, not by
+    the event pulses' positions. Here the error bank has a pulse every other second and the charge log one entry more
+    at the start (at -1 s): [2, 5) is error pulses 2 and 4, and the charge logged at 2, 3 and 4 s."""
+    path = tmp_path / f"REF_L_{RUN}.nxs.h5"
+    charge_times = np.concatenate([[-1.0], PULSES])
+    charge = np.concatenate([[1000.0], CHARGE])
+    write_run(path, error_pulses=np.arange(0.0, 10.0, 2.0), charge_times=charge_times, charge=charge)
+    monkeypatch.setattr(BP, "get_log_values", lambda _fname: {})
+    _, event_id, error_offset, pcharge, cpc, _ = BP.load_and_extract(path, [2.0], [5.0])
+    assert event_id.tolist() == ids_of([2, 3, 4])
+    assert error_offset.tolist() == [502.0, 504.0]
+    assert cpc.tolist() == CHARGE[2:5].tolist()
+    assert np.asarray(pcharge).tolist() == [CHARGE[2:5].sum()]
 
 
 # ---------------------------------------------------------------------------
@@ -466,6 +508,35 @@ def test_a_slice_that_cannot_be_reduced_is_reported_after_the_others(slicing):
     assert "[3.0, 6.0)" in str(raised.value) and "no proton charge" in str(raised.value), str(raised.value)
     written = sorted(path.name for path in slicing.out.glob("*.dat"))
     assert any("_slice_3of3_" in name for name in written) and not any("_slice_2of3_" in name for name in written)
+
+
+def test_flatten_reduced_results_takes_each_shape(slicing):
+    """The frame: reduce_from_file returns one dict, a list of dicts, or lists of them nested (with priors); each is
+    one flat list of the dicts, and anything else is dropped."""
+    flatten = slicing.nrtr.flatten_reduced_results
+    a, b, c = {"Q": 1}, {"Q": 2}, {"Q": 3}
+    assert flatten(a) == [a]
+    assert flatten([a, b]) == [a, b]
+    assert flatten([a, [b, (c,)], "not a result"]) == [a, b, c]
+    assert flatten("not a result") == []
+
+
+def test_a_window_with_no_reduced_data_is_reported(slicing, monkeypatch):
+    """T4c: a window whose reduction returns no data is reported with its window, as one that raises is."""
+    monkeypatch.setattr(slicing.nrtr.reduction, "reduce_from_file", lambda *_args, **_kwargs: ([], [], [], None))
+    with pytest.raises(ValueError) as raised:
+        slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0], [3.0], savepath=slicing.out,
+                                      datapath=slicing.nexus, plot_time=False)
+    assert "[0.0, 3.0)" in str(raised.value) and "no reduced result data" in str(raised.value), str(raised.value)
+
+
+def test_the_priors_re_saves_name_the_window(slicing):
+    """T6: a windowed reduction that combines with the files already in its folder (check_for_prior) rewrites them;
+    every file it writes names the window."""
+    nrff.reduce_from_file([RUN], slicing.settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                          override_params={"Spath": slicing.out}, check_for_prior=True,
+                          start_times=[0.0], end_times=[3.0])
+    assert_one_window_line_and_the_marker(slicing.out)
 
 
 def test_the_run_file_is_resolved_the_campaigns_way(tmp_path, slicing):
