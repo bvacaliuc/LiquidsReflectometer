@@ -88,7 +88,7 @@ test `end >= pulse_times[-1]` fires for any window whose end equals the last ent
 off-by-ones and §9 asked for a fixture where the dimension matters — but the dimensions that matter on real data were **the file's own
 irregularities**, which only reading real files reveals. The Integrator read 63 of them. L15 below.
 
-### v2 behaviours (T1/T2 restated; the rest unchanged)
+### Behaviours restated for the second attempt (T1/T2; the rest unchanged)
 
 | # | Behaviour |
 |---|---|
@@ -98,7 +98,7 @@ irregularities**, which only reading real files reveals. The Integrator read 63 
 | **T9′ (B-5)** | `plot_kinetic`'s colour map shows **R** (the evident intent; the offset panel beside it plots R) under a colour bar labelled "R"; `dR` is not plotted unless labelled `dR` and said so in the PR body. Pinned: the image array equals the slices' R rows (in slice order) and the label text. |
 | **T8′ (A-1, taken — same plot path)** | The tab draws the result **into its own figure/canvas** (or gives each result its own canvas + toolbar and releases the old), so `figure.canvas is tab.canvas`, pan/zoom work, the drawing fills the canvas without a resize, and `plt.get_fignums()` does not grow per Reduce when `show=False`. |
 
-### v2 fixture — a builder that models real files (the §6 fixture's successor)
+### Fixture for the second attempt — a builder that models real files (the §6 fixture's successor)
 
 The slug's NeXus builder gains knobs and the T1′/T2′ tests use **all of them**: (a) `duration_float32_below_last_pulse=True` — `entry/duration` is
 written as float32 and chosen so it rounds **below** the float64 last pulse time (e.g. last pulse 76.780626, duration 76.78062439); (b)
@@ -107,7 +107,7 @@ pulses with no events (I-62 test A-4); (d) a pulse exactly **at** a boundary tim
 runs over `reduce_time_slices(num_slices=N)` for N ∈ {1, 4, 10} **and** over `reduce_time_list` with a user boundary at `t_last`, on every builder
 variant, asserting per bank: disjoint, union = all, charge sum = run's (exact).
 
-### v2 tests and rows
+### Tests and rows for the second attempt
 
 | # | Test | Reds under |
 |---|---|---|
