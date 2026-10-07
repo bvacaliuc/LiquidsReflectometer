@@ -1,7 +1,7 @@
 # Plan: `time-slicing-reconcile` — intake of upstream `add-time-slicing` (PR #205) at `8eead58`: the snapshot merged onto the campaign's reduction stack, its intent pinned by tests first, every conflict hunk justified, the tab brought to the launcher's conventions
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `time-slicing-reconcile` (refs `triage/time-slicing-reconcile`, `feature/time-slicing-reconcile`,
-`qa/time-slicing-reconcile`; the snapshot `contrib/add-time-slicing@8eead58`) · **Status:** READY — v1 (attempt 1 of N = 3) — **DISPATCHED 2026-10-07 (A-101)** on the posture line **"Upstream intake — take add-time-slicing @ 8eead58"** (in force at charter `f60e7bf`, RULES_ADVANCED M-54; prepared the wake before on the human's couriered line, `requests/time-slicing-take-line.md`, M-52). **Snapshot ref pushed:** `contrib/add-time-slicing@8eead58` on the subject's `agentic` (= `8eead58`; immutable — a later upstream commit is a new intake). Tips re-measured at dispatch and **unmoved** since §2: `exp-review` `c39efe9`, the stack tip `ae5ce0e`, #42 `aeba172` — F2/F3 stand · **Base:** `agentic/feature/header-scale-factors-per-position` @ `ae5ce0e`
+`qa/time-slicing-reconcile`; the snapshot `contrib/add-time-slicing@8eead58`) · **Status:** READY — **v2 (attempt 2 of N = 3)** — v1 REJECTED 2026-10-07 at `97a6f9b` (`review/time-slicing-reconcile` @ `dfa21b4`, I-62: "the window selection does not partition real runs; the kinetic map plots dR as R" — five blocks, three of them one closing rule measured on the 63 real runs of the test-data submodule; the no-window path byte-identical to the base in all 148 harness files; §8.7 PASS) — **v2 = the closing rule rewritten as a per-pulse predicate with a builder that models real files (B-1..B-3), the pack name settled (B-4), the kinetic map showing R (B-5), the tab drawing into its own figure (A-1); production lines move, so §8.2's byte-identity is re-run**; the Developer continues on `feature/time-slicing-reconcile` @ `dfa21b4` (= `97a6f9b` + the Integrator's `todo.md`; the stack unmoved) — v1 was DISPATCHED 2026-10-07 (A-101) on the posture line **"Upstream intake — take add-time-slicing @ 8eead58"** (in force at charter `f60e7bf`, RULES_ADVANCED M-54; prepared the wake before on the human's couriered line, `requests/time-slicing-take-line.md`, M-52). **Snapshot ref pushed:** `contrib/add-time-slicing@8eead58` on the subject's `agentic` (= `8eead58`; immutable — a later upstream commit is a new intake). Tips re-measured at dispatch and **unmoved** since §2: `exp-review` `c39efe9`, the stack tip `ae5ce0e`, #42 `aeba172` — F2/F3 stand · **Base:** `agentic/feature/header-scale-factors-per-position` @ `ae5ce0e`
 (the reduction stack's tip: #34 → #46; **stacked under clause (4)**, overlap census at `exp-review` @ `c39efe9`, tests excluded, 2026-10-07: the
 contribution's 11 files ∩ #34 `rereduction-headers-land` = ∩ #46 `header-scale-factors-per-position` = {`nr_reduction_calc.py`,
 `save_reduced_data.py`, `new_reduction_from_file.py`} — the larger overlap; ∩ #42 `launcher-env-outside-xdg-cache` = {`launcher/new_launcher.py`}
@@ -15,7 +15,7 @@ building; the snapshot ref pushed by the Analyst at dispatch (intake step 1) · 
 Dispatch time-slicing-reconcile now. noqa-sweep waits until time-slicing-reconcile's draft PR is open, whatever the stacking count says"]`;
 charter §3 row `time-slicing-reconcile`; the intake procedure `plans/upstream-add-time-slicing-plan.md` (V1-10, V1-38 §, V1-39 §5).
 
-Canonical copy: ledger `plans/time-slicing-reconcile-plan.md`; the copy on `triage/time-slicing-reconcile` is byte-identical at dispatch.
+Canonical copy: ledger `plans/time-slicing-reconcile-plan.md`; the copy on `triage/time-slicing-reconcile-v2` is byte-identical at dispatch.
 
 ## Declared scope
 
@@ -65,6 +65,71 @@ dataset-path lookup is `todo-nexus-event-paths-time-indexed` (next campaign); `n
 | F8 | `launcher/apps/time_resolved.py` (294 lines, `TimeResolvedTab(QWidget)`): `QMessageBox.warning/information/critical` ×8 (missing run, bad run number, missing experiment, missing settings, missing/mismatched time lists, completed, failed), `except Exception:` ×3 (`:25`, `:29` at import, `:146` in `read_settings`) and `except Exception as exc:  # pragma: no cover` (`:289`), `QFileDialog` ×3, `_parse_float_list`, `_run_reduction` calls `reduce_time_slices`/`reduce_time_list` **synchronously on the GUI thread**; `new_launcher.py` registers the tab (+7). Conventions the launcher enforces that it misses: `no_qmessagebox` (report in-panel, `@guarded`), no swallowed exceptions, logging not `print`, no blocking reduction on the GUI thread without at least a disabled button + status (the campaign's editor slots are the pattern). | `git show 8eead58:launcher/apps/time_resolved.py`; `grep -n QMessageBox\|except` → lines above. |
 | F9 | The campaign's name for a run's file: `nr_reduction_calc.py` `self.config.NEXUSpathRB / f"REF_L_{rb_num}.nxs.h5"`; `nr_reduction_config.py` (override, else `<IPTS>/nexus`). The contribution hard-codes `/SNS/REF_L/<ipts>/nexus` in `reduce_time_slices` — the third spelling (`todo-roi-popout-data-followups-from-dialog-gate` D3 counts the others). | `roi-popout-dialog-plan.md` F9; `new_reduction_time_resolved.py:19-20`. |
 | F10 | Environment and harness. | `pixi run test-reduction` (launcher first); `launcher/tests/conftest.py` `isolated_qapp`, `no_qmessagebox` (autouse: `QDialog.exec_` → Accepted; a `QMessageBox` in a test is a failure), `no_qfiledialog`; reduction tests `tests/unit/lr_reduction/`; the `_write_nexus` builder (`tests/unit/lr_reduction/test_roi_estimate.py`) writes `bank1_events` with `event_time_zero`/`event_index` — reusable for T1–T3 fixtures (**verify at dispatch that it writes `event_index` and `bank_error_events`; extend it if not — the extension is this slug's**). |
+
+## v2 — the closing rule, measured on real runs (read this first; everything else stands)
+
+**The rejection** (`dfa21b4`, I-62), verbatim: *"time-slicing-reconcile v1 REJECTED (attempt 1 of 3) — the window selection does not partition real
+runs; the kinetic map plots dR as R. Review gate (numerical-diagnostics, test: block; ui-aspects: advise). Gate green (launcher 359, reduction 807).
+Without windows the reduction path is byte-identical to the base in all 8 harness scenarios (148 files, volatile fields masked), and check_headers
+passes. The §8.7 acceptance on IPTS-36119 run 231801 passes. Five blocks: B-1: entry/duration is float32, and on 29 of 63 real runs it is below the
+last pulse time, so the last pulse is dropped (184981: 24 events, 3 error events, the charge short by one pulse). B-2: on unsorted pulse times the
+windows overlap (198410, N=4: 1551 of 6045 events doubled, charge +25 %). B-3: a boundary on the last pulse duplicates it (every run). B-4: N4's
+pack name is unpinned in order (M-span-order survives). B-5: the kinetic map shows dR under a colour bar labelled "R". B-1 to B-3 are one closing
+rule in _pulse_range, proven per bank by ledger scripts/time-slicing-window-partition.py."*
+
+**What v1 got right and keeps:** everything at the no-window path (byte-identical, 148/148; `check_headers` green; N1/N3/A3 hold; `tsbase` =
+I-45's run on another node); the six hunks and their justifications; T3, T4c, the interior boundaries (partition exactly, including a boundary
+exactly on an interior pulse); the §8.5 greps; the acceptance's 4 contiguous slices and the tab's 8 byte-equal files.
+
+**Why the suite could not see B-1..B-3 — the plan's gap, owned.** §6's fixture said "pulses **on** the window edges" (L14) and the Developer built
+exactly that: integer pulse times in order, a float32 duration equal to the last pulse. Real files are not like that: `entry/duration` is float32 and
+rounds **below** the float64 last pulse time on 29 of 63 runs; `event_time_zero` is **not sorted** on 18 of 63 (a decreasing tail); and the closing
+test `end >= pulse_times[-1]` fires for any window whose end equals the last entry's time, not only the final window. §2 F4 named the contribution's
+off-by-ones and §9 asked for a fixture where the dimension matters — but the dimensions that matter on real data were **the file's own
+irregularities**, which only reading real files reveals. The Integrator read 63 of them. L15 below.
+
+### v2 behaviours (T1/T2 restated; the rest unchanged)
+
+| # | Behaviour |
+|---|---|
+| **T1′** | **A pulse belongs to a window by its own time.** For a window `[start, end)`, the selected pulses are exactly those with `start ≤ t_pulse < end` — a **per-pulse predicate**, never a bisection over an array assumed sorted and never an array position. The events of a pulse are `event_index[i] : event_index[i+1]` (the last pulse's: `event_index[-1] : n_events`); the error bank and the charge log are selected by the **same** predicate on their own pulse times. Out-of-order pulses are therefore handled by construction, and the docstring says so. |
+| **T2′** | **The run's end is its latest pulse time, `max(t)` — not the last array entry, and not `entry/duration`.** Exactly one window may be *closed*: the one whose `end` reaches the run's end — `end ≥ max(t)` **or** the window built by `reduce_time_slices` as the last of `n` over `entry/duration` (float32, which may round below `max(t)`); that window takes **every remaining pulse** in all three banks. **Every other window is half-open, even when its `end` equals the last pulse's time** (B-3). Contiguous windows therefore partition the run exactly on every real file; the charges of the slices sum to the run's exactly. |
+| **T5′ (N4 / B-4)** | A nested pack is named by its **span**, `slice_{int(min(starts))}_{int(max(ends))}` — the code's `window_span` (min/max) is the behaviour; the docstring and N4's wording follow it; pinned with a nested list given **out of order**. |
+| **T9′ (B-5)** | `plot_kinetic`'s colour map shows **R** (the evident intent; the offset panel beside it plots R) under a colour bar labelled "R"; `dR` is not plotted unless labelled `dR` and said so in the PR body. Pinned: the image array equals the slices' R rows (in slice order) and the label text. |
+| **T8′ (A-1, taken — same plot path)** | The tab draws the result **into its own figure/canvas** (or gives each result its own canvas + toolbar and releases the old), so `figure.canvas is tab.canvas`, pan/zoom work, the drawing fills the canvas without a resize, and `plt.get_fignums()` does not grow per Reduce when `show=False`. |
+
+### v2 fixture — a builder that models real files (the §6 fixture's successor)
+
+The slug's NeXus builder gains knobs and the T1′/T2′ tests use **all of them**: (a) `duration_float32_below_last_pulse=True` — `entry/duration` is
+written as float32 and chosen so it rounds **below** the float64 last pulse time (e.g. last pulse 76.780626, duration 76.78062439); (b)
+`unsorted_tail=True` — the last k pulse times go **backwards** (e.g. … 17.10, 10.72, 10.73), with events in those pulses; (c) `empty_pulses=[…]` —
+pulses with no events (I-62 test A-4); (d) a pulse exactly **at** a boundary time, and the last pulse's time used as a boundary. T2′'s partition test
+runs over `reduce_time_slices(num_slices=N)` for N ∈ {1, 4, 10} **and** over `reduce_time_list` with a user boundary at `t_last`, on every builder
+variant, asserting per bank: disjoint, union = all, charge sum = run's (exact).
+
+### v2 tests and rows
+
+| # | Test | Reds under |
+|---|---|---|
+| **T1′a** | `test_pulses_are_selected_by_their_own_time` (unsorted tail; the per-pulse sets equal the predicate's) | **M20** `searchsorted` restored (assumes sorted) |
+| **T2′a** | `test_contiguous_slices_partition_every_real_shaped_run` (all builder variants × N ∈ {1,4,10}, three banks, exact charge) | **M21** the closing rule back to `end >= pulse_times[-1]`; **M22** the run's end taken as the last entry; **M23** the last window's end taken as float32 `entry/duration` without the closing rule |
+| **T2′b** | `test_a_boundary_on_the_last_pulse_does_not_duplicate_it` (`reduce_time_list([0, t_last], [t_last, duration])`) | **M24** every window whose `end == t_last` closed |
+| **T2′c** | `test_the_final_window_takes_every_remaining_pulse_despite_float32_duration` | M23 |
+| **T5′a** | `test_a_nested_pack_is_named_by_its_span_whatever_the_order` | **M25** `windows[0][0], windows[-1][1]` (the M-span-order mutant that survived) |
+| **T9′a** | `test_the_kinetic_map_shows_r_and_says_so` (image array == the slices' R rows; colour bar label "R") | **M26** map built from `store_dr`; **M27** label `"dR"` with R data |
+| **T8′a** | `test_the_tab_draws_into_its_own_canvas` (`figure.canvas is tab.canvas`; `len(plt.get_fignums())` unchanged after two Reduces with `show=False`) | **M28** `self.canvas.figure = plots` restored |
+| **partition script** | ledger `scripts/time-slicing-window-partition.py` (I-62; the library's own `_pulse_range`/`_event_range` per bank over every run in the test-data submodule) **exits 0** at the v2 tip — at `97a6f9b`: 30 of 63 runs fail `reduce_time_slices`' windows (29 float32 + 5 unsorted), 63 of 63 the boundary case | the Integrator's v2 gate runs it; the Developer runs it before `qa/` and quotes the result |
+
+**Advisories taken in v2 if they cost a line (else PR body):** A-5 (pin `create_db`'s `start_times`/`end_times` pass-through — one assertion);
+A-6 (T7a with runs **not** in Cd order so the sort under an override is pinned). **PR body:** A-2 (`NoWheelComboBox`, the slice-count bounds),
+A-3 (synchronous run; a worker is §10 A4's follow-up), A-4 (`imshow` extent/Q grid), A-7 (the composed slice name `…_slice_1of4_slice_0_200` — say
+so or name once; the Developer's call), A-8 (`get_log_values` `KeyError` on 179932 — the base's).
+
+**v2 recipe.** RED first: the new builder variants make T2′a/T2′b/T2′c and T1′a fail on `dfa21b4`'s production (the Integrator reproduced each on
+real files; the fixture must reproduce each on synthetic ones — if a variant does **not** red, the variant is wrong, not the test). GREEN: one
+commit for the closing rule (B-1..B-3 — "one rule"), one for N4, one for the map, one for the tab's figure, one for A-5/A-6. **§8.2 re-run**: the
+no-window path byte-identical to `tsbase` again (production lines moved); the partition script exits 0; the whole battery (§7 + v2 rows M20–M28,
+N ≥ 1 each, red alone). Merge the predecessors forward if they moved; gate; `qa/`.
 
 ### Post-dispatch CORRECTIONS (2026-10-07, A-102 — from the Developer's working notes N1–N6, `plans/time-slicing-reconcile-learning.md` §0; additive, scope unchanged)
 
@@ -206,13 +271,23 @@ writing real.
 | M17 | the tab's `except Exception: pass` restored | T8c |
 | M18 | the button not re-enabled | T8b |
 | M19 | one `print(` restored in `binary_processing.py` | T9 |
+| **M20 (v2)** | the per-pulse predicate → `searchsorted` on `event_time_zero` (assumes sorted) | T1′a | B-2: 198410 N=4 → 7596 of 6045 events, charge +25.3 % |
+| **M21 (v2)** | the closing rule → `end >= pulse_times[-1]` | T2′a | B-1/B-3 |
+| **M22 (v2)** | the run's end → the last array entry instead of `max(t)` | T2′a | B-2 |
+| **M23 (v2)** | the last window's end → float32 `entry/duration` with no closing rule | T2′a, T2′c | B-1: 184981 loses 24 events, the charge short by one pulse |
+| **M24 (v2)** | every window with `end == t_last` closed | T2′b | B-3: 179932 → 300090 of 300088 events |
+| **M25 (v2)** | `window_span` → `windows[0][0], windows[-1][1]` | T5′a | B-4: survived v1 (156 passed) |
+| **M26 (v2)** | the kinetic map built from `store_dr` | T9′a | B-5: the contribution's L164/L198 |
+| **M27 (v2)** | the colour bar labelled `"dR"` over R data | T9′a | B-5 |
+| **M28 (v2)** | `self.canvas.figure = plots` restored | T8′a | A-1: pan/zoom dead, cropped figure, a pyplot figure per Reduce |
 
 **Frame:** `flatten_reduced_results` — one row per shape (dict / list / nested): drop a branch → T5a's result-pack assertion; the `subname`
 pattern — one row (wrong index base) → T5a; the mid-point — one row → T5a.
 
 ## 8. Acceptance criteria
 
-1. `pixi run test-reduction` returns zero from the repository root; `pixi.lock` restored, not staged.
+1. `pixi run test-reduction` returns zero from the repository root; `pixi.lock` restored, not staged. **v2:** `scripts/time-slicing-window-partition.py`
+   (ledger, I-62) exits 0 over the test-data submodule at the v2 tip — quoted in the commit body; §8.2 re-run (production lines moved).
 2. **Reduction-path baseline (the Integrator's, before the gate):** on the base tip, `reduce_from_file` without windows on the campaign's baseline
    runs (`scientific-regression-testing`; the `2026-09-25A/` recipe per `rereduction-headers-land` §8.3) — results and headers **byte-identical** to
    the base except the §10 A3 header decision, which the body states; then on the feature tip the same; then one run in 4 slices: the four
@@ -241,6 +316,12 @@ pattern — one row (wrong index base) → T5a; the mid-point — one row → T5
 - `header-scale-factors-per-position` R4/R5: `reduce()` writes nothing into the caller's config.
 - `launcher-env-outside-xdg-cache` F3 / A-52: a fact about what runs is measured by running it — the tab's "completed" path is driven, not read.
 - numerical-diagnostics: a one-pulse discrepancy is a convention slip, not physics.
+- **L15 (v2 — the dimensions that matter are the file's own irregularities):** a fixture built from the plan's idea of a run (sorted integer pulse
+  times, a duration equal to the last pulse) pinned the interior arithmetic and missed the three faults real files carry — a float32 `entry/duration`
+  that rounds below the float64 last pulse (29/63 runs), an unsorted tail (18/63), and a boundary on the last pulse (63/63). "A fixture where the
+  dimension matters" (L14) presupposes knowing the dimensions; for data files they are discovered by **reading many real files first** and the
+  builder is written to reproduce what was found. The Integrator's partition script over 63 runs is the shape of that reading; a plan for a
+  data-reading slug should ask for it **before** the fixture is designed, not at the gate.
 
 ## 10. Assumptions and open questions (the plan proceeds under each default)
 
@@ -255,6 +336,18 @@ pattern — one row (wrong index base) → T5a; the mid-point — one row → T5
 | A7 | The window unit: seconds from the first pulse (`event_time_zero` is relative) — confirm on the fixture and one real file. | Developer | seconds; T1's fixture states it |
 
 ## Revision history
+
+### v2 — 2026-10-07, after the Integrator's rejection of v1 @ `97a6f9b` (`review/time-slicing-reconcile` @ `dfa21b4`, I-62; attempt 1 of 3)
+
+Rejection quoted in full in the "v2" section. What v2 changes: T1′/T2′ (a per-pulse predicate; the run's end is `max(t)`; exactly one closed window —
+the one reaching the run's end, including the float32-duration case — every other half-open even at `t_last`), T5′ (the pack name by span, min/max,
+pinned out of order), T9′ (the kinetic map shows R), T8′ (the tab draws into its own figure — A-1 taken); a builder that models real files (float32
+duration below the last pulse, an unsorted tail, empty pulses, a boundary on the last pulse); §7 M20–M28; §8.1 the partition script exits 0 and §8.2
+re-run; §9 L15. **Plan errors owned:** the fixture guidance (L14) assumed the plan knew the dimensions of a real file; the Integrator found three it did
+not by reading 63 files — the plan should have asked for that reading (the test-data submodule was there) before designing the fixture. Unchanged:
+scope, Base (the stack unmoved: `ae5ce0e`, `aeba172`), the PR target, N1–N6, the §8.7 acceptance. The Developer continues on
+`feature/time-slicing-reconcile` @ `dfa21b4`.
+
 
 v1 — **dispatched 2026-10-07 (A-101)** on the posture line (charter `f60e7bf`); snapshot ref `contrib/add-time-slicing@8eead58` pushed; tips unmoved since the measurements (no re-seal). Authored 2026-10-07 (A-100) on the human's `take` line (`requests/time-slicing-take-line.md`, M-52), from the intake procedure
 (`plans/upstream-add-time-slicing-plan.md`, V1-10/V1-38/V1-39) and a read of the snapshot; facts measured on uvdl3 against `8eead58`, `exp-review`
