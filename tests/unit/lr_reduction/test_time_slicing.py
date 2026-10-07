@@ -32,6 +32,7 @@ PULSES = np.arange(10.0)  # pulse times (event_time_zero), seconds from the run'
 PER_PULSE = 3  # events per pulse
 CHARGE = (np.arange(10.0) + 1.0) * 10.0  # per-pulse proton charge (DASlogs/proton_charge/value): each pulse its own
 TOTAL = CHARGE.sum() + 0.5  # entry/proton_charge, deliberately not the per-pulse sum: a test can tell which a path reads
+CLOSED_AT_9 = float(np.nextafter(9.0, np.inf))  # a final window's end, moved just past the default run's last pulse
 RUN = 230001
 SEQ_ID = 230001
 EXPERIMENT = "IPTS-00001"
@@ -187,9 +188,13 @@ def test_start_zero_is_not_special(run_file):
 
 
 def test_contiguous_slices_partition_the_run(run_file):
-    """T2a: contiguous windows over the run select disjoint event sets whose union is every event, in order; no
-    event is lost or duplicated at an edge. The slices' charges add up to the run's per-pulse total."""
-    slices = [BP.load_and_extract(run_file, [a], [b]) for a, b in [(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)]]
+    """T2a: contiguous windows over the run, the final one closed as the slicing functions close it (close_final_window:
+    its end is moved past the last pulse, which sits at the run's end here), select disjoint event sets whose union is
+    every event, in order; no event is lost or duplicated at an edge. The slices' charges add up to the run's
+    per-pulse total."""
+    windows = BP.close_final_window([(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)], *BP.read_run_end(run_file))
+    assert windows == [(0.0, 3.0), (3.0, 6.0), (6.0, CLOSED_AT_9)]
+    slices = [BP.load_and_extract(run_file, [a], [b]) for a, b in windows]
     assert sum((s[1].tolist() for s in slices), []) == ids_of(range(10))
     assert sum((s[2].tolist() for s in slices), []) == error_offsets_of(range(10))
     assert sum(float(np.asarray(s[3])[0]) for s in slices) == CHARGE.sum()
@@ -492,7 +497,8 @@ def test_reduce_time_slices_makes_equal_windows_named_i_of_n(slicing, monkeypatc
         (len(outputs), run, list(times), show)) or "figure")
     outputs, plots = slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, 3, savepath=slicing.out,
                                                      datapath=slicing.nexus, show_plots=False)
-    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)]
+    # the last window is the run's final one: its end is moved just past the last pulse, at 9 s (T2')
+    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (3.0, 6.0), (6.0, CLOSED_AT_9)]
     assert [call["subname"] for call in slicing.calls] == [
         "_slice_1of3_slice_0_3", "_slice_2of3_slice_3_6", "_slice_3of3_slice_6_9"]
     assert len(outputs) == 3 and all(isinstance(pack, list) and pack and isinstance(pack[0], dict) for pack in outputs)
@@ -614,7 +620,7 @@ def test_a_slice_that_cannot_be_reduced_is_reported_after_the_others(slicing):
     with pytest.raises(ValueError) as raised:
         slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, 3, savepath=slicing.out,
                                         datapath=slicing.nexus, plot_time=False)
-    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)]
+    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (3.0, 6.0), (6.0, CLOSED_AT_9)]
     assert "[3.0, 6.0)" in str(raised.value) and "no proton charge" in str(raised.value), str(raised.value)
     written = sorted(path.name for path in slicing.out.glob("*.dat"))
     assert any("_slice_3of3_" in name for name in written) and not any("_slice_2of3_" in name for name in written)

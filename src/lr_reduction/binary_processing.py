@@ -59,8 +59,9 @@ def time_windows(start_times, end_times):
     '''
     The time windows to read, as (start, end) pairs in the order given, or None for the whole run.
 
-    Times are seconds from the run's first pulse (event_time_zero). A window is half-open, start <= t < end; the one
-    that reaches the run's end is closed there (see event_time_filter). Two numbers (or 0-d arrays) are one window.
+    Times are seconds from the run's first pulse (event_time_zero). A window is half-open, start <= t < end, at every
+    end (pulse_mask); the slicing functions close the run's final window by moving its end past the last pulse
+    (close_final_window). Two numbers (or 0-d arrays) are one window.
     Windows may be disjoint or overlap: the selection concatenates them and deduplicates nothing.
 
     :raises ValueError: one of the lists missing, lists of unequal length, an empty list (None is the spelling of
@@ -135,25 +136,78 @@ def load_and_extract(fname, start_times = None, end_times = None):
     return masked_e_offset, masked_event_id, masked_e_offset_error, masked_pcharge, masked_cPC, log_values
 
 
-def _pulse_range(pulse_times, start, end):
+def pulse_mask(pulse_times, start, end):
     '''
-    The pulses of a window, as indices [first, stop): those with start <= t < end. The window that reaches the run's
-    end is closed there: an end at or after the last pulse's time takes the last pulse too, so contiguous windows
-    ending at the run's duration partition every pulse.
+    The pulses of a window: a mask over pulse_times, true for each pulse with start <= t < end. A pulse belongs to a
+    window by its own time, wherever it sits in the file: real runs can record pulse times that go back near the end
+    (REF_L_198410), so the times are never assumed sorted, and an out-of-order pulse is taken by the window its time is
+    in. The window is half-open at every end, the last pulse's time included: a window is closed at the run's end only
+    by moving its end past the run's last pulse, which the slicing functions do for the final window
+    (close_final_window).
     '''
-    if len(pulse_times) == 0:
-        return 0, 0
-    first = int(np.searchsorted(pulse_times, start, side="left"))
-    if end >= pulse_times[-1]:
-        return first, len(pulse_times)
-    return first, int(np.searchsorted(pulse_times, end, side="left"))
+    pulse_times = np.asarray(pulse_times)
+    return (pulse_times >= start) & (pulse_times < end)
 
 
-def _event_range(event_index, n_events, first, stop):
-    '''The events of pulses [first, stop): from the first pulse's first event to the next pulse's first event.'''
-    begin = event_index[first] if first < len(event_index) else n_events
-    end = event_index[stop] if stop < len(event_index) else n_events
-    return int(begin), int(end)
+def event_mask(event_index, n_events, pulses):
+    '''
+    The events of the selected pulses: a mask over the n_events events, true for each event of a pulse whose mask
+    entry is true. Pulse i's events are event_index[i] : event_index[i + 1] (the last pulse's run to n_events); a pulse
+    without events selects none.
+    '''
+    event_index = np.asarray(event_index, dtype=np.int64)
+    if len(event_index) == 0:
+        return np.zeros(n_events, dtype=bool)
+    counts = np.diff(np.append(event_index, n_events))
+    return np.repeat(np.asarray(pulses, dtype=bool), counts)
+
+
+def read_run_end(fname):
+    '''
+    The run's end, as close_final_window needs it: (last_pulse, duration). last_pulse is the latest pulse time over the
+    three banks the selection reads (the detector events, the error events and the charge log), the latest, not the
+    last recorded; None for a run with no pulse. duration is entry/duration as recorded (float32 on the real files,
+    which can round below the last pulse time), or None.
+    '''
+    with h5py.File(fname, 'r') as f:
+        times = [np.asarray(f[name][:]) for name in ('entry/bank1_events/event_time_zero',
+                                                     'entry/bank_error_events/event_time_zero',
+                                                     'entry/DASlogs/proton_charge/time') if name in f]
+        duration = float(np.asarray(f['entry/duration'][:]).ravel()[0]) if 'entry/duration' in f else None
+    latest = [float(np.max(t)) for t in times if len(t)]
+    return (max(latest) if latest else None), duration
+
+
+def final_window(windows, last_pulse, duration):
+    '''
+    The index of the run's final window among windows ((start, end) pairs), or None. A window reaches the run's end
+    when its end is at or past the earlier of the run's last pulse time and its recorded duration (the float32 duration
+    can round below the last pulse). Of the windows that reach it, the final one is the one with the greatest end, the
+    last of them on a tie; a window list that stops short of the run's end has none.
+    '''
+    marks = [m for m in (last_pulse, duration) if m is not None]
+    if not marks:
+        return None
+    reach = min(marks)
+    final = None
+    for i, (_start, end) in enumerate(windows):
+        if end >= reach and (final is None or end >= windows[final][1]):
+            final = i
+    return final
+
+
+def close_final_window(windows, last_pulse, duration):
+    '''
+    The windows, with the run's final window (final_window) closed at the run's end: if its end does not pass the
+    last pulse, it is moved just past it (numpy.nextafter), so its half-open selection takes every remaining pulse in
+    every bank. Every other window is returned as given and stays half-open, even when its end equals the last pulse
+    time, so contiguous windows partition the run: no pulse lost at the end, none taken twice.
+    '''
+    windows = [(start, end) for start, end in windows]
+    final = final_window(windows, last_pulse, duration)
+    if final is not None and last_pulse is not None and windows[final][1] <= last_pulse:
+        windows[final] = (windows[final][0], float(np.nextafter(last_pulse, np.inf)))
+    return windows
 
 
 def event_time_filter(start_times, end_times, event_time, event_id, e_offset, event_index,
@@ -161,9 +215,9 @@ def event_time_filter(start_times, end_times, event_time, event_id, e_offset, ev
     '''
     The events, error events and pulse charges of the time windows, concatenated in the order of the windows.
 
-    Each is selected by the same predicate on its own pulse times (start <= t < end, closed at the run's end; see
-    _pulse_range): the detector events by event_time_zero and event_index, the error events by their bank's, and the
-    charge by the proton-charge log's own times. A pulse in two overlapping windows is taken twice.
+    Each bank is selected by the same predicate on its own pulse times (pulse_mask: start <= t < end, whatever order
+    the times are in): the detector events by event_time_zero and event_index, the error events by their bank's, and
+    the charge by the proton-charge log's own times. A pulse in two overlapping windows is taken twice.
 
     :return: masked_e_offset, masked_event_id, masked_e_offset_error, masked_cPC
     '''
@@ -173,17 +227,14 @@ def event_time_filter(start_times, end_times, event_time, event_id, e_offset, ev
     masked_cPC = []
 
     for start, end in time_windows(start_times, end_times):
-        first, stop = _pulse_range(event_time, start, end)
-        begin, finish = _event_range(event_index, len(event_id), first, stop)
-        masked_event_id.append(event_id[begin:finish])
-        masked_e_offset.append(e_offset[begin:finish])
+        events = event_mask(event_index, len(event_id), pulse_mask(event_time, start, end))
+        masked_event_id.append(event_id[events])
+        masked_e_offset.append(e_offset[events])
 
-        first, stop = _pulse_range(error_event_time, start, end)
-        begin, finish = _event_range(error_event_index, len(error_event_offset), first, stop)
-        masked_e_offset_error.append(error_event_offset[begin:finish])
+        errors = event_mask(error_event_index, len(error_event_offset), pulse_mask(error_event_time, start, end))
+        masked_e_offset_error.append(error_event_offset[errors])
 
-        first, stop = _pulse_range(charge_time, start, end)
-        masked_cPC.append(cPC[first:stop])
+        masked_cPC.append(cPC[pulse_mask(charge_time, start, end)])
 
     # Concatenate them back into one.
     masked_event_id = np.concatenate(masked_event_id)

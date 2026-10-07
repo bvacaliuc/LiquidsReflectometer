@@ -36,17 +36,46 @@ def window_span(start, end):
 
 
 def window_text(start, end):
-    '''A slice's windows for a message: "[a, b)", or "[a, b), [c, d)".'''
-    return ", ".join(f"[{s}, {e})" for s, e in BP.time_windows(start, end))
+    '''A slice's windows for a message: "[a, b)", or "[a, b), [c, d)"; windows that are not valid, as given.'''
+    try:
+        return ", ".join(f"[{s}, {e})" for s, e in BP.time_windows(start, end))
+    except ValueError:
+        return f"[{start}, {end})"
+
+
+def close_final_entries(starts, ends, last_pulse, duration):
+    '''
+    ends, with the run's final window closed (binary_processing.close_final_window), chosen over every window of every
+    entry: reduce_time_list reduces each entry by itself, so only it knows which window is the run's final one. An entry
+    that is a list of windows stays a list. An entry that is not a valid window is left out of the choice, and is
+    reported when it is reduced.
+    '''
+    flat = []
+    for k, (start, end) in enumerate(zip(starts, ends)):
+        try:
+            windows = BP.time_windows(start, end)
+        except ValueError:
+            continue
+        flat.extend((k, j, window) for j, window in enumerate(windows))
+    closed = BP.close_final_window([window for _, _, window in flat], last_pulse, duration)
+    ends = [list(end) if np.ndim(end) else end for end in ends]
+    for (k, j, _), (_, end) in zip(flat, closed):
+        if isinstance(ends[k], list):
+            ends[k][j] = end
+        else:
+            ends[k] = end
+    return ends
 
 
 def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None):
     '''
     Function to reduce the data, splitting into the number of time slices
 
-    The run is split into num_slices equal windows over its duration (entry/duration), the last closed at the run's
-    end, and each is reduced through reduce_time_list with slice_<i>of<n> (or <subname_input>_slice_<i>of<n>) as its
-    subname_input, so that slice's files carry slice_<i>of<n>_slice_<start>_<end>.
+    The run is split into num_slices equal windows over its duration (entry/duration), and each is reduced through
+    reduce_time_list with slice_<i>of<n> (or <subname_input>_slice_<i>of<n>) as its subname_input, so that slice's files
+    carry slice_<i>of<n>_slice_<start>_<end>. The last window is the run's final one and takes every remaining pulse:
+    entry/duration is float32 and can round below the last pulse time, so its end is moved past the run's last pulse
+    when it does not pass it already (binary_processing.close_final_window). The slices partition the run.
     The run's file and the output folder are resolved as the reduction resolves them (run_folders).
 
     :return: (outputs, plots): one flat list of reduced data per slice, and the kinetic plot (None without plot_time)
@@ -70,6 +99,8 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
         starts.append(time_int*ii)
         stops.insert(-1,time_int*ii)
 
+    windows = BP.close_final_window(list(zip(starts, stops)), *BP.read_run_end(nexus_path / fname))
+
     mid_points = []
     all_outputs = []
     failures = []
@@ -81,9 +112,9 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
         logger.info("Slice %d of %d: %s to %s s", ii + 1, num_slices, starts[ii], stops[ii])
         try:
             slice_outputs, _ = reduce_time_list(run, settings_file, experiment_id,
-                                            starts=[starts[ii]], ends=[stops[ii]], savepath=savepath,
+                                            starts=[windows[ii][0]], ends=[windows[ii][1]], savepath=savepath,
                                             plot_ref=plot_ref, plot_time=False, subname_input=subname,
-                                            datapath=nexus_path)
+                                            datapath=nexus_path, close_final=False)
         except ValueError as error:  # the slice's own report, naming its window: the other slices still run
             failures.append(str(error))
             continue
@@ -103,15 +134,19 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
     return all_outputs, plots
 
 
-def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None):
+def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None, close_final=True):
     '''
     Reduce the run once per entry of starts/ends, in order.
 
     starts and ends are lists for each separate file. Each entry is one window (two numbers) or a list of windows
     read as one slice (see binary_processing.time_windows), named by its span, slice_<earliest start>_<latest end> in
     whole seconds (truncated), or <subname_input>_slice_<...>. The run's file and the output folder are resolved as the
-    reduction resolves them
-    (run_folders).
+    reduction resolves them (run_folders).
+
+    Every window is half-open, start <= t < end on each pulse's own time, except the run's final one: with close_final
+    (the default), the window that reaches the run's end and ends last takes every remaining pulse
+    (close_final_entries). A window that ends on the last pulse but is not the final one leaves it to the next, so
+    contiguous windows partition the run. reduce_time_slices, which has closed its own final window, passes False.
 
     :return: (outputs, plots): one flat list of reduced data per entry, in order, and the kinetic plot (None without
         plot_time)
@@ -124,6 +159,8 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
 
     nexus_path, Spath = run_folders(settings_file, experiment_id, datapath, savepath)
     run_list = [run]
+    if close_final:
+        ends = close_final_entries(starts, ends, *BP.read_run_end(nexus_path / f"REF_L_{run}.nxs.h5"))
 
     store_outputs = []
     mid_points = []
@@ -131,14 +168,14 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
     # run the looped reduction
     for slice_idx in range(len(starts)):
         logger.info("Window %d: %s", slice_idx, window_text(starts[slice_idx], ends[slice_idx]))
-        span_start, span_end = window_span(starts[slice_idx], ends[slice_idx])
-        if not subname_input:
-            subname = f"slice_{int(span_start)}_{int(span_end)}"
-        else:
-            subname = f"{subname_input}_slice_{int(span_start)}_{int(span_end)}"
+        try:  # a window that is not valid is reported with the others below, as one that cannot be reduced
+            span_start, span_end = window_span(starts[slice_idx], ends[slice_idx])
+            if not subname_input:
+                subname = f"slice_{int(span_start)}_{int(span_end)}"
+            else:
+                subname = f"{subname_input}_slice_{int(span_start)}_{int(span_end)}"
 
-        override_params = {'Spath': Spath, "subname": subname}
-        try:
+            override_params = {'Spath': Spath, "subname": subname}
             output = reduction.reduce_from_file(run_list, settings_file, experiment_id, datapath=nexus_path,
                                         override_params=override_params, plot=plot_ref, save_json=False,
                                         start_times=starts[slice_idx], end_times=ends[slice_idx])
