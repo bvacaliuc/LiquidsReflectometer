@@ -7,21 +7,56 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm
 
+import lr_reduction.binary_processing as BP
 import lr_reduction.new_reduction_from_file as reduction
 
-def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True):
+
+def run_folders(settings_file, experiment_id, datapath=None, savepath=None):
+    '''
+    The run's NeXus folder and the output folder, as the reduction itself resolves them: from the config that
+    reduce_from_file builds out of the settings file. NEXUSpathRB is datapath, else the settings' own, else the
+    experiment's nexus folder; Spath is savepath, else the settings' own, else the experiment's reduced folder.
+    '''
+    config = reduction.json_to_config(reduction.load_from_file(settings_file)["config"])
+    config.experiment_id = experiment_id
+    if datapath:
+        config.NEXUSpathRB = datapath
+    if savepath:
+        config.Spath = savepath
+    return Path(config.NEXUSpathRB), Path(config.Spath)
+
+
+def window_span(start, end):
+    '''The first start and last end of a slice's windows (one window, or a list of windows read as one slice).'''
+    windows = BP.time_windows(start, end)
+    return min(s for s, _ in windows), max(e for _, e in windows)
+
+
+def window_text(start, end):
+    '''A slice's windows for a message: "[a, b)", or "[a, b), [c, d)".'''
+    return ", ".join(f"[{s}, {e})" for s, e in BP.time_windows(start, end))
+
+
+def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None):
     '''
     Function to reduce the data, splitting into the number of time slices
+
+    The run is split into num_slices equal windows over its duration (entry/duration), the last closed at the run's
+    end, and each is reduced through reduce_time_list under the name slice_<i>of<n> (or <subname_input>_slice_<i>of<n>).
+    The run's file and the output folder are resolved as the reduction resolves them (run_folders).
+
+    :return: (outputs, plots): one flat list of reduced data per slice, and the kinetic plot (None without plot_time)
+    :raises ValueError: num_slices below 1; or, once every other slice has been reduced and written, the slices that
+        could not be reduced, each with its window and its error.
     '''
+    if num_slices < 1:
+        raise ValueError(f"The number of time slices must be at least 1, not {num_slices}.")
 
-    # Get the duration of the run
-
-    # TODO: add a part to read the nexus location from the setting file
-    nexus_path = Path("/SNS/REF_L") / experiment_id / "nexus"
+    nexus_path, _ = run_folders(settings_file, experiment_id, datapath)
     fname = f"REF_L_{run}.nxs.h5"
 
-    f = h5py.File(nexus_path / fname, 'r')
-    duration = np.array(f['entry/duration'][0])
+    with h5py.File(nexus_path / fname, 'r') as f:
+        duration = np.array(f['entry/duration'][0])
 
     # determine the list of start/stop values
     time_int = duration/num_slices
@@ -33,19 +68,28 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
 
     mid_points = []
     all_outputs = []
+    failures = []
     for ii in range(num_slices):
         if not subname_input:
             subname = f"slice_{ii+1}of{num_slices}"
         else:
             subname = f"{subname_input}_slice_{ii+1}of{num_slices}"
         print('starting number', ii+1, starts[ii], stops[ii])
-        slice_outputs, _ = reduce_time_list(run, settings_file, experiment_id,
-                                        starts=[starts[ii]], ends=[stops[ii]], savepath=savepath,
-                                        plot_ref=plot_ref, plot_time=False, subname_input=subname)
+        try:
+            slice_outputs, _ = reduce_time_list(run, settings_file, experiment_id,
+                                            starts=[starts[ii]], ends=[stops[ii]], savepath=savepath,
+                                            plot_ref=plot_ref, plot_time=False, subname_input=subname,
+                                            datapath=nexus_path)
+        except ValueError as error:  # the slice's own report, naming its window: the other slices still run
+            failures.append(str(error))
+            continue
         print('finished', ii+1, starts[ii], stops[ii])
         all_outputs.extend(slice_outputs)
         mid_point = (stops[ii] - starts[ii]) / 2 + starts[ii]
         mid_points.append(mid_point)
+
+    if failures:
+        raise ValueError("; ".join(failures))
 
     if plot_time:
         plots = plot_kinetic(all_outputs, run, times=mid_points, show=show_plots)
@@ -55,44 +99,63 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
     return all_outputs, plots
 
 
-def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True):
+def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None):
+    '''
+    Reduce the run once per entry of starts/ends, in order.
 
-    # starts and ends are lists for each separate file. Each of these can be a nested list.
+    starts and ends are lists for each separate file. Each entry is one window (two numbers) or a list of windows
+    read as one slice (see binary_processing.time_windows), named by its span: slice_<first start>_<last end>, or
+    <subname_input>_slice_<...>. The run's file and the output folder are resolved as the reduction resolves them
+    (run_folders).
+
+    :return: (outputs, plots): one flat list of reduced data per entry, in order, and the kinetic plot (None without
+        plot_time)
+    :raises ValueError: starts and ends of different lengths; or, once every other entry has been reduced and written,
+        the entries that could not be reduced (the reduction raised, or returned no data), each with its window.
+    '''
 
     if len(starts) != len(ends):
         raise ValueError("Length of starts and ends lists must be the same")
 
+    nexus_path, Spath = run_folders(settings_file, experiment_id, datapath, savepath)
     run_list = [run]
-    if savepath:
-        Spath = Path(savepath)
-    else:
-        Spath = Path("/SNS/REF_L") / experiment_id / "shared" / "reduced"
 
     store_outputs = []
     mid_points = []
+    failures = []
     # run the looped reduction
     for slice_idx in range(len(starts)):
         print("starting:", slice_idx, starts[slice_idx], ends[slice_idx])
+        span_start, span_end = window_span(starts[slice_idx], ends[slice_idx])
         if not subname_input:
-            subname = f"slice_{int(starts[slice_idx])}_{int(ends[slice_idx])}"
+            subname = f"slice_{int(span_start)}_{int(span_end)}"
         else:
-            subname = f"{subname_input}_slice_{int(starts[slice_idx])}_{int(ends[slice_idx])}"
+            subname = f"{subname_input}_slice_{int(span_start)}_{int(span_end)}"
 
         override_params = {'Spath': Spath, "subname": subname}
-        output = reduction.reduce_from_file(run_list, settings_file, experiment_id,
-                                    override_params=override_params, plot=plot_ref, save_json=False,
-                                    start_times=starts[slice_idx], end_times=ends[slice_idx])
+        try:
+            output = reduction.reduce_from_file(run_list, settings_file, experiment_id, datapath=nexus_path,
+                                        override_params=override_params, plot=plot_ref, save_json=False,
+                                        start_times=starts[slice_idx], end_times=ends[slice_idx])
+        except (ValueError, RuntimeError) as error:  # this window only; reported with the others below
+            failures.append(f"window {window_text(starts[slice_idx], ends[slice_idx])}: {error}")
+            continue
         print("finish:", slice_idx, starts[slice_idx], ends[slice_idx])
 
         all_results, _, _, _ = output
         flat_results = flatten_reduced_results(all_results)
         if not flat_results:
-            raise ValueError(f"No reduced result data returned for slice {slice_idx} from run {run}")
+            failures.append(f"window {window_text(starts[slice_idx], ends[slice_idx])}: no reduced result data returned")
+            continue
 
-        mid_point = (ends[slice_idx] - starts[slice_idx]) / 2 + starts[slice_idx]
+        mid_point = (span_end - span_start) / 2 + span_start
         mid_points.append(mid_point)
         store_outputs.append(flat_results)
         print(len(store_outputs))
+
+    if failures:
+        raise ValueError(f"No reduced result data for run {run} in " + "; ".join(failures))
+
     # create plot of set
     if plot_time:
         plots = plot_kinetic(store_outputs, run, times=mid_points, show=show_plots)

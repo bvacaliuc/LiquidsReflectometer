@@ -433,6 +433,19 @@ def test_a_window_that_cannot_be_reduced_is_reported_and_the_others_are_reduced(
     assert not any("_slice_20_30" in name for name in written), written
 
 
+def test_a_slice_that_cannot_be_reduced_is_reported_after_the_others(slicing):
+    """T4c through reduce_time_slices: a slice that fails does not end the call. The slices after it are reduced and
+    written, and the failure is reported at the end with its window."""
+    slicing.fail.append(((3.0, 6.0), RuntimeError(f"Failed to compute binary data for run {RUN}: no proton charge")))
+    with pytest.raises(ValueError) as raised:
+        slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, 3, savepath=slicing.out,
+                                        datapath=slicing.nexus, plot_time=False)
+    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)]
+    assert "[3.0, 6.0)" in str(raised.value) and "no proton charge" in str(raised.value), str(raised.value)
+    written = sorted(path.name for path in slicing.out.glob("*.dat"))
+    assert any("_slice_3of3_" in name for name in written) and not any("_slice_2of3_" in name for name in written)
+
+
 def test_the_run_file_is_resolved_the_campaigns_way(tmp_path, slicing):
     """T5b (F9): the run's NeXus file and the output folder come from the reduction's own config, never a /SNS/REF_L
     literal: an explicit datapath, else the settings' NEXUSpathRB; savepath, else the settings' Spath. The module
