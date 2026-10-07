@@ -516,7 +516,7 @@ class _FileDialogSidebar(QtCore.QObject):
         self._urls = [QtCore.QUrl.fromLocalFile(folder) for folder in folders]
         self._own = None
 
-    def eventFilter(self, watched, event):  # noqa: N802 -- Qt's name
+    def eventFilter(self, watched, event):  # Qt's name
         # Never raise here: an exception out of a PyQt virtual reaches qFatal() and aborts the launcher.
         try:
             if isinstance(watched, QtWidgets.QFileDialog):
@@ -526,7 +526,7 @@ class _FileDialogSidebar(QtCore.QObject):
                 elif event.type() == QtCore.QEvent.Hide and self._own is not None:
                     watched.setSidebarUrls(self._own)
                     self._own = None
-        except Exception:  # noqa: BLE001
+        except Exception:
             traceback.print_exc()
         return False
 
@@ -559,7 +559,7 @@ def guarded(method):
     def wrapper(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 -- the point is to catch everything
+        except Exception as exc:  # the point is to catch everything
             self.report_problem(exc)
             return None
 
@@ -976,7 +976,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         try:
             self.document.set(name, value)
             self.refresh_report()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self.report_problem(exc)
 
     @guarded
@@ -987,7 +987,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
         reads back from INI either way."""
         try:
             self.settings.setValue(section_state_key(name), "true" if expanded else "false")
-        except Exception:  # noqa: BLE001
+        except Exception:
             traceback.print_exc()
 
     @guarded
@@ -1384,7 +1384,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
             # the user cleared or typed (I6).
             document.resolve_ipts(normalise_experiment_id(self.editors["experiment_id"].text()))
             self.set_document(document)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             QtWidgets.QMessageBox.warning(self, "Could not load settings", str(exc))
             self.report_problem(exc)
             return
@@ -1412,7 +1412,7 @@ class SettingsEditorTab(QtWidgets.QWidget):
             path = path + ".json"
         try:
             self.document.save(path)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             QtWidgets.QMessageBox.warning(self, "Could not save settings", str(exc))
             return
         self.settings.setValue("settings_editor_dir", str(Path(path).parent))

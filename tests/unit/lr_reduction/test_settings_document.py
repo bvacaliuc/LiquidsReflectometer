@@ -2461,7 +2461,7 @@ def test_the_import_itself_rejects_a_group_the_order_does_not_declare():
         anchor, '\n    Field("new_field", "New field", "Brand new group", "float", 0.0, "A field of its own."),' + anchor)
     module = importlib.util.module_from_spec(importlib.util.spec_from_loader("field_spec_edited_copy", loader=None))
     with pytest.raises(ValueError, match="Brand new group"):
-        exec(compile(edited, fs.__file__, "exec"), module.__dict__)  # noqa: S102 — this module's own source
+        exec(compile(edited, fs.__file__, "exec"), module.__dict__)  # this module's own source
 
 
 # --------------------------------------------------------------------------
@@ -2977,7 +2977,7 @@ def test_the_lookup_and_the_empty_ipts_problem_follow_the_config_class(tmp_path,
             return tmp_path / "site" / self.experiment_id
 
         @property
-        def NEXUSpathRB(self):  # noqa: N802 -- the config's own name
+        def NEXUSpathRB(self):  # the config's own name
             if self._NEXUSpathRB_override is not None:
                 return pathlib.Path(self._NEXUSpathRB_override)
             return self.base_path / "raw"

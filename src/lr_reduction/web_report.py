@@ -359,7 +359,7 @@ def generate_report_section_reduction_parameters(workspace: MantidWorkspace, tem
     meta += "</table>\n"
 
     meta += "<table style='width:100%'>"
-    meta += "<tr><th>Wavelength</th><th>Q</th><th>Thi</th><th>Ths</th><th>Offset</th><th>Theta used</th></tr>"  # noqa E501
+    meta += "<tr><th>Wavelength</th><th>Q</th><th>Thi</th><th>Ths</th><th>Offset</th><th>Theta used</th></tr>"
     meta += "<tr><td>%6.4g - %6.4g</td><td>%6.4g - %6.4g</td><td>%6.4g</td><td>%6.4g</td><td>%6.4g</td><td>%6.4g</td></tr>\n" % (
         meta_data["wl_min"],
         meta_data["wl_max"],
@@ -444,7 +444,7 @@ def generate_report_section_reduction_parameters_new(config, workspace: MantidWo
 
     # TODO: add pull through from output of theta values.
     meta += "<table style='width:100%'>"
-    meta += "<tr><th>Wavelength</th><th>Q</th><th>dqbin</th><th>Thi</th><th>Ths</th><th>Offset</th><th>tthd</th></tr>"  # noqa E501
+    meta += "<tr><th>Wavelength</th><th>Q</th><th>dqbin</th><th>Thi</th><th>Ths</th><th>Offset</th><th>tthd</th></tr>"
     meta += "<tr><td>%6.4g - %6.4g</td><td>%6.4g - %6.4g</td><td>%6.4g</td><td>%6.4g</td><td>%6.4g</td><td>%6.4g</td><td>%6.4g</td></tr>\n" % (
         config.LambdaMinUse,
         config.LambdaMaxUse,
