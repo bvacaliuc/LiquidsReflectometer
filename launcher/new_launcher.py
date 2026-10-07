@@ -1,6 +1,12 @@
 #!/usr/bin/env python
 import sys
 
+from launcher.runtime_env import prepare_runtime_env
+
+# Before anything imports matplotlib: the tabs below do, and matplotlib fixes its cache directory then. This keeps
+# it out of $XDG_CACHE_HOME, which the analysis nodes' login hook deletes (launcher/runtime_env.py).
+prepare_runtime_env()
+
 from qtpy.QtWidgets import QApplication, QGridLayout, QTabWidget, QWidget
 
 from launcher.app_identity import ensure_identity, migrate_legacy_settings
