@@ -943,7 +943,7 @@ def test_the_theta_dispatch_message_names_the_methods_it_handles(monkeypatch):
     )
     reduction = _bare_reduction()
     with pytest.raises(ValueError) as raised:
-        reduction._calculate_theta_and_bins(ypix := None, 0.0, "sombrero")  # noqa: F841
+        reduction._calculate_theta_and_bins(ypix := None, 0.0, "sombrero")  # noqa: F841 -- the walrus names the argument it passes
     assert "hexTheta" in str(raised.value)
 
 

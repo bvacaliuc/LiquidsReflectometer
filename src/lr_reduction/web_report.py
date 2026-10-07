@@ -200,12 +200,12 @@ def generate_report_sections(
 
     try:
         sequence_number = sample_logs["sequence_number"]
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 -- a run without the sequence log is reported as sequence 1
         sequence_number = 1
 
     try:
         number_events = workspace.getNumberEvents()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 -- the event count only labels a log line
         number_events = 0
 
     plots = []
@@ -241,7 +241,7 @@ def generate_report_sections(
     try:
         # Can except template or config to be None but needs one to be present.
         plots = generate_report_plots(workspace, data_type, template_data=template_data, config_settings=config, sequence_number=sequence_number)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 -- a report without plots is still written; the error is logged with its traceback
         logger.notice(f"Could not generate plots: {e}")
         logger.error("Could not generate plots", exc_info=True)
 
