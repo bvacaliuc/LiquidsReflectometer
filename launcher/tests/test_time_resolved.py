@@ -139,33 +139,44 @@ def test_the_inputs_round_trip_through_qsettings(tab):
         reopened.close()
 
 
-def test_the_tab_draws_into_its_own_canvas(isolated_qapp, monkeypatch, boxes):  # noqa: ARG001
-    """T8'a (I-62 A-1): a reduction's kinetic plot is drawn into the tab's own figure, on the tab's own canvas, so pan and
-    zoom act on it and it fills the canvas, and no pyplot figure is left behind: after two Reduces the figure and the
-    canvas are the ones the tab was built with, and pyplot holds no more figures than before."""
+@pytest.mark.parametrize("mode", ["Number of slices", "Time values"])
+def test_the_tab_draws_into_its_own_canvas(isolated_qapp, monkeypatch, boxes, mode):  # noqa: ARG001
+    """T8'a (I-62 A-1), in each mode (plan v3 P4, I-64 B-4): a reduction's kinetic plot is drawn into the tab's own
+    figure, on the tab's own canvas, so pan and zoom act on it and it fills the canvas, and no pyplot figure is left
+    behind. After a Reduce in the other mode and then one in this mode, the figure and the canvas are the ones the tab
+    was built with, the map on them is this mode's result (its R), not the plot before it, and pyplot holds no more
+    figures than before."""
     from matplotlib import pyplot as plt
 
     from launcher.apps import time_resolved
     from lr_reduction import new_reduction_time_resolved as nrtr
 
     q = np.geomspace(0.01, 0.1, 5)
-    outputs = [[{"Q": q, "R": (k + 1) * 1e-3 * np.ones(5), "dR": 1e-5 * np.ones(5), "dQ": 0.02 * q}] for k in range(2)]
+    results = []
 
     def reduce(*_args, figure=None, show_plots=True, **_kwargs):
-        # The library's own plot, into the figure the tab gives it (or, given none, a figure of its own)
+        # The library's own plot, into the figure the tab gives it (or, given none, a figure of its own); each result's
+        # R differs from the one before it
+        outputs = [[{"Q": q, "R": (len(results) + 1) * (k + 1) * 1e-3 * np.ones(5), "dR": 1e-5 * np.ones(5),
+                     "dQ": 0.02 * q}] for k in range(2)]
+        results.append(outputs)
         return outputs, nrtr.plot_kinetic(outputs, 230001, times=[1.0, 2.0], show=show_plots, figure=figure)
 
     monkeypatch.setattr(time_resolved, "reduce_time_slices", reduce)
+    monkeypatch.setattr(time_resolved, "reduce_time_list", reduce)
     widget = time_resolved.TimeResolvedTab()
     figure, canvas = widget.figure, widget.canvas
     before = len(plt.get_fignums())
+    other = "Time values" if mode == "Number of slices" else "Number of slices"
     try:
-        fill(widget)
-        for _ in range(2):
+        for each in (other, mode):
+            fill(widget, mode=each, starts="0, 80", ends="80, 136")
             QTest.mouseClick(widget.process_btn, QtCore.Qt.LeftButton)
-        assert "Completed reduction: 2 output slice(s)" in panel(widget), panel(widget)
+        assert len(results) == 2 and "Completed reduction: 2 output slice(s)" in panel(widget), panel(widget)
         assert widget.figure is figure and canvas.figure is figure and figure.canvas is canvas
-        assert figure.axes and any(axes.images for axes in figure.axes), "the kinetic plot is in the tab's figure"
+        images = [image for axes in figure.axes for image in axes.images]
+        assert len(images) == 1, "the kinetic map is in the tab's figure"
+        np.testing.assert_array_equal(np.asarray(images[0].get_array()), [pack[0]["R"] for pack in results[-1]])
         assert len(plt.get_fignums()) == before
         assert boxes == []
     finally:

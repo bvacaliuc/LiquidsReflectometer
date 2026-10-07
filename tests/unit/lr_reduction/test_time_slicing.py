@@ -92,8 +92,10 @@ def write_run(path, events=True, pulses=PULSES, error_pulses=None, charge_times=
 #: Runs shaped as real files are (I-62), each (pulses, events per pulse or None for three, entry/duration). The default run
 #: (integer pulses in order, the duration equal to the last pulse) has none of these irregularities.
 LAST_184981 = 76.780626  # REF_L_184981's last pulse; its float32 entry/duration, 76.78062439, rounds below it
+PAST_184981 = LAST_184981 + 1e-4  # a duration 100 µs past that pulse: on 27 of the 63 real runs it passes the latest pulse
 REAL_SHAPED = {
     "float32 duration below the last pulse": (np.append(np.arange(0.0, 77.0), LAST_184981), None, LAST_184981),
+    "float32 duration just past the last pulse": (np.append(np.arange(0.0, 77.0), LAST_184981), None, PAST_184981),
     "unsorted tail": (np.concatenate([np.arange(0.0, 17.0), [17.10, 10.72, 10.73]]), None, 17.2),
     "unsorted tail, the latest pulse past the duration": (
         np.concatenate([np.arange(0.0, 70.0), [LAST_184981, 70.5, 70.6]]), None, LAST_184981),
@@ -566,22 +568,47 @@ def whole_run(path):
 
 
 def assert_partition(slices, whole):
-    """The slices' selections partition the run in every bank: each event and each error event exactly once, and the
-    charge of every pulse exactly once (the charges are multiples of 10, so the sums are exact)."""
+    """The slices' selections partition the run in every bank: each event, each error event and each pulse's charge
+    exactly once (each pulse's charge is its own multiple of 10, so a charge names its pulse)."""
     ids, errors, cpc = whole
     assert Counter(i for s in slices for i in s[0]) == Counter(ids)
     assert Counter(e for s in slices for e in s[1]) == Counter(errors)
-    assert sum(c for s in slices for c in s[2]) == sum(cpc)
+    assert Counter(c for s in slices for c in s[2]) == Counter(cpc)
 
 
 @pytest.mark.parametrize("n", [1, 4, 10])
 @pytest.mark.parametrize("shape", list(REAL_SHAPED))
 def test_contiguous_slices_partition_every_real_shaped_run(slicing, shape, n):
     """T2'a (B-1, B-2): reduce_time_slices' n windows over entry/duration partition the run in every bank, on every
-    real-shaped run: a float32 duration below the last pulse, a tail that goes back in time, empty pulses, a beam-off
-    tail, the last pulse at the duration. Each slice's selection is the real file read's, for the window it got."""
+    real-shaped run: a float32 duration below the last pulse or just past it, a tail that goes back in time, empty
+    pulses, a beam-off tail, the last pulse at the duration. Each slice's selection is the real file read's, for the
+    window it got."""
     path = slicing.nexus / f"REF_L_{RUN}.nxs.h5"
     write_shaped(path, shape)
+    slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, n, savepath=slicing.out,
+                                    datapath=slicing.nexus, plot_time=False)
+    assert len(slicing.calls) == n
+    assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
+
+
+#: For each of the three banks the selection reads, a run in which that bank alone holds the latest pulse, at 9.5 s,
+#: half a second after the other two banks' last (9 s), with entry/duration ending there.
+LATEST_IN_ONE_BANK = {
+    "error events": {"error_pulses": np.append(PULSES, 9.5)},
+    "events": {"pulses": np.append(PULSES, 9.5), "error_pulses": PULSES, "charge_times": PULSES, "charge": CHARGE},
+    "charge log": SHAPED_BANKS["charge log past the last event pulse"],
+}
+
+
+@pytest.mark.parametrize("n", [1, 4])
+@pytest.mark.parametrize("bank", list(LATEST_IN_ONE_BANK))
+def test_the_run_ends_at_the_latest_pulse_of_each_bank(slicing, bank, n):
+    """T2'a, bank by bank (plan v3 P1, P2): the run's end is the latest pulse time over the three banks, whichever bank
+    holds it. Here one bank alone holds it, where entry/duration ends: reduce_time_slices' n slices still partition the
+    run in every bank, the final slice taking that bank's latest pulse (I-64 B-1: an error pulse later than every event
+    pulse and charge time; B-2: an event pulse later than the charge log's last)."""
+    path = slicing.nexus / f"REF_L_{RUN}.nxs.h5"
+    write_run(path, duration=9.5, **LATEST_IN_ONE_BANK[bank])
     slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, n, savepath=slicing.out,
                                     datapath=slicing.nexus, plot_time=False)
     assert len(slicing.calls) == n
@@ -622,6 +649,25 @@ def test_reduce_time_list_closes_its_final_window(slicing):
     duration = float(np.float32(LAST_184981))
     slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, 40.0], [40.0, duration],
                                   savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
+    assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
+
+
+@pytest.mark.parametrize("end", ["the latest pulse", "between the latest pulse and the duration"])
+def test_a_window_ending_on_the_latest_pulse_is_final_when_the_duration_passes_it(slicing, end):
+    """T2', the first arm (plan v3 P3, I-64 B-3): a window reaches the run's end when its end is at or past the earlier of
+    the latest pulse and entry/duration. On a run whose float32 duration passes its latest pulse (27 of the 63 real
+    runs), reduce_time_list's [0, max(t)] is therefore the final window, closed just past the latest pulse: it takes
+    that pulse's events, its error event and its charge, as [0, e] does for an e between the two, which is already
+    past the pulse and stays as given. Each partitions the run."""
+    path = slicing.nexus / f"REF_L_{RUN}.nxs.h5"
+    write_shaped(path, "float32 duration just past the last pulse")
+    duration = float(np.float32(PAST_184981))
+    assert LAST_184981 < duration
+    e = LAST_184981 if end == "the latest pulse" else (LAST_184981 + duration) / 2
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0], [e], savepath=slicing.out,
+                                  datapath=slicing.nexus, plot_time=False)
+    closed = float(np.nextafter(LAST_184981, np.inf)) if end == "the latest pulse" else e
+    assert [call["window"] for call in slicing.calls] == [(0.0, closed)]
     assert_partition([call["selected"] for call in slicing.calls], whole_run(path))
 
 
