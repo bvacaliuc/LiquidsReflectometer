@@ -8,7 +8,7 @@ sit exactly on the window edges, so the ±1 conventions at an edge are visible (
 (NR_Reduction._reduce_single_run) is a stub, as in test_prior_combination.py: its R(Q) is made up, not a measurement.
 The window selection, the slice bookkeeping, the header writing and the file and path handling are the real code.
 
-No test may reach /SNS: every path is a tmp_path, and the config's /SNS default is guarded (`no_facility_paths`).
+No test may reach /SNS: every path is a tmp_path, and the config's /SNS default points into it (`no_facility_paths`).
 """
 
 import json
@@ -79,18 +79,14 @@ def write_run(path, events=True):
 
 
 @pytest.fixture(autouse=True)
-def no_facility_paths(monkeypatch):
-    """Fail any test that falls back to the config's /SNS/REF_L default (NRReductionConfig.base_path). The access is
-    recorded and read at teardown, so a handler that catches the raise cannot hide it."""
-    reached = []
-
-    def guarded_base_path(self):
-        reached.append(self.experiment_id)
-        raise AssertionError("a test reached the /SNS/REF_L default path")
-
-    monkeypatch.setattr(NRReductionConfig, "base_path", property(guarded_base_path))
+def no_facility_paths(tmp_path, monkeypatch):
+    """The config's /SNS/REF_L default (NRReductionConfig.base_path) points into tmp_path here, so no test can read or
+    write the facility tree. A test that wrote under the default fails at teardown: every folder a test uses is given
+    explicitly. Only computing the default is harmless (reduce_from_file's hasattr() evaluates the path property)."""
+    default = tmp_path / "facility-default"
+    monkeypatch.setattr(NRReductionConfig, "base_path", property(lambda self: default / str(self.experiment_id)))
     yield
-    assert reached == [], f"the /SNS/REF_L default was reached for {reached}"
+    assert not default.exists(), sorted(str(path.relative_to(default)) for path in default.rglob("*"))
 
 
 @pytest.fixture
@@ -338,13 +334,14 @@ def slicing(tmp_path, monkeypatch):
     nexus.mkdir()
     out.mkdir()
     write_run(nexus / f"REF_L_{RUN}.nxs.h5")
-    calls, fail = [], {}
+    calls, fail = [], []  # fail: (window, exception) pairs; a window may hold lists, so not a dict key
 
     def fake_reduce_single_run(self, i, rb_num, save=True, start_times=None, end_times=None):  # noqa: ARG001
         calls.append({"window": (start_times, end_times), "subname": self.config.subname,
                       "Spath": Path(self.config.Spath), "nexus": Path(self.config.NEXUSpathRB)})
-        if (start_times, end_times) in fail:
-            raise fail[(start_times, end_times)]
+        for window, error in fail:
+            if window == (start_times, end_times):
+                raise error
         q = np.geomspace(0.01, 0.1, 20)
         r = 1e-6 * q**-4 * (1.0 + len(calls))
         zeros = np.zeros_like(q)
@@ -423,7 +420,7 @@ def test_a_window_that_cannot_be_reduced_is_reported_and_the_others_are_reduced(
     """T4c (the slice): a window whose reduction fails (here as the real chain fails for a window with no charge:
     _make_binary_files' RuntimeError) is reported after every other window has been reduced and written; the error
     names the window."""
-    slicing.fail[(20.0, 30.0)] = RuntimeError(f"Failed to compute binary data for run {RUN}: no proton charge")
+    slicing.fail.append(((20.0, 30.0), RuntimeError(f"Failed to compute binary data for run {RUN}: no proton charge")))
     with pytest.raises(ValueError) as raised:
         slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, 20.0, 3.0], [3.0, 30.0, 6.0],
                                       savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
