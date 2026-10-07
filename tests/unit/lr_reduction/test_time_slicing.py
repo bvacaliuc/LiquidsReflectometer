@@ -1,0 +1,519 @@
+"""Time slicing (upstream add-time-slicing, intake time-slicing-reconcile): the events, error events and proton
+charge a time window selects; how the window travels from reduce_from_file to the file read; how slices are made,
+named, reduced and written.
+
+The inputs are **synthetic**. Each test writes a tiny NeXus file with ten pulses, one per second from 0 s, and three
+events per pulse whose ids encode their pulse, so a test can name the exact events a window must select. The pulses
+sit exactly on the window edges, so the ±1 conventions at an edge are visible (plan L14). The physics of a slice
+(NR_Reduction._reduce_single_run) is a stub, as in test_prior_combination.py: its R(Q) is made up, not a measurement.
+The window selection, the slice bookkeeping, the header writing and the file and path handling are the real code.
+
+No test may reach /SNS: every path is a tmp_path, and the config's /SNS default is guarded (`no_facility_paths`).
+"""
+
+import json
+import logging
+import re
+from pathlib import Path
+from types import SimpleNamespace
+
+import h5py
+import numpy as np
+import pytest
+
+import lr_reduction.binary_processing as BP
+import lr_reduction.new_reduction_from_file as nrff
+import lr_reduction.save_reduced_data as save_fn
+from lr_reduction.nr_reduction_calc import NR_Reduction
+from lr_reduction.nr_reduction_config import NRReductionConfig
+
+PULSES = np.arange(10.0)  # pulse times (event_time_zero), seconds from the run's start; the last at the run's end
+PER_PULSE = 3  # events per pulse
+CHARGE = (np.arange(10.0) + 1.0) * 10.0  # per-pulse proton charge (DASlogs/proton_charge/value): each pulse its own
+TOTAL = CHARGE.sum() + 0.5  # entry/proton_charge, deliberately not the per-pulse sum: a test can tell which a path reads
+RUN = 230001
+SEQ_ID = 230001
+EXPERIMENT = "IPTS-00001"
+LOWRES = [0, 255]
+
+
+def ids_of(pulses):
+    """The event ids of the given pulses, in order: pulse p holds 100 p, 100 p + 1, 100 p + 2."""
+    return [100 * p + k for p in pulses for k in range(PER_PULSE)]
+
+
+def offsets_of(pulses):
+    """The events' time-of-flight offsets (µs): 1000 + id."""
+    return [1000.0 + i for i in ids_of(pulses)]
+
+
+def error_offsets_of(pulses):
+    """The error bank holds one event per pulse, at 500 + pulse µs."""
+    return [500.0 + p for p in pulses]
+
+
+def write_run(path, events=True):
+    """A run's NeXus file: the logs reduce_from_file groups by, its duration and charge, and (unless `events` is
+    False) the event and error-event banks with their pulse times and per-pulse indices."""
+    n = len(PULSES)
+    with h5py.File(path, "w") as f:
+        f["entry/title"] = [b"slicing test"]
+        f["entry/duration"] = np.array([PULSES[-1]], dtype=np.float32)  # the last pulse sits at the end (REF_L_179932)
+        f["entry/proton_charge"] = np.array([TOTAL])
+        logs = f.create_group("entry/DASlogs")
+        logs["BL4B:CS:Autoreduce:Sequence:Num/value"] = np.array([1])
+        logs["BL4B:CS:Autoreduce:Sequence:Id/value"] = np.array([SEQ_ID])
+        logs["BL4B:Mot:ths.RBV/value"] = np.array([0.6])
+        logs["BL4B:Mot:thi.RBV/value"] = np.array([0.6])
+        logs["proton_charge/value"] = CHARGE
+        logs["proton_charge/time"] = PULSES
+        if events:
+            ids = np.array(ids_of(range(n)))
+            f["entry/bank1_events/event_id"] = ids
+            f["entry/bank1_events/event_time_offset"] = (1000.0 + ids).astype(np.float32)
+            f["entry/bank1_events/event_time_zero"] = PULSES
+            f["entry/bank1_events/event_index"] = np.arange(n) * PER_PULSE
+            f["entry/bank_error_events/event_time_offset"] = (500.0 + PULSES).astype(np.float32)
+            f["entry/bank_error_events/event_time_zero"] = PULSES
+            f["entry/bank_error_events/event_index"] = np.arange(n)
+
+
+@pytest.fixture(autouse=True)
+def no_facility_paths(monkeypatch):
+    """Fail any test that falls back to the config's /SNS/REF_L default (NRReductionConfig.base_path). The access is
+    recorded and read at teardown, so a handler that catches the raise cannot hide it."""
+    reached = []
+
+    def guarded_base_path(self):
+        reached.append(self.experiment_id)
+        raise AssertionError("a test reached the /SNS/REF_L default path")
+
+    monkeypatch.setattr(NRReductionConfig, "base_path", property(guarded_base_path))
+    yield
+    assert reached == [], f"the /SNS/REF_L default was reached for {reached}"
+
+
+@pytest.fixture
+def run_file(tmp_path, monkeypatch):
+    """One run with events. The per-run log reader is not under test: it returns what convert_to_binary needs."""
+    path = tmp_path / f"REF_L_{RUN}.nxs.h5"
+    write_run(path)
+    monkeypatch.setattr(BP, "get_log_values", lambda _fname: {"start_time": "2025-03-04T11:22:33-05:00"})
+    return path
+
+
+# ---------------------------------------------------------------------------
+# T1-T4: the window, at the file read (binary_processing.load_and_extract / convert_to_binary)
+
+
+def test_no_windows_is_the_whole_run(run_file):
+    """T1a: without windows every event, every error event and every pulse's charge is read, as today; the run's
+    charge is the file's entry/proton_charge, not a sum recomputed from the per-pulse log (N1)."""
+    whole = BP.load_and_extract(run_file)
+    explicit = BP.load_and_extract(run_file, None, None)
+    for read, again in zip(whole[:5], explicit[:5]):
+        np.testing.assert_array_equal(read, again)
+    e_offset, event_id, error_offset, pcharge, cpc, _ = whole
+    assert event_id.tolist() == ids_of(range(10))
+    assert e_offset.tolist() == offsets_of(range(10))
+    assert error_offset.tolist() == error_offsets_of(range(10))
+    assert np.asarray(pcharge).tolist() == [TOTAL]
+    assert cpc.tolist() == CHARGE.tolist()
+
+
+def test_windows_select_by_pulse_time(run_file):
+    """T1b: a window [start, end) selects the events of the pulses with start <= t < end, exactly: [2, 5) is pulses
+    2, 3 and 4. The error events and the proton charge are selected by the same predicate."""
+    e_offset, event_id, error_offset, pcharge, cpc, _ = BP.load_and_extract(run_file, [2.0], [5.0])
+    assert event_id.tolist() == ids_of([2, 3, 4])
+    assert e_offset.tolist() == offsets_of([2, 3, 4])
+    assert error_offset.tolist() == error_offsets_of([2, 3, 4])
+    assert cpc.tolist() == CHARGE[2:5].tolist()
+    assert np.asarray(pcharge).tolist() == [CHARGE[2:5].sum()]
+
+
+def test_start_zero_is_not_special(run_file):
+    """T1c: a window from 0 starts at the first pulse like any other start: [0, 3) is pulses 0, 1 and 2."""
+    _, event_id, error_offset, _, cpc, _ = BP.load_and_extract(run_file, [0.0], [3.0])
+    assert event_id.tolist() == ids_of([0, 1, 2])
+    assert error_offset.tolist() == error_offsets_of([0, 1, 2])
+    assert cpc.tolist() == CHARGE[0:3].tolist()
+
+
+def test_contiguous_slices_partition_the_run(run_file):
+    """T2a: contiguous windows over the run select disjoint event sets whose union is every event, in order; no
+    event is lost or duplicated at an edge. The slices' charges add up to the run's per-pulse total."""
+    slices = [BP.load_and_extract(run_file, [a], [b]) for a, b in [(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)]]
+    assert sum((s[1].tolist() for s in slices), []) == ids_of(range(10))
+    assert sum((s[2].tolist() for s in slices), []) == error_offsets_of(range(10))
+    assert sum(float(np.asarray(s[3])[0]) for s in slices) == CHARGE.sum()
+    assert sum((s[4].tolist() for s in slices), []) == CHARGE.tolist()
+
+
+@pytest.mark.parametrize("end", [9.0, 12.0], ids=["end at the last pulse", "end after the run"])
+def test_the_last_window_includes_the_last_pulse(run_file, end):
+    """T2b: the last window is closed at the run's end: an end at or after the last pulse's time selects through
+    the last pulse, its events included."""
+    _, event_id, error_offset, _, cpc, _ = BP.load_and_extract(run_file, [6.0], [end])
+    assert event_id.tolist() == ids_of([6, 7, 8, 9])
+    assert error_offset.tolist() == error_offsets_of([6, 7, 8, 9])
+    assert cpc.tolist() == CHARGE[6:10].tolist()
+
+
+@pytest.mark.parametrize("starts, ends, pulses", [
+    ([0.0, 5.0], [2.0, 7.0], [0, 1, 5, 6]),
+    ([5.0, 0.0], [7.0, 2.0], [5, 6, 0, 1]),
+    ([0.0, 2.0], [3.0, 4.0], [0, 1, 2, 2, 3]),
+], ids=["two disjoint", "given out of order", "overlapping"])
+def test_several_windows_concatenate_in_order(run_file, starts, ends, pulses):
+    """T3: several windows in one call concatenate in the order given. Overlapping windows are allowed (§10 A2), and a
+    pulse in two of them is read twice: nothing is deduplicated."""
+    _, event_id, error_offset, pcharge, cpc, _ = BP.load_and_extract(run_file, starts, ends)
+    assert event_id.tolist() == ids_of(pulses)
+    assert error_offset.tolist() == error_offsets_of(pulses)
+    assert cpc.tolist() == CHARGE[pulses].tolist()
+    assert np.asarray(pcharge).tolist() == [CHARGE[pulses].sum()]
+
+
+@pytest.mark.parametrize("starts, ends", [
+    ([1.0], None), (None, [2.0]), ([1.0, 2.0], [3.0]), ([3.0], [3.0]), ([4.0], [3.0]), ([], []),
+], ids=["no end", "no start", "unequal lengths", "start at end", "start after end", "no windows"])
+def test_invalid_windows_raise_before_reading_events(tmp_path, monkeypatch, starts, ends):
+    """T4a: an invalid window list is a ValueError before any event is read: one of the lists missing, unequal
+    lengths, a start not before its end, or two empty lists (§10 A1: None is the spelling of "no filter"). The file
+    here has no event banks, so a reader that read them first would fail otherwise."""
+    path = tmp_path / f"REF_L_{RUN}.nxs.h5"
+    write_run(path, events=False)
+    monkeypatch.setattr(BP, "get_log_values", lambda _fname: {})
+    with pytest.raises(ValueError):
+        BP.load_and_extract(path, starts, ends)
+
+
+def test_scalars_are_one_window(run_file):
+    """T4b: a window given as two numbers is the one-window list."""
+    scalars = BP.load_and_extract(run_file, 2.0, 5.0)
+    lists = BP.load_and_extract(run_file, [2.0], [5.0])
+    for a, b in zip(scalars[:5], lists[:5]):
+        np.testing.assert_array_equal(a, b)
+    assert scalars[1].tolist() == ids_of([2, 3, 4])
+
+
+@pytest.mark.parametrize("start, end", [(20.0, 30.0), (2.25, 2.75)], ids=["after the run", "between two pulses"])
+def test_a_window_without_charge_is_a_named_error(run_file, start, end):
+    """T4c (the read): a window that selects no pulse with charge cannot be reduced. convert_to_binary says so, naming
+    the file and the window, instead of returning None for every caller to unpack (N2)."""
+    with pytest.raises(ValueError) as raised:
+        BP.convert_to_binary(run_file, LOWRES, start_times=[start], end_times=[end])
+    message = str(raised.value)
+    assert run_file.name in message and str(start) in message and str(end) in message, message
+
+
+# ---------------------------------------------------------------------------
+# The window's path: reduce_from_file -> reduce -> _reduce_single_run -> _load_and_extract_lambda
+# -> _make_binary_files -> convert_to_binary -> load_and_extract (F5). Each link is asked separately: the next
+# step records what it received, then stops the call.
+
+
+class StopError(Exception):
+    """Raised by a recording stand-in to end the call once it has what it came for."""
+
+
+WINDOW = {"start_times": [1.0, 4.0], "end_times": [2.0, 5.0]}
+
+
+def settings_for(tmp_path, **extra):
+    """A one-position reduction settings file (written with save_config_json's keys), as in test_prior_combination."""
+    settings = {
+        "method_per_run": ["meanTheta"],
+        "DBname": ["DB_A1.dat"],
+        "RB_Ymin": [146],
+        "RB_Ymax": [155],
+        "Sname": "blank",
+        "experiment_id": EXPERIMENT,
+        "AutoScale": False,
+        "LambdaMin": [2.7],
+        "LambdaMax": [9.5],
+        "ThetaShift": [0],
+        "ScaleFactor": [1],
+        "LambdaMinUse": 2.7,
+        "LambdaMaxUse": 9.5,
+        **extra,
+    }
+    path = tmp_path / "reduce_settings.json"
+    path.write_text(json.dumps(settings))
+    return path
+
+
+@pytest.fixture
+def reducer(tmp_path):
+    """An NR_Reduction for one run whose folders are all under tmp_path."""
+    config = nrff.json_to_config(nrff.load_from_file(settings_for(tmp_path))["config"])
+    config.RBnum = [RUN]
+    config.experiment_id = EXPERIMENT
+    config.NEXUSpathRB = tmp_path
+    config.Spath = tmp_path
+    config.DBpath = tmp_path
+    config.BINpath = tmp_path
+    return NR_Reduction(config)
+
+
+def recorder(record):
+    def stand_in(*args, **kwargs):
+        record.append((args, kwargs))
+        raise StopError
+    return stand_in
+
+
+def received_window(record):
+    (args, kwargs), = record
+    return {name: kwargs.get(name) for name in ("start_times", "end_times")}, args
+
+
+@pytest.mark.usefixtures("run_file")  # the grouping reads the run
+def test_the_window_reaches_reduce_from_reduce_from_file(tmp_path, monkeypatch):
+    record = []
+    monkeypatch.setattr(NR_Reduction, "reduce", recorder(record))
+    with pytest.raises(StopError):
+        nrff.reduce_from_file([RUN], settings_for(tmp_path), EXPERIMENT, datapath=tmp_path, plot=False,
+                              override_params={"Spath": tmp_path}, **WINDOW)
+    assert received_window(record)[0] == WINDOW
+
+
+def test_the_window_reaches_each_run_from_reduce(monkeypatch, reducer):
+    record = []
+    monkeypatch.setattr(NR_Reduction, "_reduce_single_run", recorder(record))
+    with pytest.raises(StopError):
+        reducer.reduce(plot=False, **WINDOW)
+    window, args = received_window(record)
+    assert window == WINDOW and args[1:] == (0, RUN)
+
+
+def test_the_window_reaches_the_lambda_load_from_a_run(monkeypatch, reducer):
+    record = []
+    monkeypatch.setattr(NR_Reduction, "_load_and_extract_lambda", recorder(record))
+    with pytest.raises(StopError):
+        reducer._reduce_single_run(0, RUN, **WINDOW)
+    window, args = received_window(record)
+    assert window == WINDOW and args[1:] == (0, RUN)
+
+
+def test_the_window_reaches_the_binary_files_from_the_lambda_load(monkeypatch, reducer):
+    record = []
+    monkeypatch.setattr(NR_Reduction, "_make_binary_files", recorder(record))
+    with pytest.raises(StopError):
+        reducer._load_and_extract_lambda(0, RUN, **WINDOW)
+    window, args = received_window(record)
+    assert window == WINDOW and args[1] == RUN
+
+
+def test_the_window_reaches_convert_to_binary_from_the_binary_files(monkeypatch, reducer, run_file):
+    record = []
+    monkeypatch.setattr(BP, "convert_to_binary", recorder(record))
+    with pytest.raises((StopError, RuntimeError)):  # _make_binary_files wraps what its call raises
+        reducer._make_binary_files(RUN, 0, 50000, **WINDOW)
+    window, args = received_window(record)
+    assert window == WINDOW and Path(args[0]) == run_file
+
+
+def test_the_window_reaches_the_file_read_from_convert_to_binary(monkeypatch, run_file):
+    record = []
+    monkeypatch.setattr(BP, "load_and_extract", recorder(record))
+    with pytest.raises(StopError):
+        BP.convert_to_binary(run_file, LOWRES, **WINDOW)
+    window, args = received_window(record)
+    assert window == WINDOW and Path(args[0]) == run_file
+
+
+# ---------------------------------------------------------------------------
+# T4c (the slice), T5, T6: slices made, named, reduced and written (new_reduction_time_resolved, the header writer)
+
+
+@pytest.fixture
+def slicing(tmp_path, monkeypatch):
+    """A NeXus folder holding the run, an output folder, a settings file, and a physics stub that records the
+    window, subname and folders each reduction received."""
+    import lr_reduction.new_reduction_time_resolved as nrtr
+
+    nexus, out = tmp_path / "nexus", tmp_path / "out"
+    nexus.mkdir()
+    out.mkdir()
+    write_run(nexus / f"REF_L_{RUN}.nxs.h5")
+    calls, fail = [], {}
+
+    def fake_reduce_single_run(self, i, rb_num, save=True, start_times=None, end_times=None):  # noqa: ARG001
+        calls.append({"window": (start_times, end_times), "subname": self.config.subname,
+                      "Spath": Path(self.config.Spath), "nexus": Path(self.config.NEXUSpathRB)})
+        if (start_times, end_times) in fail:
+            raise fail[(start_times, end_times)]
+        q = np.geomspace(0.01, 0.1, 20)
+        r = 1e-6 * q**-4 * (1.0 + len(calls))
+        zeros = np.zeros_like(q)
+        self.log_values = {"title": "slicing test", "ths": 0.6, "thi": 0.6, "ThCen": 0.6}
+        self.config.LambdaMinUse = self.config.LambdaMin[i]
+        self.config.LambdaMaxUse = self.config.LambdaMax[i]
+        result = {"q": q, "r": r, "dr": 0.05 * r, "dq": 0.02 * q, "t": zeros, "l": zeros, "dt": zeros, "dl": zeros}
+        return result, self.config, self.log_values
+
+    monkeypatch.setattr(NR_Reduction, "_reduce_single_run", fake_reduce_single_run)
+    return SimpleNamespace(nrtr=nrtr, nexus=nexus, out=out, calls=calls, fail=fail, settings=settings_for(tmp_path))
+
+
+def header_lines(path):
+    return [line[2:] for line in Path(path).read_text().splitlines() if line.startswith("# ")]
+
+
+def assert_one_window_line_and_the_marker(out):
+    """The time-sliced outputs' header invariant (plan §4): each file has exactly one "Time resolved:" line and one
+    format marker, the window line before the marker."""
+    files = sorted(Path(out).glob("*.dat"))
+    assert files
+    for path in files:
+        lines = header_lines(path)
+        windows = [i for i, line in enumerate(lines) if line.startswith("Time resolved: ")]
+        markers = [i for i, line in enumerate(lines) if line.startswith("Header format: ")]
+        assert len(windows) == 1 and len(markers) == 1 and windows[0] < markers[0], (path.name, lines)
+
+
+def test_reduce_time_slices_makes_equal_windows_named_i_of_n(slicing, monkeypatch):
+    """T5a: n slices are n equal windows over entry/duration, the last closed at the run's end. Each is reduced
+    through reduce_time_list under the name slice_<i>of<n>, and the kinetic plot gets each window's mid-point. One
+    flat result pack per slice comes back."""
+    shown = []
+    monkeypatch.setattr(slicing.nrtr, "plot_kinetic", lambda outputs, run, times, show=True: shown.append(
+        (len(outputs), run, list(times), show)) or "figure")
+    outputs, plots = slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, 3, savepath=slicing.out,
+                                                     datapath=slicing.nexus, show_plots=False)
+    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (3.0, 6.0), (6.0, 9.0)]
+    assert [call["subname"] for call in slicing.calls] == [
+        "_slice_1of3_slice_0_3", "_slice_2of3_slice_3_6", "_slice_3of3_slice_6_9"]
+    assert len(outputs) == 3 and all(isinstance(pack, list) and pack and isinstance(pack[0], dict) for pack in outputs)
+    assert plots == "figure" and shown == [(3, RUN, [1.5, 4.5, 7.5], False)]
+    assert_one_window_line_and_the_marker(slicing.out)
+
+
+@pytest.mark.parametrize("n", [0, -1])
+def test_reduce_time_slices_needs_at_least_one_slice(slicing, n):
+    """T5a: zero or a negative number of slices is a ValueError, before anything is reduced."""
+    with pytest.raises(ValueError):
+        slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, n, savepath=slicing.out,
+                                        datapath=slicing.nexus, plot_time=False)
+    assert slicing.calls == []
+
+
+def test_reduce_time_list_returns_a_pack_per_window_in_order(slicing):
+    """T5a (reduce_time_list): one flat result pack per window, in the order given, each reduced with its own
+    window and named by it."""
+    outputs, plots = slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [4.0, 0.0], [6.0, 2.0],
+                                                   savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
+    assert [call["window"] for call in slicing.calls] == [(4.0, 6.0), (0.0, 2.0)]
+    assert [call["subname"] for call in slicing.calls] == ["_slice_4_6", "_slice_0_2"]
+    assert len(outputs) == 2 and plots is None
+
+
+def test_nested_windows_are_one_slice_named_by_its_span(slicing):
+    """T3 through reduce_time_list: a window entry may itself be a list of windows (the function's own comment), one
+    output slice concatenating them, named by its span. int() of the list raised (N4)."""
+    slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [[0.0, 5.0]], [[2.0, 7.0]],
+                                  savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
+    assert [call["window"] for call in slicing.calls] == [([0.0, 5.0], [2.0, 7.0])]
+    assert [call["subname"] for call in slicing.calls] == ["_slice_0_7"]
+
+
+def test_a_window_that_cannot_be_reduced_is_reported_and_the_others_are_reduced(slicing):
+    """T4c (the slice): a window whose reduction fails (here as the real chain fails for a window with no charge:
+    _make_binary_files' RuntimeError) is reported after every other window has been reduced and written; the error
+    names the window."""
+    slicing.fail[(20.0, 30.0)] = RuntimeError(f"Failed to compute binary data for run {RUN}: no proton charge")
+    with pytest.raises(ValueError) as raised:
+        slicing.nrtr.reduce_time_list(RUN, slicing.settings, EXPERIMENT, [0.0, 20.0, 3.0], [3.0, 30.0, 6.0],
+                                      savepath=slicing.out, datapath=slicing.nexus, plot_time=False)
+    assert [call["window"] for call in slicing.calls] == [(0.0, 3.0), (20.0, 30.0), (3.0, 6.0)]
+    assert "[20.0, 30.0)" in str(raised.value) and "no proton charge" in str(raised.value), str(raised.value)
+    written = sorted(path.name for path in slicing.out.glob("*.dat"))
+    assert any("_slice_0_3" in name for name in written) and any("_slice_3_6" in name for name in written), written
+    assert not any("_slice_20_30" in name for name in written), written
+
+
+def test_the_run_file_is_resolved_the_campaigns_way(tmp_path, slicing):
+    """T5b (F9): the run's NeXus file and the output folder come from the reduction's own config, never a /SNS/REF_L
+    literal: an explicit datapath, else the settings' NEXUSpathRB; savepath, else the settings' Spath. The module
+    holds no facility path (and no_facility_paths fails any test that reaches the config's default)."""
+    settings = settings_for(tmp_path, NEXUSpathRB=str(slicing.nexus), Spath=str(slicing.out))
+    slicing.nrtr.reduce_time_slices(RUN, settings, EXPERIMENT, 2, plot_time=False)
+    assert {(call["nexus"], call["Spath"]) for call in slicing.calls} == {(slicing.nexus, slicing.out)}
+    assert sorted(slicing.out.glob("*.dat"))
+    source = Path(slicing.nrtr.__file__).read_text()
+    assert "/SNS" not in source
+
+
+def test_the_file_is_closed(slicing, monkeypatch):
+    """T5c: reduce_time_slices reads the run's duration and closes the file. Only the module's own h5py is replaced:
+    the grouping in reduce_from_file opens the run too, and is not this slug's."""
+    opened = []
+
+    def recording_file(*args, **kwargs):
+        handle = h5py.File(*args, **kwargs)
+        opened.append(handle)
+        return handle
+
+    monkeypatch.setattr(slicing.nrtr, "h5py", SimpleNamespace(File=recording_file))
+    slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, 2, savepath=slicing.out,
+                                    datapath=slicing.nexus, plot_time=False)
+    assert opened and not any(handle.id.valid for handle in opened)
+
+
+@pytest.mark.parametrize("full", [True, False], ids=["full header", "short header"])
+def test_the_header_names_the_window_beside_the_marker(reducer, full):
+    """T6a: with a window, the header (both writers) has one line naming it, the contribution's text, before the
+    format marker; without one there is no such line (§10 A3), so today's headers are unchanged."""
+    log_values = {"title": ["t"], "ths": [0.6], "thi": [0.6], "ThCen": [0.6]}
+    windowed = save_fn._build_header(reducer.config, log_values, full=full, time_window=([600.0], [1200.0]))
+    lines = windowed.splitlines()
+    assert [line for line in lines if line.startswith("Time resolved")] == ["Time resolved: [600.0], [1200.0]"]
+    window_at = lines.index("Time resolved: [600.0], [1200.0]")
+    marker_at = next(i for i, line in enumerate(lines) if line.startswith("Header format: "))
+    assert window_at < marker_at
+    plain = save_fn._build_header(reducer.config, log_values, full=full)
+    assert "Time resolved" not in plain
+    assert plain.splitlines() == [line for line in lines if not line.startswith("Time resolved")]
+
+
+def test_reduce_does_not_write_windows_into_the_callers_config(slicing, reducer):
+    """T6b: reduce() with a window leaves the caller's config without one (M2's R4/R5: what a call used is a record
+    for its header, not a write into the shared config)."""
+    reducer.reduce(plot=False, start_times=[0.0], end_times=[3.0])
+    assert getattr(reducer.config, "start_times", None) is None
+    assert getattr(reducer.config, "end_times", None) is None
+    assert slicing.calls[-1]["window"] == ([0.0], [3.0])
+
+
+def test_a_run_without_windows_writes_todays_header(slicing):
+    """§10 A3 and acceptance 2: reduced without windows, a run's header has no "Time resolved" line and its Config
+    line has no window keys (the window is not a config field, N3)."""
+    nrff.reduce_from_file([RUN], slicing.settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                          override_params={"Spath": slicing.out})
+    for path in sorted(slicing.out.glob("*.dat")):
+        lines = header_lines(path)
+        assert not any(line.startswith("Time resolved") for line in lines), path.name
+        config = json.loads(next(line for line in lines if line.startswith("Config: "))[len("Config: "):])
+        assert "start_times" not in config and "end_times" not in config, sorted(config)
+
+
+# ---------------------------------------------------------------------------
+# T9: progress goes to logging, not print
+
+
+@pytest.mark.parametrize("module", ["new_reduction_time_resolved", "binary_processing", "direct_beam_maker"])
+def test_no_print_in_library_code(module):
+    """T9: the library modules the intake touches report through logging; a print() writes to whatever stdout the
+    caller has (the launcher's console, an autoreduction log) and cannot be filtered."""
+    path = Path(BP.__file__).with_name(f"{module}.py")
+    prints = [n for n, line in enumerate(path.read_text().splitlines(), 1) if re.search(r"\bprint\(", line)]
+    assert prints == [], f"{path.name}: print() at lines {prints}"
+
+
+def test_the_window_filter_logs_at_info(run_file, caplog):
+    """T9: the selection says what it did through the module's logger."""
+    with caplog.at_level(logging.INFO, logger=BP.__name__):
+        BP.load_and_extract(run_file, [2.0], [5.0])
+    assert any(record.name == BP.__name__ and record.levelno == logging.INFO for record in caplog.records)
