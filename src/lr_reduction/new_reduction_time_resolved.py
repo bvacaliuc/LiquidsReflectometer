@@ -7,6 +7,7 @@ import h5py
 import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib.colors import LogNorm
+from matplotlib.figure import Figure
 
 import lr_reduction.binary_processing as BP
 import lr_reduction.new_reduction_from_file as reduction
@@ -67,7 +68,7 @@ def close_final_entries(starts, ends, last_pulse, duration):
     return ends
 
 
-def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None):
+def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None, figure=None):
     '''
     Function to reduce the data, splitting into the number of time slices
 
@@ -78,7 +79,8 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
     when it does not pass it already (binary_processing.close_final_window). The slices partition the run.
     The run's file and the output folder are resolved as the reduction resolves them (run_folders).
 
-    :return: (outputs, plots): one flat list of reduced data per slice, and the kinetic plot (None without plot_time)
+    :return: (outputs, plots): one flat list of reduced data per slice, and the kinetic plot (None without plot_time),
+        drawn into figure when one is given (plot_kinetic)
     :raises ValueError: num_slices below 1; or, once every other slice has been reduced and written, the slices that
         could not be reduced, each with its window and its error.
     '''
@@ -127,14 +129,14 @@ def reduce_time_slices(run, settings_file, experiment_id, num_slices, savepath=N
         raise ValueError("; ".join(failures))
 
     if plot_time:
-        plots = plot_kinetic(all_outputs, run, times=mid_points, show=show_plots)
+        plots = plot_kinetic(all_outputs, run, times=mid_points, show=show_plots, figure=figure)
     else:
         plots = None
 
     return all_outputs, plots
 
 
-def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None, close_final=True):
+def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=None, plot_time = True, plot_ref=False, subname_input=None, show_plots=True, datapath=None, close_final=True, figure=None):
     '''
     Reduce the run once per entry of starts/ends, in order.
 
@@ -149,7 +151,7 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
     contiguous windows partition the run. reduce_time_slices, which has closed its own final window, passes False.
 
     :return: (outputs, plots): one flat list of reduced data per entry, in order, and the kinetic plot (None without
-        plot_time)
+        plot_time), drawn into figure when one is given (plot_kinetic)
     :raises ValueError: starts and ends of different lengths; or, once every other entry has been reduced and written,
         the entries that could not be reduced (the reduction raised, or returned no data), each with its window.
     '''
@@ -200,7 +202,7 @@ def reduce_time_list(run, settings_file, experiment_id, starts, ends, savepath=N
 
     # create plot of set
     if plot_time:
-        plots = plot_kinetic(store_outputs, run, times=mid_points, show=show_plots)
+        plots = plot_kinetic(store_outputs, run, times=mid_points, show=show_plots, figure=figure)
     else:
         plots = None
 
@@ -219,14 +221,26 @@ def reduce_time_log_filter(run, settings, log_id, log_min, log_max):
 '''
 
 
-def plot_kinetic(output_list, run, times, show=True):
-    # Plot an offset graph and a colour map.
-    # output_list is expected to be a list of per-slice result packs, where each pack is a
-    # list of reduced data dicts, e.g. [ {"Q":..., "R":..., "dR":..., "dQ":...}, ... ]
+def plot_kinetic(output_list, run, times, show=True, figure=None):
+    '''
+    Plot an offset graph and a colour map of the slices' R, and return the figure.
+
+    output_list is expected to be a list of per-slice result packs, where each pack is a list of reduced data dicts,
+    e.g. [ {"Q":..., "R":..., "dR":..., "dQ":...}, ... ]. With a figure, the plot replaces its contents (the launcher's
+    tab draws into its own canvas this way); without one, a new figure is made: through pyplot when show is true (a
+    script's window), else outside pyplot, so that no figure is left registered there.
+    '''
 
     # TODO: update the color plot to take time rather than slice index...
 
-    fig, ax = plt.subplots(nrows = 1, ncols = 2, figsize=(15, 6))
+    if figure is not None:
+        figure.clear()
+        fig = figure
+    elif show:
+        fig = plt.figure(figsize=(15, 6))
+    else:
+        fig = Figure(figsize=(15, 6))
+    ax = fig.subplots(nrows = 1, ncols = 2)
     store_q = []
     store_r = []
     store_dr = []
@@ -307,7 +321,7 @@ def plot_kinetic(output_list, run, times, show=True):
     ax[1].set_ylabel('Time (s)')
     ax[1].set_title(f'Time_slices for run {run}', fontsize=16)
 
-    plt.tight_layout()
+    fig.tight_layout()
 
     if show:
         plt.show()

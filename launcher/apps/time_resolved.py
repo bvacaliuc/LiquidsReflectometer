@@ -284,6 +284,7 @@ class TimeResolvedTab(QWidget):
                     plot_ref=False,
                     subname_input=subname,
                     show_plots=False,
+                    figure=self.figure,
                 )
                 self.log_edit.append(f"Slices processed: {len(output)}")
             else:
@@ -302,18 +303,16 @@ class TimeResolvedTab(QWidget):
                     plot_ref=False,
                     subname_input=subname,
                     show_plots=False,
+                    figure=self.figure,
                 )
                 self.log_edit.append(f"Custom windows processed: {len(output)}")
         finally:
             self.process_btn.setEnabled(True)
 
-        if plots is not None:
-            if self.canvas is not None and plots is not None:
-                self.figure = plots
-                self.canvas.figure = self.figure
-                self.figure.tight_layout()
-                self.canvas.draw_idle()
-                self.log_edit.append("Updated embedded plot view")
+        # The kinetic plot is drawn into this tab's own figure (figure=self.figure), on its own canvas: only a redraw
+        if plots is not None and self.canvas is not None:
+            self.canvas.draw_idle()
+            self.log_edit.append("Updated embedded plot view")
 
         self.log_edit.append(f"Completed reduction: {len(output)} output slice(s)")
 

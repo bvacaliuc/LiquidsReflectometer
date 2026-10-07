@@ -493,8 +493,8 @@ def test_reduce_time_slices_makes_equal_windows_named_i_of_n(slicing, monkeypatc
     through reduce_time_list under the name slice_<i>of<n>, and the kinetic plot gets each window's mid-point. One
     flat result pack per slice comes back."""
     shown = []
-    monkeypatch.setattr(slicing.nrtr, "plot_kinetic", lambda outputs, run, times, show=True: shown.append(
-        (len(outputs), run, list(times), show)) or "figure")
+    monkeypatch.setattr(slicing.nrtr, "plot_kinetic", lambda outputs, run, times, show=True, figure=None: shown.append(
+        (len(outputs), run, list(times), show, figure)) or "figure")
     outputs, plots = slicing.nrtr.reduce_time_slices(RUN, slicing.settings, EXPERIMENT, 3, savepath=slicing.out,
                                                      datapath=slicing.nexus, show_plots=False)
     # the last window is the run's final one: its end is moved just past the last pulse, at 9 s (T2')
@@ -502,7 +502,7 @@ def test_reduce_time_slices_makes_equal_windows_named_i_of_n(slicing, monkeypatc
     assert [call["subname"] for call in slicing.calls] == [
         "_slice_1of3_slice_0_3", "_slice_2of3_slice_3_6", "_slice_3of3_slice_6_9"]
     assert len(outputs) == 3 and all(isinstance(pack, list) and pack and isinstance(pack[0], dict) for pack in outputs)
-    assert plots == "figure" and shown == [(3, RUN, [1.5, 4.5, 7.5], False)]
+    assert plots == "figure" and shown == [(3, RUN, [1.5, 4.5, 7.5], False, None)]
     assert_one_window_line_and_the_marker(slicing.out)
 
 
