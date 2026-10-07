@@ -95,6 +95,8 @@ LAST_184981 = 76.780626  # REF_L_184981's last pulse; its float32 entry/duration
 REAL_SHAPED = {
     "float32 duration below the last pulse": (np.append(np.arange(0.0, 77.0), LAST_184981), None, LAST_184981),
     "unsorted tail": (np.concatenate([np.arange(0.0, 17.0), [17.10, 10.72, 10.73]]), None, 17.2),
+    "unsorted tail, the latest pulse past the duration": (
+        np.concatenate([np.arange(0.0, 70.0), [LAST_184981, 70.5, 70.6]]), None, LAST_184981),
     "empty pulses": (PULSES, [3, 0, 3, 0, 0, 3, 3, 0, 3, 0], PULSES[-1]),
     "beam-off tail": (PULSES, None, 14.5),
     "beam-off tail, a quarter on the last pulse": (PULSES, None, 18.0),
