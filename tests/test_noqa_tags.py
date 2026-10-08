@@ -7,7 +7,9 @@ on its line, whatever code it names. These tests are the guard:
   nothing);
 - no tag sits in a file ruff does not lint (`scripts/` is excluded in pyproject.toml): such a tag is dead by
   construction;
-- the repository's own selection carries RUF100, so the pre-commit hook and every lint run fail when a tag goes dead;
+- the pre-commit `ruff-check` hook, where this repository runs ruff, adds RUF100 to the selection, so the hook fails when
+  a tag goes dead. pyproject.toml's selection is left alone: that file is also pixi's self-package manifest, and any
+  edit to it leaves pixi.lock out of date;
 - no tag is a blanket: each names its codes after a colon (`# noqa: BLE001 -- the reason`).
 """
 
@@ -17,6 +19,8 @@ import shutil
 import subprocess
 import tokenize
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 TREES = ("src", "launcher", "tests", "scripts")
@@ -32,7 +36,15 @@ def ruff(*args, stdin=None):
     executable = shutil.which("ruff")
     assert executable, "ruff is not on PATH: run the tests in pixi's default environment, which carries it"
     return subprocess.run([executable, "check", "--no-fix", "--output-format", "concise", *args], cwd=ROOT,
-                          input=stdin, capture_output=True, text=True, check=False)
+                          input=stdin, capture_output=True, text=True, check=False, timeout=300)
+
+
+def hook_args():
+    """The args of the pre-commit `ruff-check` hook, the one place this repository runs ruff."""
+    config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    hooks = [hook for repo in config["repos"] for hook in repo.get("hooks", []) if hook.get("id") == "ruff-check"]
+    assert len(hooks) == 1, hooks
+    return [str(arg) for arg in hooks[0].get("args", [])]
 
 
 def python_files():
@@ -52,8 +64,8 @@ def noqa_directives(path):
 
 
 def test_ruff_reports_no_unused_noqa_tag():
-    """U2: with the repository's selection, RUF100 reports no tag in src, launcher, tests or scripts, and the tree is
-    otherwise clean."""
+    """U2: with the hook's selection (the repository's, plus RUF100), RUF100 reports no tag in src, launcher, tests or
+    scripts, and the tree is otherwise clean."""
     result = ruff("--extend-select", "RUF100", *TREES)
     unused = [line for line in result.stdout.splitlines() if "RUF100" in line]
     assert unused == [], "\n".join(unused)
@@ -71,10 +83,17 @@ def test_no_noqa_tag_where_ruff_does_not_look():
     assert unlinted == [], "\n".join(unlinted)
 
 
-def test_the_repository_selects_ruf100():
-    """U2: the repository's own selection reports a dead tag (here one naming F401, which is enabled but does not fire
-    on its line, given on stdin under a path in src/), so the pre-commit hook and every lint run see a tag go dead."""
-    result = ruff("--stdin-filename", "src/lr_reduction/noqa_probe.py", "-", stdin="VALUE = 1  # noqa: F401\n")
+def test_the_pre_commit_hook_selects_ruf100():
+    """U2b: the pre-commit hook adds RUF100 to the selection (`--extend-select RUF100` in its args), and ruff given the
+    hook's args reports a dead tag: here one naming F401, which is enabled but does not fire on its line, on stdin
+    under a path in src/. Without it, the hook would not see a tag go dead."""
+    args = hook_args()
+    selected = [args[i + 1] for i, arg in enumerate(args[:-1]) if arg == "--extend-select"]
+    selected += [arg.split("=", 1)[1] for arg in args if arg.startswith("--extend-select=")]
+    assert any("RUF100" in value.split(",") for value in selected), args
+    as_the_hook = [arg for arg in args if arg not in ("--fix", "--exit-non-zero-on-fix")]
+    result = ruff(*as_the_hook, "--stdin-filename", "src/lr_reduction/noqa_probe.py", "-",
+                  stdin="VALUE = 1  # noqa: F401\n")
     assert "RUF100" in result.stdout, result.stdout + result.stderr
 
 
