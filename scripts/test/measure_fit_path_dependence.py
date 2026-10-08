@@ -22,9 +22,9 @@ import mantid.simpleapi as mtd_api
 mtd_api.config["default.facility"] = "SNS"
 mtd_api.config["default.instrument"] = "REF_L"
 
-from lr_reduction.scaling_factors import LRScalingFactors  # noqa: E402
-from lr_reduction.scaling_factors import workflow as sf_workflow  # noqa: E402
-from lr_reduction.utils import amend_config  # noqa: E402
+from lr_reduction.scaling_factors import LRScalingFactors
+from lr_reduction.scaling_factors import workflow as sf_workflow
+from lr_reduction.utils import amend_config
 
 # The floor is measured within the Levenberg-Marquardt family: LM-MD (Mantid's
 # default) and LM reach the same optimum by different routes. Simplex is a
