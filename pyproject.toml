@@ -242,7 +242,7 @@ line-length = 120
 exclude = ["notebooks/**", "**/*.ipynb", "scripts/**", "tests/data/**"]
 
 [tool.ruff.lint]
-select = ["A", "ARG","ASYNC","BLE", "E", "F", "FURB", "I", "N", "UP032", "W", "RUF100"]
+select = ["A", "ARG","ASYNC","BLE", "E", "F", "FURB", "I", "N", "UP032", "W"]
 ignore = [
   "E402", # module level import not at top of file
   "E501", # line too long
