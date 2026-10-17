@@ -81,7 +81,7 @@ def _guarded(method):
     def wrapper(self, *args, **kwargs):
         try:
             return method(self, *args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 -- the point is to catch everything
+        except Exception as exc:  # the point is to catch everything
             traceback.print_exc()
             self.status.setText(f"{type(exc).__name__}: {exc}")
             return None

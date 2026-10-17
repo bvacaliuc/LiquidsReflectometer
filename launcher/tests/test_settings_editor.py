@@ -3352,7 +3352,7 @@ def test_the_real_modal_dialog_writes_as_its_buttons_are_pressed(monkeypatch, ev
             dialogs[0].peak_spins[0].setValue(141)
             QTest.mouseClick(dialogs[0].buttons.button(getattr(QtWidgets.QDialogButtonBox, button)),
                              QtCore.Qt.LeftButton)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             poll.stop()
             errors.append(repr(exc))
 
