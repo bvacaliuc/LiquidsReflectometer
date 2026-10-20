@@ -16,8 +16,10 @@ Campaign: exp-review-fixes
 ## Declared scope
 
 **Files in.** `pyproject.toml`, `pixi.lock` (as the replayed entries left them), `.pre-commit-config.yaml`, `scripts/check_lock_format.sh`,
-`scripts/pixi_lock_check.sh`, `launcher/tests/conftest.py`, `launcher/tests/test_harness.py`, `tests/conftest.py`, `tests/**` touched by the entries
-below; `src/lr_reduction/{template.py, new_reduction_from_template.py, background.py, dead_time_correction.py, output.py, peak_finding.py}`;
+`scripts/pixi_lock_check.sh`, `docs/developer/developer.rst` (#20), `launcher/tests/__init__.py` (#15), `launcher/tests/conftest.py`,
+`launcher/tests/test_harness.py`, `tests/conftest.py`, `tests/test_noqa_tags.py` (#49), `tests/**` touched by the entries below;
+`src/lr_autoreduce/{new_reduce_REF_L.py, reduce_REF_L.py}` and `src/lr_reduction/{instrument_settings.py, new_reduction_template_reader.py,
+reduction_template_reader.py, time_resolved.py, web_report.py}` (#49's comment-only hunks — core files no later layer owns, D-93/A-130); `src/lr_reduction/{template.py, new_reduction_from_template.py, background.py, dead_time_correction.py, output.py, peak_finding.py}`;
 `src/lr_reduction/reduction_domains.py` (new) with the two call-site hunks in `nr_reduction_calc.py` and `nr_tools.py` (split from #28); #14's
 mechanical ruff baseline across `launcher/` and `src/` (the declared purity exception: its replay commit's subject carries `purity-exception: #14
 mechanical ruff baseline`).
@@ -51,6 +53,8 @@ behaviour changes of any kind (a replayed hunk is the fork's hunk); the fork's `
 | 10 | `a4efd95` [`378e323`] — **only** `src/lr_reduction/reduction_domains.py` and the hunks of `nr_reduction_calc.py`, `nr_tools.py` | #28 (split) | the choice lists moved to a shared module; two call sites switched | those three files |
 | 11 | `c39efe9` [`0d98cb9`] | #41 | test-suite warnings: `background.py`, `dead_time_correction.py`, `output.py`, `peak_finding.py` + tests | those four + `tests/*` |
 
+| 12 | `c7741b2` [`4eec8d5`] — **only** the L1-owned files (D-4 split) | #49 (split) | the noqa sweep's hunks in `.pre-commit-config.yaml`, `launcher/tests/test_harness.py`, `tests/test_noqa_tags.py` and the seven core `src/` files above | those files |
+
 Not replayed: `f5bd6d2` (an upstream merge — its content is already in the base), `7b6d6b9`, the `todo.md` commits, `dc84af7`. Entry 10's remainder
 (the editor) and everything after `c39efe9` on the launcher and reduction lanes belong to L2/L3.
 
@@ -58,7 +62,7 @@ Not replayed: `f5bd6d2` (an upstream merge — its content is already in the bas
 
 | # | Check | RED at the start |
 |---|---|---|
-| P1 | `scripts/landing-purity.sh landing-l1-core 8971999 <tip>` → `clean` | run it on `exp-review` as if it were L1 → STRAY lines (the mixed history) |
+| P1 | `scripts/landing-purity.sh landing-l1-core 8971999 <tip>` → `clean` (sets amended A-130: the nine files of D-93 and `launcher/tests/__init__.py` are L1's; v1's run reported exactly those as STRAY, nothing else — D-94) | run it on `exp-review` as if it were L1 → STRAY lines (the mixed history) |
 | P2 | `scripts/landing-sanitize-check.sh 8971999 <tip>` → `clean` | on `exp-review` → `CI-CHANGE .github/workflows/test_and_deploy.yml`, `ARTEFACT`s, `NO-PROVENANCE` |
 | P4 | `scripts/landing-purity.sh --census 9aaaefa c7741b2 <L1 tip>` lists every entry of the census as `replayed` or `UNASSIGNED` — at L1 the UNASSIGNED set must be exactly the L2/L3 entries (listed in the PR body) | all UNASSIGNED |
 | G | `pixi run test-reduction` green at the tip; `pixi install --locked` and `scripts/pixi_lock_check.sh` exit 0 in a clean worktree of the tip (D-83) | — |
@@ -88,3 +92,7 @@ Not replayed: `f5bd6d2` (an upstream merge — its content is already in the bas
 v1 — authored and dispatched 2026-10-20 (A-128) from the group plan's census; re-seal at dispatch: upstream `exp` still `8971999`; `exp-review` `c7741b2`
 (#49 merged, tree `cfe18ef`, I-94); no open feature branch on the fork; the fork's `exp` stale (`d51e935`) — the human's R0 i pending, needed only by the
 PR step.
+
+v1 amended 2026-10-20 (A-130) at the Developer's D-93/D-94: the L1 set gains `docs/`, `launcher/tests/__init__.py`, `src/lr_autoreduce/` and the seven core `src/` files
+#49 touched; entry 12 (#49's L1-owned hunks) recorded as built; granularity one commit per fork PR (12 commits, D-94) accepted. The gate scripts on the ledger carry the
+amended sets; `scripts/landing-proof.sh` is the proof for L3/L4.

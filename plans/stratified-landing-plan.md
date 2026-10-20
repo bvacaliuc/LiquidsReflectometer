@@ -28,9 +28,9 @@ Campaign: exp-review-fixes
 since the upstream merge base, **sanitized**: no fork-only CI configuration, no campaign artefacts (`todo.md`, `plans/`, learnings documents, mutation
 batteries unless D-3 keeps them), no protocol refs or merge noise (the only refs are `exp`, `feature/landing-reference` and the four leaves' `feature/`·`qa/` refs); every commit attributed (the original authors' trailers carried). (2) Each layer is
 **green on its own gate** (`pixi run test-reduction`, which depends on `test-launcher`, from the layer's tip). (3) The L3 tip is **tree-identical to the
-reference R** (§3 R0: `exp-review` at its tip at dispatch — `1bffee1` on 2026-10-19 — merged with upstream `exp` @ `8971999`, conflicts resolved once,
-pushed by the Developer as `feature/landing-reference`, immutable by convention) — the proof is
-`git diff --stat <L3 tip> <R>` empty; L4 differs from R by exactly the module move. (4) Each layer's diff touches only its area's files
+reference R outside the exclusion list, and differs from R by exactly that list** (§3 R0: `exp-review` at its tip at dispatch — `1bffee1` on 2026-10-19 — merged with upstream `exp` @ `8971999`, conflicts resolved once,
+pushed by the Developer as `feature/landing-reference`, immutable by convention) — the proof is `scripts/landing-proof.sh <L3 tip> <R>`
+(P3: (a) no difference outside the exclusion list, (b) the name-only diff is exactly the excluded paths); L4 differs from R by exactly the module move. (4) Each layer's diff touches only its area's files
 (`scripts/landing-purity.sh`, §6 P1), with the exceptions §2 names (the mechanical ruff baseline; `reduction_domains` and its two call sites).
 
 **Explicitly OUT.** Pushing to upstream, opening upstream PRs, or touching upstream `exp-review`/`exp-qa`/`exp-next` (the human's); the review
@@ -40,8 +40,11 @@ open draft PRs #22, #29, #32 (tabled/not campaign); changing what the fork's `ex
 
 ### `landing-l1-core` — Declared scope
 **Files in.** The harness and configuration: `pyproject.toml` (test tasks, `pytest-timeout`, ruff config, versioningit glob), `pixi.lock` (as the
-replayed PRs left it), `.pre-commit-config.yaml`, `scripts/check_lock_format.sh`, `scripts/pixi_lock_check.sh`, `launcher/tests/conftest.py`,
-`launcher/tests/test_harness.py`, `tests/conftest.py`; the core fixes: `src/lr_reduction/{template.py, new_reduction_from_template.py, background.py,
+replayed PRs left it), `.pre-commit-config.yaml`, `scripts/check_lock_format.sh`, `scripts/pixi_lock_check.sh`, `docs/developer/developer.rst` (#20's hook
+documentation), `launcher/tests/__init__.py` (#15's package), `launcher/tests/conftest.py`, `launcher/tests/test_harness.py`, `tests/conftest.py`,
+`tests/test_noqa_tags.py` (#49); **the core files no later layer owns** (D-93): `src/lr_autoreduce/{new_reduce_REF_L.py, reduce_REF_L.py}`,
+`src/lr_reduction/{instrument_settings.py, new_reduction_template_reader.py, reduction_template_reader.py, time_resolved.py, web_report.py}` (#49's
+comment-only hunks; `time_resolved.py` is upstream's, PR #96 — not the fork's `new_reduction_time_resolved.py`, which is L2's); the core fixes: `src/lr_reduction/{template.py, new_reduction_from_template.py, background.py,
 dead_time_correction.py, output.py, peak_finding.py}`; `src/lr_reduction/reduction_domains.py` with the two call-site hunks in `nr_reduction_calc.py`
 and `nr_tools.py` (split from #28, §2 row a4efd95); #14's mechanical ruff baseline across `launcher/` and `src/` (the one lane-purity exception, §2).
 **Entries replayed:** 2127343 (#14), d1a3bab…a4ae8b8 (#15), fff2b92…05c964f (#19), 11170ff (#20, minus `.github/`), 633950c (#21), 04c6e53/547dc14/3fb6019
@@ -62,7 +65,8 @@ and `check_headers.py` between R and the L2 tip on the harness scenarios: identi
 `scripts/test/*` if D-3 keeps them. **Entries replayed:** 246a0da (#16), 3810314 (#17), 3e0fda5 (#18), a4efd95 (#28, the editor half), 4e5f669, c34c8c5
 (#33), e313f38 (#35), b86237b (#36), 2324e5c (#37), 8bec251 (#38), 5a8742d (#39), b6b9381 (#40), d1a9b3a (#43), e7b8524 (#44), eb255b4 (#45), 35e52b2 (#47),
 #42 and the launcher half of 34dc1b9 (#48: `launcher/apps/time_resolved.py`, `new_launcher.py`, `launcher/tests/test_time_resolved.py`), 62e21d1,
-`1bffee1` (the human's tab-order test fix, I-93), then **`c7741b2` (#49, whole: the noqa sweep's 19 files, the `RUF100` hook args, `tests/test_noqa_tags.py` — purity exception, V12)**. **The proof** lives here: `git diff --stat feature/landing-l3-launcher <R>` → empty.
+`1bffee1` (the human's tab-order test fix, I-93), then #49's launcher, model and launcher-test hunks (`c7741b2`, split by file — D-4; its L1 hunks
+went with L1's last commit, its L2 test hunks go with L2's). **The proof** lives here: `git diff --stat feature/landing-l3-launcher <R>` → empty.
 
 ### `landing-l4-model-move` — Declared scope
 **Files in.** `git mv src/lr_reduction/{settings_document.py, field_spec.py, roi_estimate.py} launcher/model/` (the target package name is D-7) in its
@@ -86,7 +90,7 @@ special case.
 |---|---|---|
 | V1 | The upstream merge base and what upstream has beyond it | `git merge-base agentic/exp-review refs/upstream/exp` → **`9aaaefa`** (upstream `exp` as merged into the fork's stage branch on 2026-08-31, `f5bd6d2`); upstream `exp` is **2 commits** past it: `fa5fb4f` #215 "fixing bug with direct beam ROI and detector arrays", `8971999` #216 "fixing autoreduction error in plotly-js" |
 | V2 | The fork's history to layer | `git log --first-parent 9aaaefa..agentic/exp-review` → **46 entries**: 27 merges (one per fork PR or per September staged branch; never squashed), 19 direct commits (the August harness work, #15/#19 fast-forwarded in; `0d3c73b`, `633950c`, `4e5f669`, `7b6d6b9`, `62e21d1`; four campaign `todo.md` commits) |
-| V3 | Lane purity per entry (files by area: `launcher/`, the three model modules, `src/lr_reduction/` upstream-existing, `src/`-new, `tests/`, config) | pure-launcher: #16, #17, #18, #33, #35–#40, #43, #45, #47, `4e5f669`, `62e21d1`; pure-reduction: #34, #46; pure-core/harness: #15, #19, #20, #21, #23, #24, #26, #27, #41, `0d3c73b`, `633950c`; **mixed:** `2127343` (#14: 8 launcher + 6 src + cfg — a mechanical ruff baseline), `a4efd95` (#28: launcher 2, model 2, **`nr_reduction_calc.py`, `nr_tools.py`, `reduction_domains.py`** — the choice lists moved to a shared module and two call sites switched), `34dc1b9` (#48: launcher 3, src 6 + 2 new, tests 6 — the time-resolved tab beside the reduction), `bb98bf3` (#30: src 2, cfg 1, one campaign document), `e7b8524` (#44: model 1 + `scripts/test/` battery 2) |
+| V3 | Lane purity per entry — **amended at build (D-93/A-130):** nine files of R were in no set: `.github/workflows/test_and_deploy.yml` (excluded), `docs/developer/developer.rst` (#20 → L1), and seven core `src/` files #49 touched with comment-only hunks (→ L1, the default owner of core files); `launcher/tests/__init__.py` (#15) was L3-only (→ L1). Now `scripts/landing-purity.sh --complete 8971999 <R>` → 88 owned + 4 excluded = every path (files by area: `launcher/`, the three model modules, `src/lr_reduction/` upstream-existing, `src/`-new, `tests/`, config) | pure-launcher: #16, #17, #18, #33, #35–#40, #43, #45, #47, `4e5f669`, `62e21d1`; pure-reduction: #34, #46; pure-core/harness: #15, #19, #20, #21, #23, #24, #26, #27, #41, `0d3c73b`, `633950c`; **mixed:** `2127343` (#14: 8 launcher + 6 src + cfg — a mechanical ruff baseline), `a4efd95` (#28: launcher 2, model 2, **`nr_reduction_calc.py`, `nr_tools.py`, `reduction_domains.py`** — the choice lists moved to a shared module and two call sites switched), `34dc1b9` (#48: launcher 3, src 6 + 2 new, tests 6 — the time-resolved tab beside the reduction), `bb98bf3` (#30: src 2, cfg 1, one campaign document), `e7b8524` (#44: model 1 + `scripts/test/` battery 2) |
 | V4 | PR ↔ entry map | `gh pr list --state merged`: #33–#48 merge at the entries named above; #14 `2127343`, #15 `a4ae8b8`, #19 `05c964f`, #20 `11170ff`, #21 `633950c`, #23 `04c6e53` are on the first-parent line; **#16, #17, #18, #24, #25, #26, #27, #28, #30** were merged into the fork's `exp` (Sep 2–22) and reached `exp-review` through the human's staged `origin/exp-*` branch merges (`246a0da`, `3810314`, `3e0fda5`, `376a616`, `d501caf`→`.github`, `d0599f9`, `508f70d`, `a4efd95`, `bb98bf3`) — the replay unit for them is the staged-branch merge entry, not the PR |
 | V5 | #42 is inside #48 | `61fb6eb` (#42's merge) is not on the first-parent line: #42's branch was merged into `feature/time-slicing-reconcile` (V1-47, I-84); its files (`new_launcher.py`'s `MPLCONFIGDIR`, `launcher/tests/test_runtime_env.py`) arrive with `34dc1b9` — L3 |
 | V6 | What "sanitized" excludes | `git diff refs/upstream/exp agentic/exp-review -- .github/` → one file, `.github/workflows/test_and_deploy.yml` +34/−3: the "Ensure release tags exist" fetch from upstream (#25, fork-only), two "Check pixi.lock format" steps and the `pixi-version: v0.67.2` pin (#20) — the change `todo-upstream-exp-review-carries-fork-ci-config.md` records the human's intent to keep out of upstream (D-2). Other non-code differences: `scripts/check_lock_format.sh`, `scripts/pixi_lock_check.sh` (#20, hooks the fork's pre-commit runs — kept, D-2), `scripts/test/{README.md, measure_fit_path_dependence.py, roi_estimate_mutations.py}` (campaign batteries, D-3), `pyproject.toml` ±32, `pixi.lock` ±27 |
@@ -95,7 +99,7 @@ special case.
 | V9 | The stale fork `exp` | the fork's `exp` branch stopped at #30 (2026-09-22) and is not the base of anything here; L1's base is upstream's tip, mirrored (§3 R0) |
 | V10 | The September stack is already in front of the scientists | upstream open PRs #181 → #188–#193 → #196 → #198 (+#202) carry the pre-October layers chronologically (V1-57); L1/L3 supersede or re-base them — the human's call (D-6) |
 | V11 | The base-branch test failure — **closed** | `test_the_launcher_carries_the_tab_after_the_others` failed at `62e21d1` (I-85); the human's direct commit `1bffee1` (2026-10-19 19:23 EDT) fixes the expectation — 798 passed, 3 skipped (I-93). R built from `exp-review` at or after `1bffee1` carries it, so L3's faithful replay passes its gate; K5 is superseded (D-5) |
-| V12 | #49 straddles the lanes — **merged 2026-10-20 01:56Z** (`c7741b2`, tree `cfe18ef` as I-93 predicted) | `feature/noqa-sweep` @ `4eec8d5` changes 19 files across launcher, src, `src/lr_autoreduce`, tests, `.pre-commit-config.yaml` and adds `tests/test_noqa_tags.py` (A-118's census); **replayed whole as L3's last entry** (D-4 resolved): one-line tags whose test and `RUF100` hook need every file present — the second declared purity exception (its replay commit's subject carries `purity-exception: #49 noqa sweep`) |
+| V12 | #49 straddles the lanes — **merged 2026-10-20 01:56Z** (`c7741b2`, tree `cfe18ef` as I-93 predicted) | `feature/noqa-sweep` @ `4eec8d5` changes 19 files across launcher, src, `src/lr_autoreduce`, tests, `.pre-commit-config.yaml` and adds `tests/test_noqa_tags.py` (A-118's census); **split by file** (D-4, the Developer's reading, A-130): each hunk goes with the last commit of the layer that owns its file — L1 took `.pre-commit-config.yaml`, `launcher/tests/test_harness.py`, `tests/test_noqa_tags.py` and the seven core `src/` files (D-93/D-94); L2 and L3 take theirs. No purity exception needed |
 
 ## 3. Design
 
@@ -123,8 +127,9 @@ in L2, `launcher/` in L3; `bb98bf3` (#30) → `src/` + tests in L2, the campaign
 per D-3. Entries that only carry campaign artefacts (`todo.md`, `7b6d6b9`'s artefact removal, `dc84af7`) are not replayed; the upstream merge
 `f5bd6d2` is not replayed (its first-parent diff *is* upstream's content).
 
-**R3 — sanitization rules** (checked by `scripts/landing-sanitize-check.sh`, §6 P2, run at every layer's gate): no change under `.github/` (D-2 default);
-no `todo.md`, `plans/`, `*-learning*.md`, battery logs; no `Claude-Session`/URL trailers (the commit rule); no protocol refs pushed except the two
+**R3 — sanitization rules** (checked by `scripts/landing-sanitize-check.sh`, §6 P2, run at every layer's gate). **The exclusion list, one source**
+(`EXCL` in `scripts/landing-purity.sh`, read by `landing-proof.sh`; change it here, there and in D-2/D-3 together): `.github/workflows/test_and_deploy.yml`
+(D-2) and `scripts/test/**` (D-3). No change under `.github/`; no `todo.md`, `plans/`, `*-learning*.md`, battery logs, `scripts/test/`; no `Claude-Session`/URL trailers (the commit rule); no protocol refs pushed except the two
 campaign refs of R0; `pixi.lock` only as the replayed PRs left it (the Developer runs `pixi install --locked` + `scripts/pixi_lock_check.sh` in a
 clean worktree before every `qa/`, D-83's checklist); commit messages name the fork PR they replay.
 
@@ -151,14 +156,14 @@ layers are ordered as the fork was; a file's hunks stay in chronological order w
 | L2 | the reduction set + `tests/unit/lr_reduction/*`, `tests/test_time_resolved.py` |
 | L3 | `launcher/**`, the three model modules (in place), `scripts/test/*` per D-3 |
 | L4 | the three modules → `launcher/model/` (D-7), two import sites, their tests |
-| ledger | `plans/stratified-landing-plan.md` (this), `scripts/landing-purity.sh`, `scripts/landing-sanitize-check.sh` (committed with the plan at dispatch: §6 P1/P2 — the checks the gate runs, in the repo, not in a session) |
+| ledger | `plans/stratified-landing-plan.md` (this), `scripts/landing-purity.sh` (P1, P4 `--census`, P5 `--complete`), `scripts/landing-sanitize-check.sh` (P2), `scripts/landing-proof.sh` (P3), `scripts/landing-replay.sh` (R1's one-commit-per-entry helper, the Developer's, D-94) — the checks the gate runs, in the repo, not in a session |
 
 ## 5. Failure-mode matrix
 
 | Class | Case | Required outcome |
 |---|---|---|
 | common | a pure-lane PR replayed onto its layer | one commit, `git apply --3way` clean, authorship carried; P1/P2 green |
-| common | the L3 tip vs R | `git diff --stat` empty — the proof; any non-empty output names the entry whose hunk is missing or doubled (the Developer bisects by replaying entries one at a time with a running `diff --stat` against R restricted to the entry's files) |
+| common | the L3 tip vs R | `scripts/landing-proof.sh <L3> <R>`: (a) `git diff --stat` **outside the exclusion list** empty, and (b) the name-only diff **exactly** the excluded paths present in R — the exclusion proven, not assumed (D-93 proposal 2); a non-empty (a) names the entry whose hunk is missing or doubled (the Developer bisects by replaying entries one at a time with a running `diff --stat` against R restricted to the entry's files) |
 | common | L2's outputs vs R's on the harness scenarios | byte-identical (the reduction's history changed, its code did not) |
 | edge | a mixed entry (#14, #28, #30, #44, #48) | split by file into the owning layers; the sum of the splits equals the entry's diff (P1 asserts no file of the entry is unassigned) |
 | edge | #28's call-site hunks in L1 before the editor exists | L1 imports `reduction_domains`; the editor arrives in L3 — L1/L2 gates must pass without it (V7: nothing in `src/` imports the model modules) |
@@ -179,7 +184,8 @@ layers are ordered as the fork was; a file's hunks stay in chronological order w
 |---|---|---|
 | P1 | `scripts/landing-purity.sh <leaf> <base> <tip>`: every file in `git diff --name-only base..tip` belongs to the leaf's declared set (L1's exceptions listed in the script); exit 1 naming the stray file otherwise | fails on an empty layer? No — passes vacuously; **RED form:** run on `exp-review` itself as "L3" → fails on `src/` files (the mixed history), which is the condition the layers remove |
 | P2 | `scripts/landing-sanitize-check.sh <base> <tip>`: no `.github/` change, no artefact paths, no URL trailers, every commit subject names a fork PR or "upstream base merge"; exit 1 with the offender | fails on `exp-review` (the `.github` change, the `todo.md` commits) |
-| P3 | the proof: `git diff --stat <L3 tip> <R>` empty; `git diff --stat --find-renames <L4 tip> <R>` lists exactly the move | fails until L3 is complete (any missing entry shows) |
+| P3 | `scripts/landing-proof.sh <L3 tip> <R>` → (a) no difference outside the exclusion list and (b) the name-only diff is exactly the excluded paths; `--move <L4 tip> <R>` → only the moved modules, their importers and tests differ (renames shown) | fails on `exp-review` vs R (the #215/#216 hunks) and until L3 is complete (any missing entry shows); R vs R passes |
+| P5 | `scripts/landing-purity.sh --complete <base> <R>`: every path of `git diff --name-only base R` is owned by some layer's set or is on the exclusion list (the union test of D-93, committed) | before A-130: 9 UNOWNED; after: 88 owned + 4 excluded |
 | P4 | per-entry coverage: every first-parent entry of V2 is either replayed into exactly one layer (or split across named layers) or listed as excluded with a reason — a table in the L1 PR body, generated by `scripts/landing-purity.sh --census` | the table has unassigned rows before the plan's membership is applied |
 | G | each layer's gate command green (R4); L2's harness byte-identity; L1's `test-launcher` green without the editor | — |
 
@@ -233,9 +239,11 @@ new mechanically.
   human names it and L1 carries that hunk alone. `scripts/check_lock_format.sh` and `scripts/pixi_lock_check.sh` (pre-commit hooks) are kept
   (they are repository tooling, not CI).
 - **D-3 — `scripts/test/*` batteries (#44, #49):** default **excluded** (campaign verification tooling; upstream has no consumer); kept if the human
-  wants the mutation batteries upstream.
-- **D-4 — #49: merged 2026-10-20 (`c7741b2`).** Replayed **whole** as L3's last entry (V12): its test and hook need every file present, and splitting one-line
-  tags across three layers would buy nothing the proof does not already check. Declared purity exception, like #14.
+  wants the mutation batteries upstream — then three places change together: `EXCL` in `landing-purity.sh`, the artefact pattern in
+  `landing-sanitize-check.sh`, and L3's allow set (`scripts/test/.*`).
+- **D-4 — #49: merged 2026-10-20 (`c7741b2`), split by file.** Each of its hunks goes with the last commit of the layer that owns the file (the Developer's
+  reading of the earlier D-4 text, D-93; accepted at A-130 over the re-seal's "whole in L3" — a one-line-tag hunk in a core file belongs with that file, and
+  the completeness check now guarantees every file has an owner). L1 carried its hunks as the twelfth commit; L2 and L3 carry theirs.
 - **D-5 — K5 before L3: satisfied 2026-10-19.** The human's direct commit `1bffee1` fixed the I-85 expectation (I-93: 798 passed); K5 is superseded and
   R (built from the tip at dispatch) carries the fix. No layer waits for anything here.
 - **D-6 — upstream's open September PRs (#181–#202):** superseded by L1/L3 or re-based — the human's upstream coordination; the L1/L3 PR bodies
@@ -267,3 +275,8 @@ v1 re-sealed and **L1 dispatched 2026-10-20 (A-128)**: #49 merged (`c7741b2`, tr
 R's input is `c7741b2`; #49 replayed whole as L3's last entry (D-4 resolved, V12); R0 i (the fork's `exp` sync, the human's) moved from a pre-cut check to a
 PR-step precondition so the human's word is not blocked on the human; `scripts/landing-purity.sh` and `scripts/landing-sanitize-check.sh` committed on the
 ledger (P1, P2, P4); the leaf work order is `plans/landing-l1-core-plan.md`. L2–L4 leaf plans are written at their dispatch from the same census.
+
+v1 amended at L1's build 2026-10-20 (A-130; `todo-landing-layer-sets-miss-files-and-proof-ignores-exclusions.md`, D-93, I-95): nine files of R were in no
+layer's set and P3 could not be empty while R carries the exclusions. The L1 set now owns the core files no later layer lists (and `docs/`, `launcher/tests/__init__.py`,
+`src/lr_autoreduce/`); `scripts/landing-purity.sh --complete` (P5) proves every path of R owned or excluded (88 + 4); P3 is `scripts/landing-proof.sh`, exclusion-scoped
+and proven; the exclusion list has one source; D-4 is the per-file split the Developer applied; the L3 purity exception for #49 is retired. Membership otherwise unchanged.
