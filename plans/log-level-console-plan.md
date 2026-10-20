@@ -53,6 +53,8 @@ the Analyst — decided in §10 D-7.
 - `str.isdigit()` vs `int()`: `'²'`, `'①'` → `isdigit()` True, `int()` raises; `'１０'` (full-width) → both accept → 10 (I-110, measured). `logging.getLevelName("NOTSET")` → 0;
   a package logger at level 0 defers to root's WARNING, so `'0'`/`'NOTSET'` with v1's handler attached showed WARNING+ only, silently (I-110).
 - Under pytest the root logger carries handlers, so `lastResort` never runs in-process; it is observable only in a fresh process (I-110 R4).
+- **Amended at gate (I-112's design review; A-151):** at the base `c5ef58d` no `src/lr_reduction` module uses Python `logging` (0 modules; every `logger` there is Mantid's); the 3 modules / 18 calls
+  are L2's (`3ea92cf`). So on L1 alone the switch prints only its own invalid-value WARNING; its work begins where the human wants it, with L2 — consistent with "before I push L2 upstream".
 - The reduction suite runs as `cd tests/ && python -m pytest …`; `test-reduction` depends on `test-launcher`; unit tests live in `tests/unit/`.
 - Autoreduce and stderr: *"autoreduction FAILS if any characters show up on stderr"* is the human's statement in `14ca2b0`, recorded here as the requirement's ground, not
   re-measured by this seat (the autoreduce runner is outside the campaign's clones).
@@ -103,7 +105,7 @@ No other file. No new dependency. No `.github/` change.
 
 ## 6. Red-Green TDD seed (`tests/unit/test_log_level_console.py`; written first, failing on the base, then §4)
 
-A fixture `reset` runs after each test: remove any handler named `lr_reduction.console` from `logging.getLogger("lr_reduction")` **and** from `logging.getLogger()` (R3), and set the
+A fixture `reset` runs **before and after** each test (amended at gate, A-151 — I-112's F1: the import-time call binds the handler to pytest's session-capture stdout, so a test run alone or first must start from a clean logger; v2 as built reset only after, exactly as this line prescribed, and T3/T5/T7 went red when run alone): remove any handler named `lr_reduction.console` from `logging.getLogger("lr_reduction")` **and** from `logging.getLogger()` (R3), and set the
 package logger's level to `NOTSET`. Tests call `configure_console_logging(...)` explicitly (the import-time call already ran once, at import).
 
 - **T1** `test_unset_or_blank_turns_on_at_info_on_stdout` (parametrised `None`, `""`, `"  "`): returns a `StreamHandler` named `lr_reduction.console`, `stream is sys.stdout`, formatter `_fmt == "%(levelname)s %(name)s: %(message)s"`, handler level and package level `INFO`.
@@ -183,3 +185,5 @@ parametrised over `'²'`, `'①'`, `'１０'` and more (T5, T4). R2 (handler lev
 pin of `lastResort`'s bare `w`) adopted. `'0'`/`'NOTSET'` decided: the off switch (D-7). **Requirement change:** the opt-out posture on stdout (D-5, D-6) from the human's
 `14ca2b0`, which itself is a silent no-op (§1) and becomes a §7 mutation (`import sys` removed). Base unchanged (`c5ef58d`); rebuilt from the base (D-9). Attempt 2 of 3; a
 third rejection escalates.
+- **v2 amended at gate — 2026-10-20 (A-151, under the human's STOP):** §6's fixture resets before **and** after (I-112's F1 — the plan's own prescription was the defect, not the build; the Integrator's
+  reading, PASS with F1 as the first advisory, concurred); §2 gains the L1-base fact. Not a new attempt. The analysis-branch copy follows when the STOP lifts (no subject push until then).
