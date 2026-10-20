@@ -28,7 +28,7 @@ def boxes(monkeypatch):
 
 
 @pytest.fixture
-def tab(isolated_qapp, monkeypatch, boxes):  # noqa: ARG001 -- isolated_qapp: a QApplication and a per-test QSettings
+def tab(isolated_qapp, monkeypatch, boxes):  # isolated_qapp: a QApplication and a per-test QSettings
     """The tab, with both reductions replaced by stand-ins that record their arguments and whether Reduce was
     enabled while they ran."""
     from launcher.apps import time_resolved
@@ -140,7 +140,7 @@ def test_the_inputs_round_trip_through_qsettings(tab):
 
 
 @pytest.mark.parametrize("mode", ["Number of slices", "Time values"])
-def test_the_tab_draws_into_its_own_canvas(isolated_qapp, monkeypatch, boxes, mode):  # noqa: ARG001
+def test_the_tab_draws_into_its_own_canvas(isolated_qapp, monkeypatch, boxes, mode):
     """T8'a (I-62 A-1), in each mode (plan v3 P4, I-64 B-4): a reduction's kinetic plot is drawn into the tab's own
     figure, on the tab's own canvas, so pan and zoom act on it and it fills the canvas, and no pyplot figure is left
     behind. After a Reduce in the other mode and then one in this mode, the figure and the canvas are the ones the tab
@@ -196,7 +196,7 @@ def test_a_stored_slice_count_that_is_not_a_number_keeps_the_default(tab):
         reopened.close()
 
 
-def test_the_launcher_carries_the_tab_after_the_others(isolated_qapp):  # noqa: ARG001
+def test_the_launcher_carries_the_tab_after_the_others(isolated_qapp):
     """T8: the tab is reachable from the launcher, after the tabs that were there before it."""
     from launcher.apps.time_resolved import TimeResolvedTab
     from launcher.new_launcher import ReductionInterface
