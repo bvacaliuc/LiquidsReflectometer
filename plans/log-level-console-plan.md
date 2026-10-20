@@ -8,9 +8,9 @@ so the branch is file-disjoint from the stack and can land in any order (§10 D-
 the human carries it to upstream as `exp-log-level-console` (V1-63's convention) · **Reviews (charter §5):** design, test (block); numerical-diagnostics and ui-aspects n/a (no
 numbers, no Qt) · **Gate:** G = `pixi run test-reduction` + `pixi run test-launcher` green at the tip, plus the new tests; no landing proof applies (this is not a replay).
 
-## Declared scope
-
 Campaign: exp-review-fixes
+
+## Declared scope
 
 **In:** one public function in `src/lr_reduction/__init__.py`, `configure_console_logging(value: str | None) -> logging.Handler | None`, called once at import with
 `os.environ.get("LR_REDUCTION_LOG_LEVEL")`; one new test module `tests/unit/test_log_level_console.py`. **Out:** every `print(` in `src/` (157) and `launcher/` (44);
