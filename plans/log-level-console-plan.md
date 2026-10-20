@@ -1,12 +1,10 @@
 # Plan: `log-level-console` — when `LR_REDUCTION_LOG_LEVEL` is set, the package's Python logging reaches the console (stderr) at that level; unset, nothing changes
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `log-level-console` (refs `triage/log-level-console`, `feature/log-level-console`, `qa/log-level-console`; K10 in `dispatch-queue.md`) ·
-**Status:** **DISPATCHED** — v1 (attempt 1 of N = 3), authored and dispatched 2026-10-20 (A-148) on the human's word of 2026-10-20 (verbatim in V1-64, charter §3) ·
-**Base:** **upstream `exp` @ `8971999`** (= the fork's `exp` since the human's reset, I-105; the stack's base) — cut `feature/log-level-console` from `8971999`, **not** from
-`exp-review` and **not** from a landing layer: the two files are touched by no layer (`git diff 8971999 <L1..L4,exp-review> -- src/lr_reduction/__init__.py` empty on all five, V1-64),
-so the branch is file-disjoint from the stack and can land in any order (§10 D-2) · **PR target:** the fork's `exp`, **draft**, opened by the Integrator at PASS (as #54 for L1);
-the human carries it to upstream as `exp-log-level-console` (V1-63's convention) · **Reviews (charter §5):** design, test (block); numerical-diagnostics and ui-aspects n/a (no
-numbers, no Qt) · **Gate:** G = `pixi run test-reduction` + `pixi run test-launcher` green at the tip, plus the new tests; no landing proof applies (this is not a replay).
+**Status:** **DISPATCHED** — v1 (attempt 1 of N = 3), authored and dispatched 2026-10-20 (A-148) on the human's word of 2026-10-20 (verbatim in V1-64, charter §3) · **amended at build 2026-10-20 (A-149, on D-107's decision request): the base re-cut on L1's tip — see Base** ·
+**Base:** **`feature/landing-l1-core` @ `c5ef58d`** (L1's tip = upstream `exp-landing-l1-core`, #219's head; green: I-97 10 + 172, I-108 the same in upstream CI) — **amended at build (A-149):** v1 named upstream `exp` @ `8971999`, which is red on its own (D-107: `test-reduction` 3 failed / 104 passed — the three `web_report` tests #14 repairs in L1; `pixi install --locked` exits 1, "lock-file not up-to-date"; no `test-launcher` task and no `scripts/pixi_lock_check.sh` there — #15's and #20's, in L1; upstream's own pre-push `pixi lock --check` refuses a branch at that base), so G cannot be EXIT 0 there. The two files are touched by no layer and not by `exp-review` (`git diff 8971999 <c5ef58d|3ea92cf|941be51|82b0854|exp-review> -- src/lr_reduction/__init__.py tests/unit/test_log_level_console.py` empty for all five, I-109), so the branch is L1 + two commits, disjoint from L2–L4, and the commits apply cleanly on any base (§10 D-2) · **PR target:** the fork's `feature/landing-l1-core`, **draft**, stacked on #54 (as #51 is; GitHub retargets it to `exp` when L1 lands), opened by the Integrator
+at PASS; the human carries it to upstream as `exp-log-level-console` against `exp-landing-l1-core` (stacked on #219; V1-63's convention) · **Reviews (charter §5):** design, test (block); numerical-diagnostics and ui-aspects n/a (no
+numbers, no Qt) · **Gate:** G literal at the tip — `pixi install --locked`, the lock check, `pixi run test-reduction` and `pixi run test-launcher`, each EXIT 0 (I-109's reading; expected 10 + 172 + the new tests); scope `git diff c5ef58d..<tip> --stat` = the two files; no landing proof applies (this is not a replay).
 
 Campaign: exp-review-fixes
 
@@ -42,6 +40,9 @@ in-process (`launcher/apps/direct_beam.py:41`, `time_resolved.py:34`). The ask i
 - The reduction suite runs as `cd tests/ && python -m pytest …` (`pyproject.toml:180`); unit tests live in `tests/unit/`. Importing `lr_reduction` does not import Mantid.
 - Multiprocessing: a child started by `spawn` re-imports the package and re-reads the environment it inherited; one started by `fork` inherits the configured handler. Either
   way the child's behaviour equals the parent's.
+- **Amended at build (D-107, I-109; A-149):** `8971999` itself — `pixi run test-reduction` → 3 failed, 104 passed (the `web_report` three; #14's repair is in L1); `pixi install --locked` → exit 1;
+  no `test-launcher`, no `scripts/pixi_lock_check.sh`; the pre-push `pixi lock --check` rewrites the stale lock and refuses the push. At `c5ef58d` all four legs of G run and pass (I-97, I-108).
+  Every fact above about the files and the loggers holds at both bases.
 
 ## 3. Design — behaviours (types first: amendment 18)
 
@@ -114,10 +115,10 @@ RED on the base: T1–T7, T9 fail with `AttributeError`/`ImportError` (no `confi
 
 ## 8. Acceptance criteria
 
-1. G green at the tip: `pixi run test-reduction` (the new 9 tests included) and `pixi run test-launcher`, both EXIT 0, counts ≥ the base's.
+1. G green at the tip on L1's base: `pixi install --locked` and the lock check EXIT 0; `pixi run test-reduction` (the new tests included) and `pixi run test-launcher` EXIT 0, counts ≥ L1's 10 + 172 plus the new tests.
 2. Unset: `python -c "import logging, lr_reduction; logging.getLogger('lr_reduction.x').info('ping')"` prints nothing; `…warning('w')` prints `w` once via `lastResort` (today's behaviour).
 3. `LR_REDUCTION_LOG_LEVEL=INFO python -c …info('ping')` prints `INFO lr_reduction.x: ping` on stderr, nothing on stdout; `…=DEBUG` adds the DEBUG lines; `…=verbose` prints the one WARNING and then behaves as INFO.
-4. `git diff 8971999..<tip> --stat` names exactly the two files of §4; no new dependency in `pyproject.toml`/`pixi.lock`; no `.github/` change.
+4. `git diff c5ef58d..<tip> --stat` names exactly the two files of §4; no new dependency in `pyproject.toml`/`pixi.lock`; no `.github/` change.
 5. The two commits (RED, GREEN) carry the model trailer; the GREEN body records the §7 mutations with their failing counts; no ledger URL or campaign identifier in bodies (the branch is upstream-bound).
 6. Design and test reviews without a blocking finding; the Integrator's draft PR on the fork `--base exp`.
 
@@ -131,7 +132,7 @@ RED on the base: T1–T7, T9 fail with `AttributeError`/`ImportError` (no `confi
 
 - **D-1 — the variable's name:** `LR_REDUCTION_LOG_LEVEL` (the Advisor's; no other environment switch exists in the package). A rename before the upstream PR is one line.
 - **D-2 — where it lands (the human's; default (i); (ii) is additive, not instead):** the branch is file-disjoint from every layer, so after PASS:
-  **(i) standalone — default:** the Integrator's draft PR on the fork `--base exp`; the human carries it to upstream as `exp-log-level-console` and merges it there; each layer
+  **(i) standalone — default:** the Integrator's draft PR on the fork `--base feature/landing-l1-core` (stacked on #54); the human carries it to upstream as `exp-log-level-console` against `exp-landing-l1-core` (stacked on #219) — or, since the two commits apply cleanly on upstream `exp` too, cherry-picks them onto a branch from `exp` once #219 has merged — and merges it there; each layer
   picks it up at its next upstream base merge (a merge commit, provenance `upstream base merge`, which the sanitize check already accepts); L2's reviewers' deployment
   (`compare-versions.sh exp exp-landing-l2-reduction`) shows the diagnostics only once L2 has merged that `exp`. The Advisor's recommendation: no re-stack, no re-gate, no
   change to any layer's "replay of …" claim.
@@ -148,3 +149,4 @@ RED on the base: T1–T7, T9 fail with `AttributeError`/`ImportError` (no `confi
 ## Revision history
 
 - **v1 — 2026-10-20 (A-148):** authored and dispatched on the human's word (V1-64). Sealed against upstream `exp` @ `8971999` (= the fork's `exp`).
+- **v1 amended at build — 2026-10-20 (A-149):** on D-107's decision request (the declared base red on its own) and I-109's reading of G, option A: the base is `feature/landing-l1-core` @ `c5ef58d`; the Status, Base, PR-target and Gate lines, §2, §8.1, §8.4 and D-2 (i) follow. The Developer applies `plans/log-level-console-v1.patch` (RED `357302a`, GREEN `074c0fd`; new hashes on the new base) with `git am`, re-runs G and the §7 mutations there, pushes `feature/log-level-console` and tags `qa/log-level-console`. Not a new attempt: a plan defect, the Analyst's.
