@@ -70,7 +70,7 @@ edit, stated in (iii)); `pyproject.toml` beyond packaging; the review tier and `
 
 | Mutation | Must red |
 |---|---|
-| the move done as delete + add (no `git mv`) | M1 (no `R100`); P3's `--find-renames` shows `D`/`A` |
+| ~~the move done as delete + add (no `git mv`)~~ — **unfalsifiable (I-103):** git records no rename; a delete+add commit's tree is byte-identical to commit i's, so `--find-renames` reports `R100` either way. Dropped; the renames are a property of the diff, not of how the commit was made | — |
 | `settings_document.py:44` left as `from lr_reduction import field_spec` | M3 (`git grep`), G (ImportError at import time once `lr_reduction.field_spec` is gone) |
 | the battery's reference left at `lr_reduction.roi_estimate` | G (the three battery tests red: the mutated module path does not exist) |
 | a content edit smuggled into commit (i) | M1 (an `M` or a `R<100`) |
@@ -90,3 +90,6 @@ v1 — authored 2026-10-20 (A-137), **staged**, dispatching on L3's PASS with th
 against the tools as pinned in I-101). Inputs: V7 and the importer census at `c7741b2` (`git grep`), the modules' own imports, `pyproject.toml`'s package line.
 
 v1 dispatched 2026-10-20 (A-139) on I-102 (L3 PASS @ `941be51`); base re-sealed at that SHA; the three tool adjustments applied with the dispatch commit.
+
+v1 gated 2026-10-20 (I-103 PASS @ `82b0854`, draft PR #53); the "delete + add" mutation row struck as unfalsifiable at the Integrator's advisory (A-140). The record copy on
+`analysis/exp-review-fixes` follows at the next analysis push.
