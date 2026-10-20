@@ -285,3 +285,17 @@ and proven; the exclusion list has one source; D-4 is the per-file split the Dev
 
 v1 amended 2026-10-20 (A-136) at L3's build: D-3 narrowed on D-100's measurement (the suite runs #44's battery) — see the L3 leaf plan's revision; P3 (b) made strict
 (the diff must equal the reference's excluded set); the exclusion list is two paths.
+
+v1 amended 2026-10-20 (A-155), after the four gates — **upstream `exp` moved and L1 was base-merged**: (1) upstream `exp` advanced `8971999` → `c4d20e4` (the human's merge of
+welbournR's three commits: the RB fit's pixel range padded after the DB pixel and clamped, `alpha` by `arctan` instead of `arcsin`, the expected profile centred at
+`DBpixel − calc_pixel_diff`; `settings.json` gains a time-indexed entry; I-114: `merge-tree` clean for L1–L4 and K10, the only overlap `nr_reduction_calc.py` with disjoint hunks).
+(2) The human merged it into L1: `feature/landing-l1-core` `c5ef58d` → **`7f0a4ad`** (I-115: the tree is git's own merge `47280df`, no content of its own; P1 clean over the new
+base `c4d20e4..7f0a4ad` with the declared #14 exception; P2 clean — merges skipped, every non-merge commit with provenance; G 10 + 172 rc 0; #54 and #55 `MERGEABLE`/clean,
+#51 `MERGEABLE`). **The base facts of §2 now read with `c4d20e4` as L1's base** for everything measured after this line; the layers' gated tips (`c5ef58d`, `3ea92cf`, `941be51`,
+`82b0854`) and their proofs against R @ `da2b889` stand as the record of the gates. (3) **R is re-derived, not updated** (this plan's rule, §3 R0): the reference for the
+merged stack is a new branch **`feature/landing-reference-2`** = `exp-review` @ `c7741b2` merged onto `c4d20e4` by the D-92 recipe (the same #215/#216 ↔ #48 resolution, plus
+upstream's new `nr_reduction_calc.py` hunks, which are disjoint from the fork's), pushed by the Developer inside its manifest **on the human's word**, when the human base-merges
+L2 (I-114/I-115: L2's harness byte-identity must then be measured against R-2, never against R — reductions differ by design, `arctan`). P3 at the stack tip and P5 are re-run
+against R-2; P1 over `c4d20e4..<tip>`; P2 as before. Until that word nothing moves: L2–L4 stay at their gated tips and their stacked PRs stay valid (#51 → L1's new tip merges
+cleanly, I-115). (4) Upstream `exp-landing-l1-core` is still `c5ef58d`; if the human pushes `7f0a4ad` there, #219 carries the measured tree. The fork's `exp` is still `8971999`
+(#54's diff therefore shows upstream's four commits until the human moves it).
