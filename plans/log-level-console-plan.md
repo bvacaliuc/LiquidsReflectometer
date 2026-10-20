@@ -10,6 +10,8 @@ numbers, no Qt) · **Gate:** G = `pixi run test-reduction` + `pixi run test-laun
 
 ## Declared scope
 
+Campaign: exp-review-fixes
+
 **In:** one public function in `src/lr_reduction/__init__.py`, `configure_console_logging(value: str | None) -> logging.Handler | None`, called once at import with
 `os.environ.get("LR_REDUCTION_LOG_LEVEL")`; one new test module `tests/unit/test_log_level_console.py`. **Out:** every `print(` in `src/` (157) and `launcher/` (44);
 Mantid's own logger and its console level; the autoreduce path (`reduce_REF_L.py`); the launcher's code (it imports the package in-process, so it inherits the switch
