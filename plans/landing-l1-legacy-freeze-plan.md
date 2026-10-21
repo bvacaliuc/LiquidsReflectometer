@@ -127,7 +127,7 @@ scope (the stack adjusted after L1 moves); the freeze is **pedantic**: the froze
 | `test_warning_hygiene.py` deleted outright (v1) or #24's guards dropped | T3b |
 | the noqa guard literal-only (regex-shaped widening hides a file) | T2c |
 | `template.py` frozen by mistake (D-1 not applied) | T3 |
-| `test_warning_hygiene.py` left in place | T4 (it fails against the frozen code) |
+| the W1–W3 tests of frozen files left in `test_warning_hygiene.py` (v1's wording: the file "left in place") | T4 (they fail against the frozen code) or T3b |
 | a layer merged from an ungated tip | T6's provenance (the merged sha is not the Integrator's PASS sha) |
 | L2′ measured against R instead of R-2 | T7 (differs by `arctan` — loud) |
 
