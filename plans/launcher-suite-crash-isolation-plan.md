@@ -6,7 +6,7 @@ prepare them for dispatch."]` — input under `b059f14`; **not dispatched**: "di
 **Base:** `feature/landing-l4-model-move` @ **`f8dbf86`** (the stack tip: L3/L4 changed `launcher/tests/conftest.py` and `test_harness.py`, and L4 moved the Qt-free model tests
 and the real-data battery under `launcher/`; cutting below L4 would conflict at every forward merge — V1-69) — its own branch from `f8dbf86`, stacked on #53; or, on the human's
 word, after the landing on `exp-next` · **PR:** the fork, `--base feature/landing-l4-model-move`, draft · **Reviews:** design, test (block); numerical-diagnostics n/a ·
-**Gate:** G with the new task layout (every task EXIT 0); the isolation must-fail (§6 T3); N ≥ 20 fresh-process runs under a controlled load with 0 session aborts (§6 T5).
+**Gate:** (i) G literal — the existing tasks, `test-launcher` now orchestrating the three children (EXIT 0; the three groups' counts reported); (ii) the isolation must-fail (§6 T3): an injected `os.abort()`/segfault in one group fails that group and not the session, and the other two groups still report; (iii) N ≥ 20 fresh-process runs under a controlled load with 0 session aborts (§6 T5) — I-130's three, named for the Integrator (v1 amended, A-174).
 
 Campaign: exp-review-fixes
 
@@ -17,10 +17,7 @@ Campaign: exp-review-fixes
 run alone and in the suite with `PYTHONFAULTHANDLER=1` and `faulthandler.dump_traceback_later`, under the same load shape (a second suite running), until the crash or hang
 reproduces or N ≥ 20 says it does not; the stale-sip-wrapper hypothesis of I-104 (`labelForField` returning a `QWidget`) confirmed or refuted with `sip.isdeleted` checks around the
 harness teardown. The measurement decides which isolation below is built; a Phase-0 finding that names a product defect becomes its own slug.
-**Phase 1 — isolation without new dependencies** (the lock stays v6; `pytest-xdist`/`pytest-forked` are not in the lock and a new dependency would re-lock): the launcher suite split
-into pixi tasks by process risk — `test-launcher-model` (the Qt-free model tests under `launcher/tests/`: no `QApplication`), `test-launcher-data` (the Mantid-heavy real-data tests,
-`test_roi_estimate.py`'s `LoadEventNexus` battery, in their own process), `test-launcher-ui` (the Qt session) — each its own `pytest` process with `--timeout` and
-`-p faulthandler`; `test-reduction` no longer `depends-on` one launcher session but on the three; a crash or hang in one task fails that task and the others still report.
+**Phase 1 — isolation without new dependencies and without touching `pyproject.toml` or `pixi.lock`** (v1 amended at D-134/I-130, A-174: any `[tool.pixi.tasks]` edit stales the lock and the re-lock drops `editable: true` — the restamp the Developer contract forbids staging; `pytest-xdist`/`pytest-forked` are not in the lock): the launcher suite split by process risk into three groups — model (the Qt-free tests under `launcher/tests/`: no `QApplication`), data (the Mantid-heavy real-data tests, `test_roi_estimate.py`'s `LoadEventNexus` battery), ui (the Qt session) — each run as its **own child `pytest` process** orchestrated from `launcher/tests/conftest.py` inside the existing `test-launcher` task (a `pytest_runtestloop` that, in the repository's own launcher session, spawns the three children with `--timeout`, `-p faulthandler`, `PYTHONFAULTHANDLER=1`, streams each child's `-vv` output into the gate's log, **always runs all three**, and fails the session if any child failed or died, the signal named); a crash or hang in one group fails that group and the others still report.
 **Detection complete:** `PYTHONFAULTHANDLER=1` in every task, so a native crash prints the failing test and the signal to the task's log; the gate's record names them.
 **Out:** the gate-policy half (rerun on a quiet machine, record both runs — the Administrator's, kit); any product fix the measurement reveals (its own slug); CI workflow changes
 (`.github/`, D-2); the deploy.
@@ -48,8 +45,8 @@ test under load; one native crash in the shared session ends the whole gate beca
 | # | Behaviour |
 |---|---|
 | B0 | **Phase 0 first.** The measurement (scope above) is a deliverable: a `plans/launcher-suite-crash-isolation-measurement.md` on the ledger with the runs, the load, faulthandler output, and the sip verdict. If a reproducible product defect appears, STOP and file it (its own slug); Phase 1 proceeds regardless, since the blast radius is the slug's problem whatever the cause. |
-| B1 | **Three tasks by process risk** in `pyproject.toml` (`[tool.pixi.tasks]`): `test-launcher-model` — the Qt-free tests (`launcher/tests/test_settings_document.py`, `test_field_spec.py`, the Qt-free part of `test_roi_estimate.py`) with `-p no:…` nothing special, no `QApplication`; `test-launcher-data` — the real-data tests (markers: `@pytest.mark.realdata` on the `LoadEventNexus` battery, selected with `-m realdata`); `test-launcher-ui` — the rest (`-m "not realdata"` on the Qt modules); `test-launcher` becomes an aggregate `depends-on` the three; `test-reduction` `depends-on` the three. Each task: `--timeout=120 --timeout-method=thread -p faulthandler`, `PYTHONFAULTHANDLER=1` in the task's `env`. |
-| B2 | **A crash fails one task.** pixi runs dependent tasks in order and stops at the first failure — so the ordering puts `test-launcher-ui` (the risky session) last among the three, and the task runner's exit reports which task died with the faulthandler trace in its log. |
+| B1 | **Three groups by process risk, as child `pytest` processes from `launcher/tests/conftest.py`** (D-134 option A): `model` — the Qt-free tests (`launcher/tests/test_settings_document.py`, `test_field_spec.py`, the Qt-free part of `test_roi_estimate.py`), no `QApplication`; `data` — the real-data tests (`@pytest.mark.realdata` on the `LoadEventNexus` battery, the marker registered from the conftest by `config.addinivalue_line`, selected with `-m realdata`); `ui` — the rest (`-m "not realdata"` on the Qt modules). The orchestration runs only when the session's rootdir is the repository and a re-entry guard (an environment variable set for the children) is absent, so a child never orchestrates and the harness's scratch copies of the conftest (`test_harness.py`'s inner runs, their own `pyproject.toml`) are untouched. Each child: `--timeout=120 --timeout-method=thread -p faulthandler`, `PYTHONFAULTHANDLER=1` in its environment. `pyproject.toml` and `pixi.lock` untouched; the pixi tasks unchanged. |
+| B2 | **A crash fails one group; every group reports.** The orchestration runs all three children regardless of an earlier failure (pixi's `depends-on` chain would stop at the first failing task — v1's task ordering is retired with the tasks) and the session's exit names which group died and with what signal, the faulthandler trace in its streamed output. |
 | B3 | **The record is complete:** every task's log carries the test id and the signal on a native crash (faulthandler), and the timeout's traceback on a hang (pytest-timeout's thread method). |
 | B4 | **Test ids conserved:** the union of the three tasks' collected ids equals `test-launcher`'s today (1528 at `f8dbf86`); no test runs twice; no test is lost (a collection census as L4's). |
 | B5 | **Behaviour of the tests unchanged:** this slug moves no test and changes no assertion; markers and task definitions only. |
@@ -58,7 +55,7 @@ test under load; one native crash in the shared session ends the whole gate beca
 
 | File | Change |
 |---|---|
-| `pyproject.toml` | the three tasks, the aggregate, `test-reduction`'s `depends-on`; the `realdata` marker registered under `[tool.pytest.ini_options] markers` (B1) — **note D-116:** a `pyproject.toml` edit outside the pixi sections may still stale the lock (the manifest hash); the Developer measures `pixi install --locked` first and, if it stales, re-locks with `pixi lock` under the lock-format guard (a legitimate re-lock, not a hand stamp) — the lock stays v6 |
+| `pyproject.toml`, `pixi.lock` | **untouched** (D-134: any `[tool.pixi.tasks]` edit stales the lock; the re-lock drops `editable: true`, the restamp the contract forbids staging; a hand-kept stanza cannot pass G — I-130). The `realdata` marker is registered from the conftest, not `[tool.pytest.ini_options]` |
 | `launcher/tests/test_roi_estimate.py` (markers only) | `@pytest.mark.realdata` on the battery's tests (B1) |
 | `launcher/tests/conftest.py` | `faulthandler` registration if `-p faulthandler` is not enough under pytest's capture (B3) |
 | ledger `plans/launcher-suite-crash-isolation-measurement.md` | Phase 0's record (B0) |
@@ -72,7 +69,9 @@ test under load; one native crash in the shared session ends the whole gate beca
 | 3 | common: a `LoadEventNexus` crash | `test-launcher-data` fails alone | T3 |
 | 4 | edge: a hang | pytest-timeout's thread method dumps the stack after 120 s; the task fails, not the gate's shell | T4 |
 | 5 | edge: a test collected by two tasks, or by none | the census (B4) reds | T2 |
-| 6 | pathological: the `pyproject.toml` edit stales the lock | measured first; a proper re-lock under the format guard, or the markers moved to a `pytest.ini`-free form (`-k`/paths) if the human prefers no lock change | T1, D-83 |
+| 6 | pathological: the lock stales | cannot by construction — `pyproject.toml` untouched; T1 `pixi install --locked` rc 0 and the lock check rc 0 at the tip (D-83) | T1, D-83 |
+| 6a | pathological: a child re-enters the orchestration (the conftest is the child's too) | the re-entry guard: a child run with the guard set collects and runs its tests directly; a conftest unit test asserts it | T7 |
+| 6b | edge: the harness's inner runs copy `conftest.py` into a scratch directory with their own `pyproject.toml` | gated on rootdir = the repository; `test_harness.py`'s own tests unchanged and green | T7, G |
 | 7 | pathological: the measurement reproduces a product defect | STOP, its own slug; the isolation still lands | B0 |
 | 8 | out of scope: the gate policy (rerun on a quiet machine) | the Administrator's | — |
 
@@ -84,6 +83,7 @@ test under load; one native crash in the shared session ends the whole gate beca
 - **T4** Must-fail: a throwaway test that sleeps 200 s in the `ui` group → the task fails on the timeout with the dumped stack; the other tasks unaffected.
 - **T5** N ≥ 20 fresh-process runs of the aggregate under a controlled load (a second suite running): 0 session aborts; any task failure recorded with its test id and signal.
 - **T6** Phase 0's record exists on the ledger with the runs and the sip verdict.
+- **T7 (v1 amended, option A)** the orchestration's guard and its always-run: with the re-entry variable set, a `pytest` run of one launcher module collects and runs it directly (no child spawned — a conftest unit test with the spawn function monkeypatched); without it, in the repository's rootdir, the three children run in order and all three run even when the first is made to fail (`os.abort()` injected) — the session reports the failing group and its signal; `test_harness.py`'s own tests unchanged.
 
 ## 7. Mutate-once gate
 
@@ -109,7 +109,9 @@ teardown crashes, measured over fresh processes), `setup/patterns/native-crash-a
 - **D-2 — base the stack tip** (or `exp-next` after the landing, the human's word); never below L4.
 - **D-3 — measure first:** Phase 0 is a deliverable and may change Phase 1's grouping; it may also name a product defect, which is not this slug's to fix.
 - **D-4 — the gate-policy half stays the Administrator's.**
+- **D-5 (A-174) — D-134 answered: option A.** The lock untouched is the only gateable form (I-130: a hand-kept stanza cannot pass G; a staged restamp needs a contract waiver this slug does not need); C is not gateable (A-158/I-118). The Developer's measurement that the dropped `editable: true` leaves a fresh env editable on pixi 0.67.2 is routed to the Administrator as a kit measurement (`todo-contract-editable-drop-consequence-unmeasured-beyond-pixi-0-67.md`), not acted on here. D-1 stands (no new dependency); Phase 0 continues and may still change the grouping (D-3).
 
 ## Revision history
 
 - **v1 — 2026-10-21 (A-168):** staged on the human's relayed words (V1-69); not dispatched. Sealed against the stack tip `f8dbf86`.
+- **v1 amended at build — 2026-10-21 (A-174), on D-134 (the Developer's decision request) and I-130 (the gate's half):** option A — the three process-risk groups as child `pytest` processes orchestrated from `launcher/tests/conftest.py` inside the existing `test-launcher` run; `pyproject.toml` and `pixi.lock` untouched; the `realdata` marker registered from the conftest; every group always reports; the gate line names I-130's three items; §4, §5 (rows 6, 6a, 6b), §6 T7, D-5 follow. B1/B2's pixi-task form retired (it staled the lock, and `depends-on` hid later groups). The triage ref stays (attempt 1 continues).
