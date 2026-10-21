@@ -29,7 +29,7 @@ file name and passes, `publish` uploads it under `neutrons/label/exp`, and the `
 | # | Fact | Evidence |
 |---|---|---|
 | V1 | `test_and_deploy.yml` at `c4d20e4`: the `tests` job `fetch-depth: 0` (line 28, "Fetch all history for accurate versioning"); the `build` job `fetch-depth: 100` (line 78) | `git show c4d20e4:.github/workflows/test_and_deploy.yml` |
-| V2 | Distance from `c4d20e4` to `v2.9.0rc1`: **130** commits (92 first-parent) — already past 100, so upstream's `build` already cannot describe the tag; the stack tip `f8dbf86` is 179 | `git rev-list --count v2.9.0rc1..c4d20e4` |
+| V2 | Distance from `c4d20e4` to `v2.9.0rc1`: **130** commits by `rev-list --count` (92 first-parent); the stack tip `f8dbf86` is 179. **Corrected at D-132 (A-173):** the first draft read "already past 100, so upstream's `build` already cannot describe the tag" — wrong, because a shallow fetch's depth counts the **shortest parent path**, not `rev-list --count`: 88 (`c4d20e4`), 94 (`81acc87`), 97 (`f8dbf86`), all under 100; and upstream's two non-release tags (`exp-review-group3`, `exp-review-settings-editor`), fetched at depth 100 too, bridge the gap, so today's clone comes out not shallow at all. The failure is latent (a 3-commit margin with release tags only), not present | `git rev-list --count v2.9.0rc1..c4d20e4`; D-132's `scripts/ci-fetch-depth-probe.sh` (ledger) |
 | V3 | The deployed `lr_reduction_exp` is a date-stamped dev version for this reason (V1-62; V1-69) | V1-62 |
 | V4 | The `build` job runs only on `push` to `[next, qa, main, exp]` and `v*` tags, with secrets; a PR from the fork never runs it with a result that proves anything about the fix | the workflow's triggers |
 | V5 | **A seat cannot push a branch based on `c4d20e4`** (D-129, re-measured): `pixi install --locked` → exit 1 ("lock-file not up-to-date"), no `scripts/pixi_lock_check.sh`, and upstream's own pre-push `pixi lock --check` (`.pre-commit-config.yaml:27-31`, unchanged since `8971999`) refuses the push; skipping a hook is not a seat's. L1′ `81acc87` has a current lock and the fork's guard | D-107 addendum; D-129 |
@@ -52,14 +52,14 @@ file name and passes, `publish` uploads it under `neutrons/label/exp`, and the `
 
 | # | Case | Expected | Covered by |
 |---|---|---|---|
-| 1 | common: a branch ≥ 100 commits past the tag | full depth describes the tag; the package carries `2.10.0.dev…` | T1 |
-| 2 | edge: a branch < 100 past the tag | unchanged behaviour | T1 |
+| 1 | common: a tip ≥ 100 from the nearest release tag by shortest parent path (synthetic today: `f8dbf86+100`) | full depth describes the tag; the package carries `2.10.0.dev…` | T1 |
+| 2 | edge: a tip < 100 by shortest path (today's: 88/94/97) | unchanged behaviour — described at both depths | T1 |
 | 3 | pathological: a merge ref one step beyond the branch (a PR) | depth 0 covers it | T1 |
 | 4 | out of scope: the release tag alternative | upstream's call; noted in the PR body | — |
 
 ## 6. Red-Green seed
 
-- **T1** B2's two checkouts at `81acc87` (distance 148 to `v2.9.0rc1`) and at `f8dbf86` (179): depth 100 fails to describe (RED today), full describes (GREEN) — recorded verbatim.
+- **T1** B2's two checkouts at `81acc87` (distance 148 to `v2.9.0rc1`) and at `f8dbf86` (179): depth 100 fails to describe, full describes (GREEN) — recorded verbatim. **Corrected at D-132 (A-173):** "RED today" does not hold (shortest paths 94/97 < 100, and the two non-release tags bridge); the RED is shown on synthetic tips — `f8dbf86+100` (path 197): "No tags can describe", `0.1.0.dev…` at depth 100, `v2.9.0rc1-279` at depth 0; with release tags only, `f8dbf86+10` (107) is already RED — measured with the ledger's `scripts/ci-fetch-depth-probe.sh`, which replaces the clone's tag set by upstream's 69 (a seat clone's `qa/*` tags would mask it further).
 - **T2** `git diff 81acc87..<tip> --stat` = the one file, one hunk; the YAML parses (`python -c "import yaml; yaml.safe_load(open(...))"`).
 
 ## 7. Mutate-once gate
@@ -71,7 +71,7 @@ file name and passes, `publish` uploads it under `neutrons/label/exp`, and the `
 
 ## 8. Acceptance criteria
 
-T1–T2 recorded; one file, one hunk; the body with the trailer and no campaign identifiers; the draft PR `--base exp` on the fork; the human's upstream PR before the first `exp-next` → `exp` merge.
+T1–T2 recorded; one file, one hunk; the body with the trailer and no campaign identifiers; the draft PR `--base feature/landing-l1-core` on the fork (the header's base since A-169's amendment; this line's `--base exp` was the v1 text, flagged at D-132, corrected at A-173); the human's upstream PR before the first `exp-next` → `exp` merge.
 
 ## 9. Learnings relied on
 
@@ -86,3 +86,4 @@ V1-62 (the mechanism and the distances), V1-69 (the scheme's condition 4), A-145
 
 - **v1 — 2026-10-21 (A-168):** staged on the human's relayed words (V1-69); not dispatched. Sealed against the fork's `exp` @ `c4d20e4`.
 - **v1 amended at staging — 2026-10-21 (A-169), on D-129's pre-dispatch read:** the base corrected to L1′ `81acc87` (a seat cannot push a branch based on `c4d20e4`: the stale lock and upstream's pre-push lock check); V5, T1/T2, D-2 follow; D-1 unchanged — the human's own one-line PR remains the cheaper route.
+- **v1 amended after delivery — 2026-10-21 (A-173), on D-132 (correct-and-flag):** V2 and T1 corrected — a shallow fetch's depth counts the shortest parent path (88/94/97 at the three tips, under 100) and upstream's two non-release tags bridge the gap, so the RED is shown on synthetic tips (`f8dbf86+100`; `+10` with release tags only), not today's; the fix stands as the removal of a margin, not of a present failure. Matrix rows 1–2 reworded; §8's `--base exp` (v1 text) → `feature/landing-l1-core` (the header). Measured with the Developer's `scripts/ci-fetch-depth-probe.sh` (ledger). Status unchanged here: it flips at the Integrator's record (#56 carries the PASS in the open).
