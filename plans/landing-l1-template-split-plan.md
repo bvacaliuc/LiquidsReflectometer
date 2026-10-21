@@ -1,0 +1,135 @@
+# Plan: `landing-l1-template-split` — the `template.py` fix leaves L1 for a PR on upstream `next` (the scientists' freeze, taken whole), `reduction_domains` is renamed with its call sites, and the stack follows L1 again
+
+**Campaign:** `exp-review-fixes` · **Leaf:** `landing-l1-template-split` (K17; refs `triage/landing-l1-template-split`, the slug amends `feature/landing-l1-core` by commits on top — no
+rewrite — and tags `qa/landing-l1-template-split`; Phase 2 re-tags `qa/landing-l2-reduction`, `qa/landing-l3-launcher`, `qa/landing-l4-model-move`, `qa/log-level-console` at the
+forward-merged tips, as K11 did) · **Status:** **DISPATCHED — v1 (attempt 1 of N = 3)**, 2026-10-21 (A-174) on the human's addressed word, couriered verbatim by the Administrator (M-99, `requests/k17-landing-l1-template-split-dispatch.md`): `[human, 2026-10-21 (to the Administrator, for the Analyst): "dispatch K17 template split"]` — read as this row (A-171's K17); the name `reduction_choices` stands (no word on it); v1 authored 2026-10-21 (A-171) from the human's #219 review requests to the Advisor (V1-70; input under `b059f14`) ·
+**Base:** `feature/landing-l1-core` @ **`81acc87`** (L1′: the frozen 12, K11; a current lock and the fork's guard — pushable). K14 and K9 branch from the same tip and touch none of
+K17's files; K8 branches from the stack tip and merges L4″ forward later; K15 rides K10″ · **PRs:** #54 and upstream #219 advance by fast-forward (the human pushes L1″ to
+`exp-landing-l1-core`); #51/#52/#53/#55 fast-forward in Phase 2 · **Reviews:** design, test (block); numerical-diagnostics n/a · **Gate:** Phase 1 — G literal on L1″ (expected 10 +
+137: six template tests leave), P1 over `c4d20e4..`, P2 (`Reverts:`/`Freeze:` accepted; the rename's `Move:` provenance); Phase 2 — per layer as K11's B5, with the proofs against the
+reference of §10 D-4.
+
+Campaign: exp-review-fixes
+
+## Declared scope
+
+**Phase 1 (L1, commits on top of `81acc87`):** (a) **the template freeze, whole:** `git revert bd9065b` (fork #26, the file handle) and `git revert a70a3e2` (fork #23, the
+scaling-factor path anchored, `FileNotFoundError`) — V1-70 measured both reverts clean on `81acc87` (15 paths); then `src/lr_reduction/new_reduction_from_template.py` returned to
+`c4d20e4`'s bytes (its remaining three lint lines from `87d09d0`): `template.py` and `new_reduction_from_template.py` **byte-equal to upstream** — the human's K11 D-1 reversed by the
+human's own request; with them `tests/test_template_paths.py` (4) and `tests/test_template_file_handles.py` (2) leave, the `template_dir` fixture (+32) leaves `tests/conftest.py`, the
+seven `tests/data/template*.xml` and the three test files (`test_reduction.py`, `test_scaling_factors_workflow.py`, `test_time_resolved.py`) return to upstream's content for those hunks
+(the reverts do exactly that); the `ruff-check` hook's frozen list gains the two files. **Not part of it:** `ad8eba6` (fork #27, the sf `.cfg` data and the every-field comparison) —
+L1-only, stays. (b) **the rename:** `git mv src/lr_reduction/reduction_domains.py src/lr_reduction/reduction_choices.py` in its own commit (the history-preserving rule), then the import
+lines in `nr_reduction_calc.py:17` and `nr_tools.py:14` (`import lr_reduction.reduction_choices as choices`, the eight uses `choices.…`) and the module docstring; **`choices`, not
+`namespace`** (§10 D-2). (c) **the `next` branch** for the human's upstream PR: `fix/template-scaling-factor-path` = the two commits cherry-picked onto upstream `next` @ `b732ea2` minus
+`new_reduction_from_template.py` (which does not exist on `next`): `template.py` + the six tests + the seven XMLs + the conftest fixture + the three test-file hunks — V1-70 measured the
+`template.py`-only patch applies cleanly on `b732ea2` and `tests/data/` identical between `next` and `exp`. **Who pushes it:** the human by hand (`git cherry-pick a70a3e2 bd9065b`,
+drop the one file) by default — a seat's branch from upstream `next`'s bare tip is admissible only if a locked install and the pre-push hooks pass there (the base rule, A-169); the
+Developer measures that at dispatch and pushes it to the fork only if they do.
+**Phase 2 (the stack follows, gated tips only, in order — K11 B5's shape):** L2″ = L2′ + merge of the gated L1″; L3″ = L3′ + merge of L2″ **with the rename's launcher users edited in
+the merge commit and named** (`launcher/model/field_spec.py:38,55` — on L3 still `src/lr_reduction/field_spec.py`; `launcher/tests/test_settings_document.py` imports at 570, 815, 832
+and the source-text assertions at 591–592 (`"domains.METHOD_CHOICES" in source`) and the declarations set at 2303 that names the file; `launcher/tests/test_settings_editor.py:963`);
+L4″ = L4′ + merge of L3″ (the moved `field_spec.py` carries the edit); K10″ = K10′ + merge of L1″. Each re-gated: G; L2″'s harness against the reference (no template or scaling-factor
+file is named by `rereduction-scenarios.sh`, so byte-identity is expected); L4″'s P3 `--move` against the reference of §10 D-4; P5.
+**Out:** any change to the legacy reduction beyond the reverts; the scientists' groups 2/3 deletion; K16; the `exp-next` base change (§10 D-5 — the posture's line, on the word).
+
+## 1. Request and symptom
+
+The human, reviewing L1 file by file for #219, to the Advisor (V1-70, verbatim): *"a. split the edit in src/lr_reduction/template.py into its own PR that I will target to the
+upstream:next branch, and possibly cherry-pick into upstream:exp-next after I convice the scientists. They have made it clear that the upstream:exp have stopped using xml template
+based reduction with prejudice and want no changes to files implementing that system. … I suspect this means you have to prune/hobble the test plan, right? b. consider an
+alternate name for reduction_domains.py imported as domains. The scientists took issue with the choice of the root word 'domain'. Perhaps 'namespace' would be more palatable?"* The
+Advisor's measured answer (V1-70): prune, not hobble — the tests follow the code to the `next` PR; `reduction_choices` as `choices`, not `namespace`.
+
+## 2. Verified facts at `81acc87` (2026-10-21 16:4xZ; this clone, V1-70's measurements)
+
+| # | Fact | Evidence |
+|---|---|---|
+| V1 | L1's commits touching the two template files after K11: `bd9065b` (#26), `a70a3e2` (#23), and `87d09d0`'s three lint lines in `new_reduction_from_template.py` (`!= False` → `is not False`, `== True` → `is True`, an unused `seq_id_store` dropped) | `git log c4d20e4..81acc87 -- <the two>` |
+| V2 | `git revert --no-commit bd9065b a70a3e2` on `81acc87` is clean (15 paths); `template.py` returns byte-equal to `c4d20e4`; one more checkout makes `new_reduction_from_template.py` byte-equal | V1-70 |
+| V3 | The `template.py`-only patch of the two commits applies cleanly on upstream `next` @ `b732ea2`; `tests/data/` is identical between `next` and `exp`; `new_reduction_from_template.py` does not exist on `next` | V1-70 |
+| V4 | `rereduction-scenarios.sh` names no template and no scaling-factor file, so the L2 harness should not see the revert | V1-70; the script |
+| V5 | `reduction_domains.py` users — L1: `nr_reduction_calc.py:17,85,91,685`, `nr_tools.py:14,233,403,406`; L3/L4: `field_spec.py:38,55`, `test_settings_document.py` 570–575, 815, 821, 832, 834, 847 (+ the source-text assertions 591–592 and the declarations set at 2303), `test_settings_editor.py:963` | `git grep` at `81acc87` and `f8dbf86` |
+| V6 | L1's gate count today 10 + 143 (I-121); six template tests leave → expected 10 + 137 (to be measured) | I-121; V1-70 |
+| V7 | K14 and K9 (dispatched A-170) branch from `81acc87` and touch `.pre-commit-config.yaml`/`tests/test_noqa_tags.py` and `.github/…` only — no overlap with K17's files except the `ruff-check` hook list (K17 adds two paths; K14 anchors the global pattern — a trivial merge, named at the time) | A-170 |
+
+## 3. Design — behaviours
+
+| # | Behaviour |
+|---|---|
+| B1 | **Revert commits, not rewrites:** two `git revert`s (bodies: `Reverts: bd9065b`, `Reverts: a70a3e2`, `Freeze: PR #219 review, 2026-10-21 — the template system frozen at upstream's content`) plus one `freeze:` commit for `new_reduction_from_template.py`'s bytes; after them `git diff c4d20e4 <L1″> -- src/lr_reduction/template.py src/lr_reduction/new_reduction_from_template.py` is empty. |
+| B2 | **The hook list grows by the two files** (the same commit as B1's third); `pre-commit run --all-files` green; `test_noqa_tags.py`'s guard still asserts the frozen block names exactly the frozen set — now 14 — and each exists. |
+| B3 | **The rename in its own commit** (`git mv`, R100 in `--find-renames`), the import edits in the next (`Move: src/lr_reduction/reduction_domains.py -> src/lr_reduction/reduction_choices.py` provenance); every `domains.` use becomes `choices.`; no behaviour change (the AST of each file equal modulo the names). |
+| B4 | **The `next` branch** (`fix/template-scaling-factor-path` on `b732ea2`) carries exactly the fix and its tests; a `git apply --check`/cherry-pick record in the commit bodies; pushed by the human, or by the Developer if `next`'s tip is admissible (measured at dispatch). |
+| B5 | **Phase 2** as K11's B5 with the rename carried into L3″'s merge commit (the launcher users edited and named there — a conflict-free merge would leave them broken; T6 checks `git grep reduction_domains` empty at each tip). |
+| B6 | **Proofs:** P1 L1 set unchanged (the two template files and the renamed module are L1's; `reduction_choices.py` added to L1's allow-regex); P2 accepts `Reverts:`/`Freeze:`/`Move:`; **P3 against R-3** (§10 D-4) with `EXCL` grown by the template freeze's files. |
+
+## 4. Files to change
+
+| File | Change |
+|---|---|
+| `src/lr_reduction/template.py`, `src/lr_reduction/new_reduction_from_template.py` | byte-equal to `c4d20e4` (B1) |
+| `tests/test_template_paths.py`, `tests/test_template_file_handles.py` | removed (B1) |
+| `tests/conftest.py`, `tests/data/template*.xml` (7), `tests/test_reduction.py`, `tests/test_scaling_factors_workflow.py`, `tests/test_time_resolved.py` | a70a3e2's hunks reverted (B1) |
+| `.pre-commit-config.yaml` | the `ruff-check` hook list += the two files (B2) |
+| `src/lr_reduction/reduction_domains.py` → `src/lr_reduction/reduction_choices.py` | `git mv`, docstring (B3) |
+| `src/lr_reduction/nr_reduction_calc.py`, `src/lr_reduction/nr_tools.py` | the import and eight uses (B3) |
+| L3″/L4″ merge commits | `launcher/model/field_spec.py` (or `src/lr_reduction/field_spec.py` on L3), `launcher/tests/test_settings_document.py`, `launcher/tests/test_settings_editor.py` (B5) |
+| `feature/landing-reference-3` | R-3 = R-2 with the rename applied identically (§10 D-4) |
+| ledger `scripts/landing-purity.sh` (`EXCL`, L1's set), `scripts/landing-sanitize-check.sh` | at dispatch (A-17x) |
+
+## 5. Failure-mode matrix
+
+| # | Case | Expected | Covered by |
+|---|---|---|---|
+| 1 | common: the reverts | the two files byte-equal to `c4d20e4`; G green at 10 + 137 | T1, T4 |
+| 2 | common: the rename | no `reduction_domains` left at L1″; the eight uses read `choices.` | T2 |
+| 3 | edge: a test file mixes a70a3e2's hunk with another entry's (`test_reduction.py`) | `git revert` is hunk-exact; the Developer names any manual resolution | T1, the body |
+| 4 | edge: L3's source-text assertions on `domains.METHOD_CHOICES` | edited in L3″'s merge commit; T6 red otherwise | T6 |
+| 5 | pathological: a conflict-free merge leaves L3's imports broken | T6 (`git grep` + G at L3″) | T6 |
+| 6 | pathological: the `next` tip not admissible for a seat push | the human's cherry-pick (B4); the branch is still the human's PR | D-3 |
+| 7 | pathological: P3 run against R-2 after the rename | fails loudly on the rename; the reference of the day is R-3 | D-4 |
+| 8 | out of scope: the scientists' groups 2/3 deletion; K16; the base change to `exp-next` | the human's; §10 D-5 | — |
+
+## 6. Red-Green seed
+
+- **T1** `git diff --stat c4d20e4 <L1″> -- src/lr_reduction/template.py src/lr_reduction/new_reduction_from_template.py tests/test_template_paths.py tests/test_template_file_handles.py tests/data/` → empty (the two test files absent at L1″).
+- **T2** `git grep -n reduction_domains <L1″> -- src` → empty; `git diff --find-renames --stat 81acc87 <L1″>` shows `R100 reduction_domains.py → reduction_choices.py`.
+- **T3** `pre-commit run --all-files` green; `pytest tests/test_noqa_tags.py` green with the 14-entry frozen block (and red if one is dropped).
+- **T4** G at L1″: install --locked, the lock check, `test-reduction`, `test-launcher`, each EXIT 0; the counts reported (expected 10 + 137).
+- **T5** The `next` branch: `git apply --check` of the `template.py` patch on `b732ea2` recorded; the branch's diff from `b732ea2` = `template.py` + the six tests + the seven XMLs + the conftest fixture + the three test-file hunks.
+- **T6** (Phase 2) at each of L2″, L3″, L4″, K10″: `git grep -n reduction_domains -- src launcher` empty; G; L2″'s harness identical to the reference; L4″'s P3 `--move` against R-3 clean; P5.
+
+## 7. Mutate-once gate
+
+| Mutation | Caught by |
+|---|---|
+| one template file left at L1's content | T1 |
+| the rename done as delete + add | T2 (no R100) |
+| a `domains.` use left | T2 / T6 |
+| the hook list not grown | T3 (pre-commit reds on the reverted files) |
+| L3's source-text assertion not edited | T6 |
+
+## 8. Acceptance criteria
+
+1. Phase 1: T1–T5; the commits with the trailer and the provenance lines, no campaign identifiers; the Integrator's PASS on `qa/landing-l1-template-split`; #54 fast-forwarded; the human pushes L1″ to `exp-landing-l1-core` and opens the `next` PR.
+2. The PR body (the Integrator's) tells the scientist: the template system is at upstream's content in L1 (the fix moved to a `next` PR for their call), `reduction_choices` replaces `reduction_domains`.
+3. Phase 2: T6 at each tip; #51/#52/#53/#55 fast-forwarded; R-3 named in the group plan's revision history.
+
+## 9. Learnings relied on
+
+V1-70 (every measurement above); K11's plan and record (the in-place leaf, Phase 2's shape, the record-on-the-ledger rule D-9); A-169 (base admissibility); the group plan's R rule.
+
+## 10. Decisions
+
+- **D-1 — the freeze takes both template files** (the scientist's "no changes to files implementing that system" covers `new_reduction_from_template.py`, their group 2); the human's K11 D-1 is reversed by the human's own request.
+- **D-2 — `reduction_choices` imported as `choices`** (the Advisor's recommendation: every constant ends in `_CHOICES`; `namespace` already means a package namespace or `argparse.Namespace`); alternatives if the scientists prefer: `reduction_options`, `allowed_values`, `reduction_enums` — one word changes it before dispatch.
+- **D-3 — the `next` branch is the human's push by default;** the Developer pushes it only if upstream `next`'s tip is admissible (a locked install and the pre-push hooks pass in a seat clone), measured at dispatch.
+- **D-4 — the reference for Phase 2 is R-3 = R-2 with the rename applied identically** (a mechanical re-derivation, a new branch by the group plan's rule; `git diff b3f9c75 <R-3> --stat` = the rename and the import edits), so P3 sees no rename noise; the template freeze's files join `EXCL` as K11's did. Alternative if the seats prefer: extend the proof's `MOVED` pattern instead — their call, named at the gate.
+- **D-5 — after L4 lands on upstream `exp-next`, the campaign's base becomes the fork's `exp-next`** (V1-70 (c): a feature cut from `exp-review` would show the 36 refused files again); the posture's "cut from `exp-review`" line changes on the human's word, not in this slug.
+- **D-6 — reverts and merges, never rewrites.**
+
+## Revision history
+
+- **v1 — 2026-10-21 (A-171):** staged from V1-70 (the human's #219 review requests, as input); not dispatched. Sealed against L1′ @ `81acc87`, upstream `next` @ `b732ea2`.
+- **v1 dispatched — 2026-10-21 (A-174):** on the human's couriered word (M-99). Re-sealed at 17:0xZ: L1′ `81acc87` (#54, upstream #219), upstream `next` `b732ea2` (by URL, read-only; not in the seat clones — `git fetch https://github.com/neutrons/LiquidsReflectometer.git b732ea2` only to measure D-3's admissibility), upstream `exp` = `exp-next` = `exp-qa` = `c4d20e4`, R-2 `b3f9c75`, L2′/L3′/L4′ `3c906fc`/`fe07040`/`f8dbf86`; `feature/log-level-console-v2` is at `e400e87` (K15 v1 rejected at I-131, v2 dispatched in the same entry) — Phase 2's K10″ merges L1″ into whatever gated tip #55 has then. K14 (`qa/` @ `f1e0f78`, at the gate) and K9 (#56, PASS) are their own branches off `81acc87`: L1″ advancing does not move them; their later merges into L1 are the stack's. The ledger's `scripts/landing-purity.sh` grew at this entry: `EXCL` += the two template files (P3 against the reference skips them, as K11's freeze), L1's set += `reduction_choices`; `landing-sanitize-check.sh` already accepts `Reverts:`/`Freeze:`/`Move:`.
