@@ -1,7 +1,7 @@
 # Plan: `log-level-console` — the package's Python logging reaches the console **on by default, at INFO, on stdout** (the scientists' opt-out posture); `LR_REDUCTION_LOG_LEVEL` sets the level or switches it off with `NOTSET`; no value can make `import lr_reduction` fail
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `log-level-console` (refs `triage/log-level-console-v2`, `feature/log-level-console`, `qa/log-level-console`; K10 in `dispatch-queue.md`) ·
-**Status:** v2 PASS (I-113) → draft PR #55; **v3 STAGED 2026-10-21 (A-160)** on the human's #55 comment (a question — input, not a word; the addressed-word rule): the simplification per V1-68, tests unchanged; dispatch on an addressed word ("dispatch K10 v3") · v2: **DISPATCHED — v2 (attempt 2 of N = 3)**, 2026-10-20 (A-150), on the Integrator's REJECT of v1 @ `7041087` (I-110; the canonical record is `todo.md` at
+**Status:** v2 PASS (I-113) → draft PR #55; **v3 DISPATCHED 2026-10-21 (A-166, attempt 3 of 3 — a rejection escalates)** on the human's addressed word `[human, 2026-10-21 (to the Analyst): "dispatch K10 v3"]` (staged at A-160 on the #55 comment): the simplification per V1-68, the 25 tests unchanged except the two-line fixture fix (F1); refs `triage/log-level-console-v3`, `feature/log-level-console-v2` (commits on top of `c95cfb5`, no rewrite), `qa/log-level-console`; at PASS the Integrator fast-forwards #55 — no new PR · v2: **DISPATCHED — v2 (attempt 2 of N = 3)**, 2026-10-20 (A-150), on the Integrator's REJECT of v1 @ `7041087` (I-110; the canonical record is `todo.md` at
 `feature/log-level-console` @ `b01758f`) **and on the human's changed requirement** (the body of the human's own commit `14ca2b0` on `feature/add-lr-reduction-log-level`,
 2026-10-20 12:06 EDT — §1). v1: A-148, amended at build A-149 ·
 **Base:** **`feature/landing-l1-core` @ `c5ef58d`** (L1's tip = upstream `exp-landing-l1-core`, #219's head; green: I-97 10 + 172, I-108, I-110's G). **Rebuild v2 from the base**
@@ -188,7 +188,7 @@ third rejection escalates.
 - **v2 amended at gate — 2026-10-20 (A-151, under the human's STOP):** §6's fixture resets before **and** after (I-112's F1 — the plan's own prescription was the defect, not the build; the Integrator's
   reading, PASS with F1 as the first advisory, concurred); §2 gains the L1-base fact. Not a new attempt. The analysis-branch copy follows when the STOP lifts (no subject push until then).
 
-### v3 — staged 2026-10-21 (A-160) on the human's #55 comment; dispatch on an addressed word
+### v3 — staged 2026-10-21 (A-160) on the human's #55 comment; **dispatched 2026-10-21 (A-166) on the human's addressed word "dispatch K10 v3" — attempt 3 of 3**
 
 **The ask** (#55, 2026-10-21 01:05Z, verbatim): *"I find that the implementation in `src/lr_reduction/__init__.py` is far too heavy for my taste. I have read the concern and made a
 change to my manual branch `feature/add-lr-reduction-log-level`. Would you have a look at it and see if the implementation of this feature could be \*very\* simple in
@@ -252,3 +252,16 @@ def configure_console_logging(value: str | None) -> logging.Handler | None:
 
 configure_console_logging(os.environ.get("LR_REDUCTION_LOG_LEVEL"))
 ```
+
+**Dispatch (A-166, re-sealed 2026-10-21 13:29Z).** Base: `feature/log-level-console-v2` @ **`c95cfb5`** (K10′ = v2 `9cb0fbf` + the stack merge of the gated L1′ `81acc87`, I-126; #55's head,
+`MERGEABLE`); L1 @ `81acc87`; no `qa/`, `review/` or `triage/` refs on the fork. **Commits on top of `c95cfb5`, no rewrite.** The Developer: (1) `src/lr_reduction/__init__.py` ← the
+candidate above as the starting point — B1–B7 unchanged in behaviour (`getLevelNamesMapping` and `str.isdecimal` are 3.11+, within `requires-python >= 3.11`); no `try`, no blanket
+`except`, nothing in the body can raise; (2) `tests/unit/test_log_level_console.py` ← **only** the fixture change: reset the named handler and the package level **before and after**
+each test (F1, A-151/I-112); the 25 tests otherwise unchanged and all passing. **RED/GREEN here:** RED = T3/T5/T7 run alone (`-k child_info`, `--lf`) red on the after-only fixture;
+GREEN = green alone and whole after the fixture fix; the candidate then passes all 25 unchanged. **§7 rows for v3** (the GREEN body records each with its failing count): `int()`
+under a blanket `except` (the human's `a799915` defect — every level name → off: T4/T8 red); `isdigit()` for `isdecimal()` (T5: `'²'`/`'①'` raise or pass wrongly); a second call
+re-levelling the old handler instead of replacing it (T6); the fixture reset after-only (T3/T5/T7 run alone red); the import-time call removed (T8). **Gate:** G literal on L1′'s
+base — `pixi install --locked`, the lock check, `test-reduction` and `test-launcher` each EXIT 0; expected launcher 10, reduction 168; ruff `--extend-select RUF100` clean (the human's
+own `a799915` had I001); `git diff c95cfb5..<tip> --stat` = exactly the two files; bodies with the model trailer, no ledger URL or campaign identifier (upstream-bound); the
+Integrator's PASS fast-forwards #55 and its body says what v3 changed (smaller `__init__.py`, same behaviour, the fixture fix in). **Attempt 3 of 3:** a REJECT escalates
+(`plans/log-level-console-escalate.md`, the `review/log-level-console-escalate` tag) and the human decides.
