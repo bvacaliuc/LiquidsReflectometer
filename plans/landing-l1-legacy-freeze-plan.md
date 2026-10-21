@@ -16,7 +16,7 @@ Campaign: exp-review-fixes
 
 **In (Phase 1, L1):** the **12** files L1 changed among the scientist's 17 that stay frozen — `launcher/scripts/{off_spec,quick_reduce,refracted_beam,xrr_reduction}.py`,
 `src/lr_reduction/{background,dead_time_correction,output,peak_finding,reduction_template_reader,time_resolved,new_reduction_template_reader}.py`, `launcher/apps/roi_selector.py` —
-returned to upstream's content byte for byte; `pyproject.toml` `[tool.ruff] extend-exclude` with the 12 paths and a dated comment; `tests/test_warning_hygiene.py` removed and
+returned to upstream's content byte for byte; the `ruff-check` hook's `exclude` in `.pre-commit-config.yaml` gains the 12 paths with a dated comment (**not** `pyproject.toml`: it is pixi's manifest and any edit stales the lock — D-116, amended at build A-158); `tests/test_noqa_tags.py` reads that same `exclude` and skips what it matches, with a guard that every frozen path exists and is one of the 12; `tests/test_warning_hygiene.py` removed and
 `tests/unit/lr_reduction/test_output.py` returned to upstream's (they pin the frozen `output.py`/`background.py`/`dead_time_correction.py`/`peak_finding.py` changes). **Kept, the
 human's D-1:** `src/lr_reduction/template.py` and `src/lr_reduction/new_reduction_from_template.py` as L1 has them (fork #23's `FileNotFoundError` fix and #26's closed file handle),
 with their tests (`tests/test_template_paths.py`, `tests/test_template_file_handles.py`, the seven `tests/data/template*.xml`, `tests/conftest.py`, the `test_reduction.py` /
@@ -49,7 +49,8 @@ scope (the stack adjusted after L1 moves); the freeze is **pedantic**: the froze
 | V3 | The L1 commits whose hunks the freeze reverts, in the 12 files only: `87d09d0` (fork #14 lint baseline — raw strings, unused names, a loop → `writelines`), `6234dcc` (fork #41 — output-identical refactors in `background.py`, `dead_time_correction.py`, `peak_finding.py`, `output.py`), `c5ef58d` (noqa comments in `reduction_template_reader.py`, `time_resolved.py`, `new_reduction_template_reader.py`). **Not reverted:** `a70a3e2` (#23) and `bd9065b` (#26) — they touch only the two kept files and their tests | `git log 8971999..c5ef58d -- <17>` |
 | V4 | Tests pinning the frozen changes: `tests/test_warning_hygiene.py` (new in 6234dcc, 307 lines) and `tests/unit/lr_reduction/test_output.py` (+110 in 6234dcc). Tests pinning the kept fix stay: `test_template_paths.py` (122), `test_template_file_handles.py` (81), the seven XMLs, `conftest.py` (+32), the three test edits of a70a3e2 | `git show --stat` of the commits |
 | V5 | **L2–L4 and K10 touch none of the 17** (`git diff --stat c5ef58d 82b0854 -- <17>` empty; K10's two files are elsewhere); `merge-tree` of `7f0a4ad` with L2 and with K10 is clean (I-115) | measured; I-115 |
-| V6 | ruff: `[tool.ruff] exclude = ["notebooks/**", "**/*.ipynb", "scripts/**", "tests/data/**"]`; pre-commit `ruff-check --fix --exit-non-zero-on-fix --extend-select RUF100`. The reverted files carry the lint the baseline fixed, so pre-commit goes red without an exclusion; `extend-exclude` adds without disturbing the four globs | `pyproject.toml:240-252` at `c5ef58d` |
+| V6 | ruff: `[tool.ruff] exclude = ["notebooks/**", "**/*.ipynb", "scripts/**", "tests/data/**"]`; pre-commit `ruff-check --fix --exit-non-zero-on-fix --extend-select RUF100`. The reverted files carry the lint the baseline fixed, so pre-commit goes red without an exclusion; `extend-exclude` would add without disturbing the four globs — **but (amended at build, D-116): `pyproject.toml` is pixi's manifest; adding the block makes `pixi install --locked` fail (`lock-file not up-to-date`), and a re-lock would drop `editable: true` (the restamp the Developer's contract forbids); #49 put its ruff selection in the hook's `args` for this reason. The pre-commit global `exclude` (`scripts/.*`) already covers the four `launcher/scripts/*`; upstream's frozen files have no trailing whitespace and end in a newline, so only ruff would re-lint them** | `pyproject.toml:240-252` at `c5ef58d`; D-116 |
+| V10 | `tests/test_noqa_tags.py` (#49, in L1) reads the hook's args and checks every `noqa` tag in the tree; upstream's frozen files carry three tags #49 re-spelled (`new_reduction_template_reader.py:36`, `reduction_template_reader.py:20`, `time_resolved.py:25`), so a byte-equal freeze reds it unless the test skips what the hook excludes | D-116, measured |
 | V7 | Shared imports (V1-67): `reduction_template_reader.py` by `web_report.py`; `dead_time_correction.py` by `scaling_factors/LRScalingFactors.py`; `template.py` by the new path (kept). A freeze restores upstream's behaviour, the behaviour upstream runs today | V1-67 |
 | V8 | The (c) refactors are output-identical by the campaign's own evidence (6234dcc's equality tests), so reverting them changes no reduction output — L2's harness byte-identity is unaffected by the freeze itself; what changes outputs is upstream's `arctan` (`c4d20e4`), already in L1 and arriving in L2 by the forward merge — hence R-2 | 6234dcc; I-114/A-155 |
 | V9 | R-2 does not exist yet; the group plan's rule (§3 R0, A-155): a re-derivation is a new branch `feature/landing-reference-2`, never an update of `feature/landing-reference` | group plan |
@@ -58,19 +59,21 @@ scope (the stack adjusted after L1 moves); the freeze is **pedantic**: the froze
 
 | # | Behaviour |
 |---|---|
-| B1 | **Freeze (content), one commit** `freeze: the legacy-reduction files return to upstream's content (PR #219 review, 2026-10-20)`: `git checkout c4d20e4 -- <the 12 files>`; body: the scientist's ask in one line, `Reverts: 87d09d0 (these files), 6234dcc, c5ef58d (these files)`; no ledger URL, no campaign identifier. After it, `git diff c4d20e4 <tip> -- <the 12>` is **empty** (the pedantic posture: byte-equal, no re-lint, no trailing-whitespace fix — the pre-commit hooks must not rewrite them; if a hook would, the hook's `exclude` gains the same paths in the same commit). |
-| B2 | **Freeze (lint), one commit:** `pyproject.toml` `[tool.ruff] extend-exclude = [<the 12 paths>]` with the comment `# frozen legacy-reduction files (PR #219 review, 2026-10-20): upstream's content, not linted`. pre-commit and `ruff check .` green at the tip; `ruff check --no-exclude <a frozen file>` reports the old findings (the exclusion is load-bearing). |
+| B1 | **Freeze (content), one commit** `freeze: the legacy-reduction files return to upstream's content (PR #219 review, 2026-10-20)`: `git checkout c4d20e4 -- <the 12 files>`; body: the scientist's ask in one line, `Reverts: 87d09d0 (these files), 6234dcc, c5ef58d (these files)`; no ledger URL, no campaign identifier. After it, `git diff c4d20e4 <tip> -- <the 12>` is **empty** (the pedantic posture: byte-equal; B2's hook exclusion is committed **first**, so the revert commit's own hooks cannot re-lint the frozen files). |
+| B2 | **Freeze (lint), one commit, first in order (D-116 option A):** `.pre-commit-config.yaml`'s `ruff-check` hook `exclude` regex gains the 12 frozen paths (anchored, one per line in a YAML block scalar) with the comment `# frozen legacy-reduction files (PR #219 review, 2026-10-20): upstream's content, not linted`; `pyproject.toml` untouched (pixi's manifest — an edit stales the lock). In the same commit `tests/test_noqa_tags.py` reads the hook's `exclude` (it already reads `hook_args()`) and skips the files it matches — one source — **and asserts that every path in the hook's frozen block exists in the tree and is one of the 12**, so a typo or a widened exclusion cannot hide real lint (I-118's mutation). pre-commit green at the tip; `pixi run ruff check <a frozen file>` by hand reports the old findings (the exclusion is load-bearing; the human's and the scientists' tool is pre-commit). **Order: B2, then B1, then B3.** |
 | B3 | **Tests, one commit:** remove `tests/test_warning_hygiene.py`; `git checkout c4d20e4 -- tests/unit/lr_reduction/test_output.py`. Everything pinning the kept fix stays (V4). |
 | B4 | **No rewrite:** the three commits sit on `7f0a4ad`; `feature/landing-l1-core` and #54 fast-forward; the human pushes the tip to `exp-landing-l1-core` (#219 fast-forwards). |
 | B5 | **Phase 2 — the stack follows, gated tips only, in order.** After the Integrator's PASS on `qa/landing-l1-legacy-freeze` (L1′): (1) the Developer builds **R-2** = `feature/landing-reference-2`: `exp-review` @ `c7741b2` merged onto `c4d20e4` by the D-92 recipe (the same #215/#216 ↔ #48 resolution; upstream's `nr_reduction_calc.py` hunks are disjoint from the fork's), pushed once, immutable; P5 (`landing-purity.sh --complete`) on R-2. (2) **L2′** = `feature/landing-l2-reduction` + merge of L1′ (message `stack merge: landing-l1-core @ <L1′> — upstream c4d20e4 and the legacy freeze`), pushed, `qa/landing-l2-reduction` at L2′; the Integrator gates: G, the harness byte-identity on the eight scenarios **against R-2** (never R), P1 over `c4d20e4..L2′` for L2's set, P2 (merges skipped). (3) **L3′** = L3 + merge of L2′ → `qa/landing-l3-launcher`: G, P1/P2. (4) **L4′** = L4 + merge of L3′ → `qa/landing-l4-model-move`: G, P1/P2, **P3 `--move` at L4′ against R-2** with the enlarged `EXCL` (§10 D-4), P5. (5) **K10′** = `feature/log-level-console-v2` + merge of L1′ → `qa/log-level-console`: G (the reduction count drops by the removed tests). Each step merges only a tip the Integrator has passed; a FAIL stops the chain there, with the layer's `todo.md`. |
-| B6 | **Proofs:** `Reverts:` accepted by P2 (done, A-157); `EXCL` enlarged by the frozen set — the 12 files, `tests/test_warning_hygiene.py`, `tests/unit/lr_reduction/test_output.py`, `pyproject.toml` — each with its reason (done, A-157); P3 (b) stays strict against the enlarged set; the only permitted difference in `pyproject.toml` between L4′ and R-2 is the `extend-exclude` block (the Integrator reads that one hunk). |
+| B6 | **Proofs:** `Reverts:` accepted by P2 (A-157); `EXCL` = the 12 files, `tests/test_warning_hygiene.py`, `tests/unit/lr_reduction/test_output.py`, `.pre-commit-config.yaml`, `tests/test_noqa_tags.py` (A-158: `pyproject.toml` dropped — it stays identical to R-2, and an excluded-but-identical file fails (b)); P3 (b) strict against that set; the Integrator reads the L4′↔R-2 diffs of `.pre-commit-config.yaml` (only the 12 paths and the comment) and `tests/test_noqa_tags.py` (only the skip and the guard) by hand. `landing-proof.sh` legs (a) and `--move` read `EXCL` (A-158, I-117's gap closed and regression-checked). |
 
 ## 4. Files to change
 
 | File | Change |
 |---|---|
 | the 12 frozen files | content = `c4d20e4`'s (B1) |
-| `pyproject.toml` | `[tool.ruff] extend-exclude` = the 12 paths, dated comment (B2) |
+| `.pre-commit-config.yaml` | the `ruff-check` hook's `exclude` += the 12 paths, dated comment (B2) |
+| `tests/test_noqa_tags.py` | skips what the hook's `exclude` matches; the guard assertion on the frozen block (B2) |
+| `pyproject.toml` | **untouched** (D-116) |
 | `tests/test_warning_hygiene.py` | removed (B3) |
 | `tests/unit/lr_reduction/test_output.py` | content = `c4d20e4`'s (B3) |
 | `feature/landing-reference-2` (new branch) | R-2 (B5.1) |
@@ -82,8 +85,9 @@ scope (the stack adjusted after L1 moves); the freeze is **pedantic**: the froze
 | # | Case | Expected | Covered by |
 |---|---|---|---|
 | 1 | common: the freeze commit | the 12 files byte-equal to `c4d20e4`; G green | T1, T4 |
-| 2 | common: lint after the revert | pre-commit green only because of `extend-exclude`; the exclusion is shown load-bearing | T2 |
-| 3 | edge: a pre-commit hook (end-of-file, trailing-whitespace) would rewrite a frozen file at commit | the hook's `exclude` gains the same paths in the same commit; T1 stays empty | T1 |
+| 2 | common: lint after the revert | pre-commit green only because of the hook's `exclude`; shown load-bearing | T2 |
+| 3 | edge: a hook would rewrite a frozen file at commit | the exclusion commit comes first (B2 → B1 → B3); T1 stays empty | T1 |
+| 3b | pathological: the hook's `exclude` widened to a non-frozen file (a typo, or hiding real lint) | the guard in `test_noqa_tags.py` fails | T2b |
 | 4 | edge: `web_report.py` after `reduction_template_reader.py` returns to upstream | its three repaired tests still pass (they test `web_report.py`) | G |
 | 5 | edge: `test_output.py` returned, `output.py` frozen | the upstream tests pass against upstream's code | G |
 | 6 | pathological: a frozen file's old lint is a real error (`F821`) | hidden by the exclusion; upstream runs that code today; named in the PR body | documented |
@@ -98,8 +102,8 @@ scope (the stack adjusted after L1 moves); the freeze is **pedantic**: the froze
 ## 6. Red-Green seed (the checks)
 
 - **T1** `git diff --stat c4d20e4 <L1′> -- <the 12 files>` → empty.
-- **T2** `pixi run pre-commit run --all-files` → green; `ruff check --no-exclude <a frozen file>` → non-empty.
-- **T3** `git diff c4d20e4 <L1′> -- src/lr_reduction/template.py src/lr_reduction/new_reduction_from_template.py tests/test_template_paths.py tests/test_template_file_handles.py` → L1's hunks intact (the kept fix); `tests/test_warning_hygiene.py` absent; `git diff c4d20e4 <L1′> -- tests/unit/lr_reduction/test_output.py` → empty.
+- **T2** `pixi run pre-commit run --all-files` → green; `pixi run ruff check <a frozen file>` → non-empty (the hook exclusion is load-bearing). **T2b** `pytest tests/test_noqa_tags.py` green at L1′; with the hook's `exclude` widened to one non-frozen file that carries a blanket `# noqa`, red (the guard).
+- **T3** `git diff c4d20e4 <L1′> -- src/lr_reduction/template.py src/lr_reduction/new_reduction_from_template.py tests/test_template_paths.py tests/test_template_file_handles.py` → L1's hunks intact (the kept fix); `tests/test_warning_hygiene.py` absent; `git diff c4d20e4 <L1′> -- tests/unit/lr_reduction/test_output.py` → empty; `git diff 7f0a4ad <L1′> -- pyproject.toml pixi.lock` → empty (untouched by the freeze).
 - **T4** G at L1′: install --locked, the lock check, `test-reduction`, `test-launcher`, each EXIT 0; the reduction count reported (172 − the removed tests).
 - **T5** `git log --format=%s c4d20e4..<L1′>` = L1's twelve replay subjects + the base merge + the three freeze commits; no `todo.md`; `7f0a4ad` an ancestor.
 - **T6** (Phase 2) each forward merge: `git merge-tree --write-tree <layer> <previous gated tip>` clean before the merge; the merge commit's tree equals it.
@@ -112,7 +116,9 @@ scope (the stack adjusted after L1 moves); the freeze is **pedantic**: the froze
 | Mutation | Caught by |
 |---|---|
 | one frozen file left at L1's content, or re-linted by a hook | T1 |
-| the `extend-exclude` omitted | T2, G |
+| the hook `exclude` omitted | T2, G |
+| the hook `exclude` widened beyond the 12 | T2b |
+| B1 committed before B2 | T1 (the revert commit's hook re-lints) |
 | `template.py` frozen by mistake (D-1 not applied) | T3 |
 | `test_warning_hygiene.py` left in place | T4 (it fails against the frozen code) |
 | a layer merged from an ungated tip | T6's provenance (the merged sha is not the Integrator's PASS sha) |
@@ -123,7 +129,7 @@ scope (the stack adjusted after L1 moves); the freeze is **pedantic**: the froze
 1. Phase 1: T1–T5 green; the three commits with the model trailer and the `Reverts:` line, no ledger URL or campaign identifier; the Integrator's PASS on `qa/landing-l1-legacy-freeze`; #54 shows the freeze; the human pushes L1′ to `exp-landing-l1-core`.
 2. The PR body (the Integrator's) answers the scientist file by file: the 12 frozen (byte-equal to upstream, the exclusion explained); `template.py` and `new_reduction_from_template.py` **kept on the human's decision** — the `FileNotFoundError` fix is real and the module is shared with the new workflow — their call to revert; groups 2/3 returned to upstream's content, deletion their call.
 3. Phase 2: T6–T9 green; the Integrator's PASS per layer (L2′, L3′, L4′, K10′); #51/#52/#53/#55 fast-forwarded; R-2 pushed once and named in the group plan's revision history.
-4. The ledger tools (B6) and the group plan's exclusion list updated (A-157).
+4. The ledger tools (B6) and the group plan's exclusion list updated (A-157, corrected A-158).
 
 ## 9. Learnings relied on
 
@@ -135,7 +141,7 @@ A-155); I-114/I-115 (a base merge re-measures the layer; the harness against the
 - **D-1 — resolved by the human (2026-10-21): take the fix.** `template.py` and `new_reduction_from_template.py` keep L1's content (#23's `FileNotFoundError` instead of a `TypeError` four frames later, #26's closed file handle) with their tests. The PR body says so to the scientist, whose list named `template.py`.
 - **D-2 — groups 2 and 3:** returned to upstream's content where L1 touched them (`new_reduction_template_reader.py`, `roi_selector.py`); `new_reduction_from_template.py` stays with the fix (D-1); deletion is the scientist's or the human's PR.
 - **D-3 — K12 tabled** by the human; the removed content lives in git (6234dcc) for a later PR of the scientist's.
-- **D-4 — proofs:** `EXCL` = `.github/workflows/test_and_deploy.yml`, `scripts/test/measure_fit_path_dependence.py`, the 12 frozen files, `tests/test_warning_hygiene.py`, `tests/unit/lr_reduction/test_output.py`, `pyproject.toml` (its only permitted difference the `extend-exclude` block); P3 (b) strict.
+- **D-4 — proofs (amended A-158):** `EXCL` = `.github/workflows/test_and_deploy.yml`, `scripts/test/measure_fit_path_dependence.py`, the 12 frozen files, `tests/test_warning_hygiene.py`, `tests/unit/lr_reduction/test_output.py`, `.pre-commit-config.yaml`, `tests/test_noqa_tags.py`; P3 (b) strict; the two config/test diffs read by hand (B6). Option B (a hand-stamped lock) is not gateable (I-118); C breaks the pedantic posture.
 - **D-5 — K13 tabled** by the human.
 - **D-6 — reverts and merges, never rewrites:** no history rewrite of any layer (the reviews on #219 and the fork drafts stay attached; the pre-push guard forbids it anyway).
 - **D-7 — Phase 2 order:** gate L1′ first; each layer merges only a gated tip; a FAIL stops the chain at that layer.
@@ -145,3 +151,4 @@ A-155); I-114/I-115 (a base merge re-measures the layer; the harness against the
 
 - **v1 — 2026-10-20 (A-156):** staged from the scientist's #219 comment and V1-67; not dispatched. Sealed against L1 @ `7f0a4ad` / upstream `exp` @ `c4d20e4`.
 - **v1 dispatched — 2026-10-21 (A-157):** on the human's word (§1): D-1 = take the fix (the frozen set is 12 files; `template.py`, `new_reduction_from_template.py` and their tests kept); K12/K13 tabled; Phase 2 (R-2 and the gated forward merges of L2–L4 and K10) in scope; re-sealed (the fork's `exp` synced to `c4d20e4`). The ledger tools updated in the same act.
+- **v1 amended at build — 2026-10-21 (A-158), on D-116:** option A — the lint exclusion in the pre-commit hook, `pyproject.toml` untouched (pixi's manifest; the lock), `tests/test_noqa_tags.py` skipping what the hook excludes with a guard (I-118's mutation); commit order B2 → B1 → B3; `EXCL` corrected (drop `pyproject.toml`, add `.pre-commit-config.yaml` and `tests/test_noqa_tags.py`); `landing-proof.sh` legs (a)/`--move` read `EXCL` (I-117). Not a new attempt: the plan's own B2 was the defect.
