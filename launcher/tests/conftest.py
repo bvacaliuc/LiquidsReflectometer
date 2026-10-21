@@ -174,7 +174,7 @@ def no_qfiledialog(monkeypatch):
             )
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(items):
     """Arm a timeout for the tests this conftest governs, and, in a group's process, keep only that group's tests.
 
     Scoped two ways: only items under this directory (a combined invocation
@@ -193,7 +193,8 @@ def pytest_collection_modifyitems(config, items):
         if governed and item.get_closest_marker("timeout") is None:
             item.add_marker(pytest.mark.timeout(120))
     group = os.environ.get(_GROUP_VARIABLE)
-    if group and _in_the_repository(config):
+    config = items[0].config if items else None
+    if group and config is not None and _in_the_repository(config):
         deselected = [item for item in items if _group_of(item) != group]
         if deselected:
             config.hook.pytest_deselected(items=deselected)
@@ -226,12 +227,19 @@ _RECORD_VARIABLE = "LR_LAUNCHER_TEST_RECORD"
 _GROUPS = ("model", "data", "ui")
 _MODEL_MODULES = frozenset({"test_settings_document.py", "test_roi_estimate.py"})
 _GROUP_RESULTS = []
-_RECORDING = []  # the record file's path, in a group's process of the repository's session
+_RECORDING = []  # the record file's descriptor, in a group's process of the repository's session
+# The record is written while other tests' monkeypatches are in force (json.dumps, open, os.replace are all patched
+# somewhere in this suite), so it uses only what it took at import.
+_ENCODE = json.JSONEncoder().encode
+_OS_OPEN, _OS_WRITE = os.open, os.write
 
 
 def _in_the_repository(config):
     """True in the repository's launcher session: this file is the root's launcher/tests/conftest.py."""
-    return Path(__file__).resolve() == (Path(config.rootpath) / "launcher" / "tests" / "conftest.py").resolve()
+    rootpath = getattr(config, "rootpath", None)
+    if rootpath is None:
+        return False
+    return Path(__file__).resolve() == (Path(rootpath) / "launcher" / "tests" / "conftest.py").resolve()
 
 
 def _group_of(item):
@@ -247,14 +255,13 @@ def pytest_configure(config):
     # The harness's inner runs inherit both variables from the ui group's process; outside the repository they
     # must not write into its record.
     if os.environ.get(_GROUP_VARIABLE) and os.environ.get(_RECORD_VARIABLE) and _in_the_repository(config):
-        _RECORDING.append(os.environ[_RECORD_VARIABLE])
+        _RECORDING.append(_OS_OPEN(os.environ[_RECORD_VARIABLE], os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
 
 
 def _record(entry):
     """In a group's process: one line per event, flushed, so that a crash loses nothing written before it."""
     if _RECORDING:
-        with open(_RECORDING[0], "a", encoding="utf-8") as record:
-            record.write(json.dumps(entry) + "\n")
+        _OS_WRITE(_RECORDING[0], (_ENCODE(entry) + "\n").encode("utf-8"))
 
 
 def pytest_runtest_logstart(nodeid, location):

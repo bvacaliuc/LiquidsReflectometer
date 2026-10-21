@@ -79,6 +79,23 @@ _CRASH = (
     "    os.kill(os.getpid(), signal.SIGSEGV)\n"
 )
 _HANG = "import time\n\n\ndef test_ui_hangs():\n    time.sleep(200)\n"
+_PATCHES = """\
+import builtins
+import json
+import os
+
+import pytest
+
+
+def _refuse(*_args, **_kwargs):
+    raise OSError(28, "No space left on device")
+
+
+@pytest.mark.realdata
+def test_data_patches_what_a_writer_uses(monkeypatch):
+    for module, name in ((json, "dumps"), (builtins, "open"), (os, "open"), (os, "replace")):
+        monkeypatch.setattr(module, name, _refuse)
+"""
 
 
 def _scratch_suite(tmp_path, data, ui):
@@ -139,6 +156,17 @@ def test_a_hang_fails_its_group_and_the_others_report(tmp_path):
     assert _group_line("model", "passed", output) and _group_line("data", "passed", output)
     assert "FAILED launcher/tests/test_ui_probe.py::test_ui_hangs" in output
     assert re.search(r"=+ 1 failed, 2 passed in ", output)
+
+
+@pytest.mark.timeout(300)
+def test_a_test_that_patches_json_open_and_os_is_still_recorded(tmp_path):
+    """The record is written while the test's own monkeypatches are in force: a test that patches json.dumps, open,
+    os.open and os.replace (as test_settings_document.py's write-failure tests do) is recorded like any other."""
+    result = _run(_scratch_suite(tmp_path, _PATCHES, _UI), "--timeout=60", "--timeout-method=thread")
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output[-3000:]
+    assert "INTERNALERROR" not in output
+    assert re.search(r"=+ 3 passed in ", output)
 
 
 @pytest.mark.timeout(300)
