@@ -265,3 +265,17 @@ base — `pixi install --locked`, the lock check, `test-reduction` and `test-lau
 own `a799915` had I001); `git diff c95cfb5..<tip> --stat` = exactly the two files; bodies with the model trailer, no ledger URL or campaign identifier (upstream-bound); the
 Integrator's PASS fast-forwards #55 and its body says what v3 changed (smaller `__init__.py`, same behaviour, the fixture fix in). **Attempt 3 of 3:** a REJECT escalates
 (`plans/log-level-console-escalate.md`, the `review/log-level-console-escalate` tag) and the human decides.
+
+**v3 PASS — 2026-10-21 (I-127; attempt 3 of 3; #55 fast-forwarded to `4fb8c05`, `MERGEABLE`/clean).** v3 = `675bd4c` (the fixture resets before and after; RED measured
+with each of T3/T5/T7 run alone on the after-only fixture, GREEN after) + `4fb8c05` (`__init__.py` 42 lines, no `try`/`except`; B1–B7 unchanged) on K10′ `c95cfb5`. G 10 + 168,
+ruff RUF100 clean, the two-file scope, clean bodies; shell acceptance 2–3 reproduced. **Correct-and-flag on this plan's v3 text:** the candidate's "`str.isdecimal()` is exactly what
+`int()` accepts, so neither call can raise" is **false for long strings** — Python 3.11's `int()` refuses more than `sys.get_int_max_str_digits()` = 4300 digits, so a 4301-digit value
+made `import lr_reduction` raise (the same class as v1's blocking finding; measured by the Developer and the Integrator). v3 reads a number only when `text.isdecimal() and
+len(text) < 10` (no level needs ten digits); longer digit strings take B4's path. **The §7 rows for v3, as measured** (I-127/D-127): `int()` under a blanket `except`
+(a799915's shape) → 21 failed; `isdigit` for `isdecimal` → 3; the import-time call removed → 2; the old-handler removal dropped → 4; **the two rows the plan wrote at A-166 were
+wrong on v3's source** — "a re-levelled rather than replaced handler → T6" is caught by nothing (v3 replaces the handler each call, so T6 passes either way), and "the after-only
+fixture → T3/T5/T7 red" cannot be shown on v3 (same reason); struck. **Unpinned (advisory, not blocking):** the length guard (removed → 25 passed; one T5 case would pin it),
+`.strip()` (a padded `" debug\n"` → INFO + warning), `propagate = False`, re-levelling vs replacing. **Behaviour notes vs v2** (D-128): `'+5'`, `'1_0'`, `'+0'`/`'-0'` and ≥10-digit
+values now take B4's loud path where v2 accepted them; `__init__.py:24`'s comment and the GREEN body overstate ("isdecimal is exactly what int accepts"; "the behaviour is the
+previous one") — reword before upstream. **Follow-up for the human's word (K15 in the queue):** the four pins, the save-and-restore fixture, the comment rewording — small, before
+the upstream carry; or the human's edit. No attempt is spent: v3 PASSED.
