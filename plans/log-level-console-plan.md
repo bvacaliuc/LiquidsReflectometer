@@ -1,7 +1,7 @@
 # Plan: `log-level-console` — the package's Python logging reaches the console **on by default, at INFO, on stdout** (the scientists' opt-out posture); `LR_REDUCTION_LOG_LEVEL` sets the level or switches it off with `NOTSET`; no value can make `import lr_reduction` fail
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `log-level-console` (refs `triage/log-level-console-v2`, `feature/log-level-console`, `qa/log-level-console`; K10 in `dispatch-queue.md`) ·
-**Status:** **DISPATCHED — v2 (attempt 2 of N = 3)**, 2026-10-20 (A-150), on the Integrator's REJECT of v1 @ `7041087` (I-110; the canonical record is `todo.md` at
+**Status:** v2 PASS (I-113) → draft PR #55; **v3 STAGED 2026-10-21 (A-160)** on the human's #55 comment (a question — input, not a word; the addressed-word rule): the simplification per V1-68, tests unchanged; dispatch on an addressed word ("dispatch K10 v3") · v2: **DISPATCHED — v2 (attempt 2 of N = 3)**, 2026-10-20 (A-150), on the Integrator's REJECT of v1 @ `7041087` (I-110; the canonical record is `todo.md` at
 `feature/log-level-console` @ `b01758f`) **and on the human's changed requirement** (the body of the human's own commit `14ca2b0` on `feature/add-lr-reduction-log-level`,
 2026-10-20 12:06 EDT — §1). v1: A-148, amended at build A-149 ·
 **Base:** **`feature/landing-l1-core` @ `c5ef58d`** (L1's tip = upstream `exp-landing-l1-core`, #219's head; green: I-97 10 + 172, I-108, I-110's G). **Rebuild v2 from the base**
@@ -187,3 +187,68 @@ pin of `lastResort`'s bare `w`) adopted. `'0'`/`'NOTSET'` decided: the off switc
 third rejection escalates.
 - **v2 amended at gate — 2026-10-20 (A-151, under the human's STOP):** §6's fixture resets before **and** after (I-112's F1 — the plan's own prescription was the defect, not the build; the Integrator's
   reading, PASS with F1 as the first advisory, concurred); §2 gains the L1-base fact. Not a new attempt. The analysis-branch copy follows when the STOP lifts (no subject push until then).
+
+### v3 — staged 2026-10-21 (A-160) on the human's #55 comment; dispatch on an addressed word
+
+**The ask** (#55, 2026-10-21 01:05Z, verbatim): *"I find that the implementation in `src/lr_reduction/__init__.py` is far too heavy for my taste. I have read the concern and made a
+change to my manual branch `feature/add-lr-reduction-log-level`. Would you have a look at it and see if the implementation of this feature could be \*very\* simple in
+`src/lr_reduction/__init__.py`? I am OK with tests being elaborate (_thank you for them!_)."* — and to the Advisor (V1-68): *"would you have a look and see if my concern can be addressed?"*
+A question, so staged (the addressed-word rule, `b059f14`); one addressed word dispatches it.
+
+**The human's `a799915` on `feature/add-lr-reduction-log-level`, measured by the Advisor (V1-68, fresh processes):** unset → INFO on stdout ✓; `20` ✓; **`INFO`, `DEBUG`, `NOTSET`, `0` →
+0 handlers, `w` on stderr** — `int(_level)` raises `ValueError` on every level *name* inside `except Exception: pass`, so every name silently switches the console **off**, the
+opposite of the opt-out posture; the blanket except hides it as it hid `14ca2b0`'s `NameError`. Also ruff I001 (unsorted imports), and no function for the tests to call.
+
+**v3 scope (the Advisor's candidate, V1-68, measured: 41 lines with docstring, 18 of logic; v2's `tests/unit/test_log_level_console.py` unchanged → 25 passed; ruff `--extend-select
+RUF100` clean):** `src/lr_reduction/__init__.py` only, on top of `feature/log-level-console-v2` @ `9cb0fbf` (#55 fast-forwards). Keeps `configure_console_logging(value)` (the tests'
+handle and the import-time call), the handler name, the format and the `_ACCEPTED` text. Drops `_parse_level` by one fact: **`str.isdecimal()` is exactly the unsigned domain `int()`
+accepts** (`'²'`/`'①'` False, `'１０'` True → 10, `'-5'`/`'1.5'` False), so `level = int(text) if text.isdecimal() else logging.getLevelNamesMapping().get(text)` cannot raise (3.11+;
+`requires-python >= 3.11`) and needs no `try`; a second call **replaces** the named handler (one list comprehension) instead of re-levelling it; `NOTSET`/`0` → `setLevel(0)`, return
+`None`; invalid → INFO + the one WARNING; no blanket `except` anywhere — nothing in the body can raise. Behaviours B1–B7 unchanged; **F1's fixture fix** (reset before and after, A-151)
+rides in the same pass, so T3/T5/T7 pass when run alone. Mutation rows added: `int()` under a blanket `except` (a799915's defect — every name → off: T4/T8 red), `isdigit` for
+`isdecimal` (T5 red), the second call re-levelling instead of replacing (T6). Gate: G literal (10 + 197) on L1's base as before; the Integrator's PASS fast-forwards #55. The
+candidate, verbatim from V1-68, is the Developer's starting point:
+
+```python
+import logging
+import os
+import sys
+
+try:
+    from ._version import __version__
+except ImportError:
+    __version__ = "unknown"
+
+_HANDLER_NAME = "lr_reduction.console"
+_ACCEPTED = "DEBUG, INFO, WARNING, ERROR, CRITICAL, a positive integer, or NOTSET to switch off"
+
+
+def configure_console_logging(value: str | None) -> logging.Handler | None:
+    """Print the package's own log records on stdout (autoreduction treats anything on stderr as a failure).
+
+    ``value`` is ``LR_REDUCTION_LOG_LEVEL``: unset or blank is INFO; a level name or a number sets the level;
+    ``NOTSET`` or ``0`` switches it off (Python's default: WARNING and above on stderr). Never raises.
+    """
+    package = logging.getLogger(__name__)
+    for old in [h for h in package.handlers if h.get_name() == _HANDLER_NAME]:
+        package.removeHandler(old)
+    text = (value or "").strip().upper() or "INFO"
+    # str.isdecimal() is exactly what int() accepts as an unsigned number, so neither call can raise.
+    level = int(text) if text.isdecimal() else logging.getLevelNamesMapping().get(text)
+    invalid = level is None
+    level = logging.INFO if invalid else level
+    package.setLevel(level)
+    if level == logging.NOTSET:
+        return None
+    handler = logging.StreamHandler(sys.stdout)
+    handler.set_name(_HANDLER_NAME)
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    package.addHandler(handler)
+    if invalid:
+        package.warning("LR_REDUCTION_LOG_LEVEL=%r is not a level name (%s); using INFO", value, _ACCEPTED)
+    return handler
+
+
+configure_console_logging(os.environ.get("LR_REDUCTION_LOG_LEVEL"))
+```
