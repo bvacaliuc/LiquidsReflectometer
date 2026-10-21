@@ -98,7 +98,10 @@ def test_data_patches_what_a_writer_uses(monkeypatch):
 """
 
 
-def _scratch_suite(tmp_path, data, ui):
+_ABORT = "import os\n\n\ndef test_model_aborts():\n    os.abort()\n"
+
+
+def _scratch_suite(tmp_path, data, ui, model=_MODEL):
     """A tree laid out as the repository: pyproject.toml at its root, conftest.py at launcher/tests/, one module per
     group (the model module under one of the model group's names)."""
     tests = tmp_path / "launcher" / "tests"
@@ -107,7 +110,7 @@ def _scratch_suite(tmp_path, data, ui):
     shutil.copy(HERE / "conftest.py", tests / "conftest.py")
     (tmp_path / "launcher" / "__init__.py").write_text("")
     (tests / "__init__.py").write_text("")
-    (tests / "test_settings_document.py").write_text(_MODEL)
+    (tests / "test_settings_document.py").write_text(model)
     (tests / "test_data_probe.py").write_text(data)
     (tests / "test_ui_probe.py").write_text(ui)
     return tmp_path
@@ -118,10 +121,10 @@ def _group_line(group, outcome, output):
     return re.search(rf"^{group}\s+1 tests\s+{re.escape(outcome)}$", output, re.MULTILINE) is not None
 
 
-def _run(root, *arguments):
+def _run(root, *arguments, environment=None):
     return subprocess.run(
         [sys.executable, "-m", "pytest", "-vv", "-p", "no:cacheprovider", *arguments, "launcher/tests/"],
-        cwd=root, env=_environment(), capture_output=True, text=True, timeout=300, check=False,
+        cwd=root, env=environment or _environment(), capture_output=True, text=True, timeout=300, check=False,
     )
 
 
@@ -167,6 +170,31 @@ def test_a_test_that_patches_json_open_and_os_is_still_recorded(tmp_path):
     assert result.returncode == 0, output[-3000:]
     assert "INTERNALERROR" not in output
     assert re.search(r"=+ 3 passed in ", output)
+
+
+@pytest.mark.timeout(300)
+def test_an_abort_in_the_first_group_still_runs_the_other_two(tmp_path):
+    """T7: the groups run in order, and all of them run: an os.abort() in the first group (model) fails that group with
+    SIGABRT, named, and the data and ui groups still run and pass."""
+    result = _run(_scratch_suite(tmp_path, _DATA, _UI, model=_ABORT), "--timeout=60", "--timeout-method=thread")
+    output = result.stdout + result.stderr
+    assert result.returncode == 1, output[-3000:]
+    assert output.index("launcher group model") < output.index("launcher group data") < output.index("launcher group ui")
+    assert _group_line("model", "died: SIGABRT (in launcher/tests/test_settings_document.py::test_model_aborts)", output)
+    assert _group_line("data", "passed", output) and _group_line("ui", "passed", output)
+    assert re.search(r"=+ 1 failed, 2 passed in ", output)
+
+
+@pytest.mark.timeout(300)
+def test_a_session_given_a_group_runs_it_itself(tmp_path):
+    """T7: with the group variable set (a group's own process), the session spawns nothing: it keeps that group's
+    tests, deselects the others and runs in-process, printing no group table."""
+    result = _run(_scratch_suite(tmp_path, _DATA, _UI), environment=_environment(**{GROUP_VARIABLE: "ui"}))
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output[-3000:]
+    assert "launcher group" not in output and "launcher groups" not in output
+    assert "test_ui_probe.py::test_ui PASSED" in output
+    assert re.search(r"=+ 1 passed, 2 deselected in ", output)
 
 
 @pytest.mark.timeout(300)
