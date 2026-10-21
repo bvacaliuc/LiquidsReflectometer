@@ -33,6 +33,8 @@ TREES = ("src", "launcher", "tests", "scripts")
 #: exemption), then a colon, whitespace or the end. Prose that mentions noqa is not one.
 DIRECTIVE = re.compile(r"#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa(?=[\s:]|$)(?P<rest>.*)", re.IGNORECASE)
 SCOPED = re.compile(r"\s*:\s*[A-Z]+[0-9]+(?:\s*,\s*[A-Z]+[0-9]+)*")
+#: The top-level trees the global pre-commit `exclude` keeps from every hook, as paths from the repository's root.
+GLOBALLY_EXCLUDED = ("reduction/data/", "reduction/notebooks/", "scripts/", "scans/")
 #: The legacy-reduction files kept at upstream's content (PR #219 review, 2026-10-20). The hook's `exclude` is what the
 #: tests read; this list is only the guard's authority on what that `exclude` may name.
 FROZEN = (
@@ -60,9 +62,14 @@ def ruff(*args, stdin=None):
                           input=stdin, capture_output=True, text=True, check=False, timeout=300)
 
 
+def pre_commit_config():
+    """The parsed `.pre-commit-config.yaml`."""
+    return yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+
+
 def ruff_hook():
     """The pre-commit `ruff-check` hook, the one place this repository runs ruff."""
-    config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+    config = pre_commit_config()
     hooks = [hook for repo in config["repos"] for hook in repo.get("hooks", []) if hook.get("id") == "ruff-check"]
     assert len(hooks) == 1, hooks
     return hooks[0]
@@ -170,3 +177,18 @@ def test_the_hook_excludes_exactly_the_frozen_files():
     missing = [path for path in named if not (ROOT / path).is_file()]
     assert missing == [], missing
     assert sorted(named) == sorted(FROZEN), sorted(set(named) ^ set(FROZEN))
+
+
+def test_the_global_exclude_hides_only_its_top_level_trees():
+    """The top-level `exclude` keeps a path from every hook (ruff, end-of-file, trailing whitespace), and pre-commit
+    matches it with `re.search`: unanchored, `scripts/.*` also hid launcher/scripts/, frozen or not, and a hole in the
+    hook's frozen list could hide behind it. So it is anchored (`^`), and, compiled, it matches no tracked file outside
+    the top-level trees it names."""
+    if not (ROOT / ".git").exists():
+        pytest.skip("not a git checkout: the tracked files cannot be listed")
+    pattern = str(pre_commit_config().get("exclude", ""))
+    assert re.match(r"(?:\(\?[a-z]+\))?\s*\^", pattern), pattern
+    excluded = re.compile(pattern or r"(?!)")
+    tracked = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True, timeout=60)
+    hidden = [path for path in tracked.stdout.splitlines() if excluded.search(path) and not path.startswith(GLOBALLY_EXCLUDED)]
+    assert hidden == [], hidden
