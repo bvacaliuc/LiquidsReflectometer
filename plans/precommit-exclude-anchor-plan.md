@@ -1,7 +1,7 @@
 # Plan: `precommit-exclude-anchor` — the global pre-commit `exclude` is anchored so the hooks see `launcher/scripts/` again; the noqa guard models the top-level exclude
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `precommit-exclude-anchor` (K14; refs `triage/precommit-exclude-anchor`, `feature/precommit-exclude-anchor`, `qa/precommit-exclude-anchor`) ·
-**Status:** **DISPATCHED — v1 (attempt 1 of N = 3)**, 2026-10-21 (A-170) on the human's addressed word `[human, 2026-10-21 (to the Analyst): "you may dispatch K8, K9, K14 and K15. Let us hold K16 until after L4 lands to upstream:exp-next - thank you!"]`; staged at A-168 on the human's relayed words `[human, 2026-10-21 (to the Advisor, V1-69): "On {K8, K9, K14}, prepare them for dispatch."]` — input under
+**Status:** **PASS — v1 @ `f1e0f78` (I-132, 2026-10-21; fork draft PR #57 → `feature/landing-l1-core`; `qa/` consumed)**; dispatched 2026-10-21 (A-170) on the human's addressed word `[human, 2026-10-21 (to the Analyst): "you may dispatch K8, K9, K14 and K15. Let us hold K16 until after L4 lands to upstream:exp-next - thank you!"]`; staged at A-168 on the human's relayed words `[human, 2026-10-21 (to the Advisor, V1-69): "On {K8, K9, K14}, prepare them for dispatch."]` — input under
 `b059f14`; **not dispatched**: the word "dispatch K14" addressed to the campaign dispatches it (re-seal §2, `cp` to `analysis/exp-review-fixes`, `triage/precommit-exclude-anchor`) ·
 **Base:** `feature/landing-l1-core` @ **`81acc87`** (L1′; K11 changed `.pre-commit-config.yaml` and `tests/test_noqa_tags.py` here; L2–L4 touch neither — overlap census V1-69) — its own
 branch `feature/precommit-exclude-anchor` cut from `81acc87`, **not** commits on L1 (the landing proofs stay untouched) · **PR:** the fork, `--base feature/landing-l1-core`, draft
@@ -90,3 +90,4 @@ I-121 (the finding), K11's hook-exclusion design and its compiled guard (A-160/I
 ## Revision history
 
 - **v1 — 2026-10-21 (A-168):** staged on the human's relayed words (V1-69); not dispatched. Sealed against L1′ @ `81acc87`.
+- **v1 PASS — 2026-10-21 (A-175):** I-132 @ `f1e0f78`; #57 (draft, two files) stacked on #54; `pre-commit run --all-files` rc 0 with no file modified (the five newly visible `launcher/scripts/` files pass every hook); G 10 + 144. Advisories in #57's body: the frozen four are now under the whitespace hooks while upstream's config is still unanchored (the gate's byte-equality check, K11's T1, is the guard until it lands there); the guard checks one direction and only the pattern's start (a per-tree probe would close it); the `.git` skip also skips the anchor check; the body's "an unanchored second alternative → 1 failed" overgeneralises. K17 rewrites L1 in place: #57 is re-checked `MERGEABLE` at L1″ (K17 Phase 2).
