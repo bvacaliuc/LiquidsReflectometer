@@ -23,7 +23,13 @@ repos:
       - id: ruff-check
         args: [--fix, --exit-non-zero-on-fix, --extend-select, RUF100]
         types_or: [python, pyi, jupyter]
-        exclude: "tests/data/.*"
+        # the template system's two files, frozen at upstream's content (PR #219 review, 2026-10-21), are not linted
+        exclude: |
+          (?x)^(
+            tests/data/.*|
+            src/lr_reduction/new_reduction_from_template\.py|
+            src/lr_reduction/template\.py
+          )$
   - repo: local
     hooks:
       - id: pixi-lock-format
