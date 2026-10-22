@@ -1,10 +1,12 @@
-"""LR_REDUCTION_LOG_LEVEL: the package's own log records on stdout, on by default at INFO; NOTSET switches it off.
+"""LR_REDUCTION_LOG_LEVEL: the package's records below WARNING on stdout; WARNING and above on stderr, as Python prints them.
 
-Unset (or blank), one stdout handler on the ``lr_reduction`` logger prints every ``lr_reduction.*`` record at INFO and
-above, so diagnostics reach the console and nothing reaches stderr (a process that treats any stderr output as a
-failure stays green). A level name or a positive integer sets the level. ``NOTSET`` or ``0`` switches it off, which is
-the old behaviour: Python's lastResort handler prints WARNING and above on stderr and drops INFO/DEBUG. Any other value
-uses INFO and says so once; no value can make ``import lr_reduction`` fail.
+Unset (or blank), the ``lr_reduction`` logger has two handlers. One prints its records below WARNING on stdout (the
+informational messages that were ``print()`` calls), from INFO by default. The other prints WARNING and above on stderr
+exactly as Python's last-resort handler does when nothing is configured (the bare message), so a process that treats
+stderr output as a failure sees the package's warnings, errors and logged exceptions as before; uncaught exceptions are
+untouched. A level name or a positive integer sets the level. ``NOTSET`` or ``0`` switches both off: Python's default,
+WARNING and above on stderr and nothing below. Any other value uses INFO and says so once, at INFO; no value can make
+``import lr_reduction`` fail.
 """
 
 import contextlib
@@ -20,6 +22,7 @@ import lr_reduction
 from lr_reduction import configure_console_logging
 
 HANDLER_NAME = "lr_reduction.console"
+STDERR_NAME = "lr_reduction.stderr"
 FORMAT = "%(levelname)s %(name)s: %(message)s"
 
 
@@ -27,10 +30,14 @@ def _console_handlers(logger_name="lr_reduction"):
     return [h for h in logging.getLogger(logger_name).handlers if h.get_name() == HANDLER_NAME]
 
 
+def _stderr_handlers(logger_name="lr_reduction"):
+    return [h for h in logging.getLogger(logger_name).handlers if h.get_name() == STDERR_NAME]
+
+
 def _clear():
     for name in ("lr_reduction", None):
         logger = logging.getLogger(name)
-        for handler in [h for h in logger.handlers if h.get_name() == HANDLER_NAME]:
+        for handler in [h for h in logger.handlers if h.get_name() in (HANDLER_NAME, STDERR_NAME)]:
             logger.removeHandler(handler)
     logging.getLogger("lr_reduction").setLevel(logging.NOTSET)
 
@@ -94,17 +101,21 @@ def test_unset_or_blank_turns_on_at_info_on_stdout(value):
     assert _console_handlers() == [handler]
     assert handler.level == logging.INFO
     assert logging.getLogger("lr_reduction").level == logging.INFO
+    [stderr] = _stderr_handlers()
+    assert stderr.stream is sys.stderr
+    assert stderr.level == logging.WARNING
+    assert stderr.formatter._fmt == "%(message)s"
 
 
 @pytest.mark.parametrize("value", ["NOTSET", "notset", "0"])
 def test_notset_or_zero_switches_off(value):
     assert configure_console_logging(value) is None
-    assert _console_handlers() == []
+    assert _console_handlers() == [] and _stderr_handlers() == []
     assert logging.getLogger("lr_reduction").level == logging.NOTSET
     configure_console_logging("INFO")
-    assert len(_console_handlers()) == 1
+    assert len(_console_handlers()) == 1 and len(_stderr_handlers()) == 1
     assert configure_console_logging(value) is None
-    assert _console_handlers() == []
+    assert _console_handlers() == [] and _stderr_handlers() == []
     assert logging.getLogger("lr_reduction").level == logging.NOTSET
 
 
@@ -128,14 +139,14 @@ def test_level_names_and_integers(value, level):
 
 
 @pytest.mark.parametrize("value", ["²", "①", "-5", "1.5", "verbose", " 7 x", pytest.param("9" * 5000, id="5000-digits")])
-def test_invalid_values_use_info_and_warn_once_and_never_raise(value, capsys):
+def test_invalid_values_use_info_and_say_so_once_at_info_and_never_raise(value, capsys):
     handler = configure_console_logging(value)
     assert handler.level == logging.INFO
     assert logging.getLogger("lr_reduction").level == logging.INFO
     out, err = capsys.readouterr()
     lines = out.splitlines()
     assert len(lines) == 1, lines
-    assert lines[0].startswith("WARNING lr_reduction: ")
+    assert lines[0].startswith("INFO lr_reduction: ")
     assert repr(value) in lines[0]
     for accepted in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "positive integer", "NOTSET"):
         assert accepted in lines[0]
@@ -157,10 +168,13 @@ def test_records_still_propagate(value):
 
 def test_a_second_call_replaces_the_handler():
     first = configure_console_logging("INFO")
+    [first_stderr] = _stderr_handlers()
     second = configure_console_logging("DEBUG")
     assert second is not first
     assert _console_handlers() == [second]
     assert second.level == logging.DEBUG
+    [second_stderr] = _stderr_handlers()
+    assert second_stderr is not first_stderr
 
 
 def test_a_second_call_prints_on_the_stdout_of_the_moment(monkeypatch):
@@ -190,57 +204,99 @@ def test_second_call_updates_both_levels_without_a_second_handler():
     assert logging.getLogger("lr_reduction").level == logging.DEBUG
 
 
-def test_a_warning_is_printed_once_on_stdout(capsys):
-    configure_console_logging("INFO")
+def test_a_warning_goes_to_stderr_bare_and_not_to_stdout(capsys):
+    configure_console_logging("DEBUG")
     logging.getLogger("lr_reduction.unit_probe").warning("w")
+    logging.getLogger("lr_reduction.unit_probe").error("e")
     out, err = capsys.readouterr()
-    assert out.splitlines().count("WARNING lr_reduction.unit_probe: w") == 1
-    assert err == ""
+    assert out == ""
+    assert err == "w\ne\n"
 
 
-def _fresh_process(level):
+def test_the_stderr_handler_writes_to_the_stderr_of_the_moment(monkeypatch):
+    configure_console_logging("INFO")
+    now = io.StringIO()
+    monkeypatch.setattr(sys, "stderr", now)
+    logging.getLogger("lr_reduction.unit_probe").warning("w")
+    assert now.getvalue() == "w\n"
+
+
+#: Every kind of record a reduction makes: informational, a warning, an error, a caught exception logged.
+_EVERY_KIND = ("L.debug('dbg'); L.info('ping'); L.warning('w'); L.error('e')\n"
+               "try:\n    1 / 0\nexcept ZeroDivisionError:\n    L.exception('x')\n")
+
+
+def _fresh_process(level, body="L.info('ping'); L.warning('w')", import_package=True):
     env = {k: v for k, v in os.environ.items() if k != "LR_REDUCTION_LOG_LEVEL"}
     if level is not None:
         env["LR_REDUCTION_LOG_LEVEL"] = level
     # the child imports this checkout's package, whatever an installed copy points at
     package_root = os.path.dirname(os.path.dirname(os.path.abspath(lr_reduction.__file__)))
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [package_root, env.get("PYTHONPATH")]))
-    program = ("import logging, lr_reduction; L = logging.getLogger('lr_reduction.probe'); "
-               "L.info('ping'); L.warning('w')")
+    imports = "import logging, lr_reduction" if import_package else "import logging"
+    program = f"{imports}\nL = logging.getLogger('lr_reduction.probe')\n{body}"
     return subprocess.run([sys.executable, "-c", program], env=env, capture_output=True, text=True, timeout=120)
 
 
-def test_fresh_process_unset_prints_on_stdout_and_nothing_on_stderr():
-    result = _fresh_process(None)
+def _without_the_package():
+    """What Python prints for the same records with no handler configured anywhere (upstream's state)."""
+    return _fresh_process(None, _EVERY_KIND, import_package=False)
+
+
+def test_fresh_process_unset_prints_info_on_stdout_and_the_rest_on_stderr_as_python_does():
+    result = _fresh_process(None, _EVERY_KIND)
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines() == ["INFO lr_reduction.probe: ping", "WARNING lr_reduction.probe: w"]
-    assert result.stderr == ""
+    assert result.stdout.splitlines() == ["INFO lr_reduction.probe: ping"]
+    assert result.stderr == _without_the_package().stderr
+    assert result.stderr.startswith("w\ne\nx\nTraceback")
 
 
-def test_fresh_process_notset_is_the_old_behaviour():
-    result = _fresh_process("NOTSET")
+def test_fresh_process_an_uncaught_exception_is_untouched():
+    result = _fresh_process(None, "L.info('ping')\n1 / 0")
+    assert result.returncode == 1
+    assert result.stdout.splitlines() == ["INFO lr_reduction.probe: ping"]
+    assert result.stderr.startswith("Traceback") and result.stderr.rstrip().endswith("ZeroDivisionError: division by zero")
+
+
+@pytest.mark.parametrize("level", ["NOTSET", "0"])
+def test_fresh_process_notset_is_python_s_default_on_both_streams(level):
+    result = _fresh_process(level, _EVERY_KIND)
+    baseline = _without_the_package()
+    assert result.returncode == 0, result.stderr
+    assert (result.stdout, result.stderr) == (baseline.stdout, baseline.stderr)
+
+
+def test_fresh_process_at_warning_stdout_is_empty_and_stderr_is_python_s():
+    result = _fresh_process("WARNING", _EVERY_KIND)
     assert result.returncode == 0, result.stderr
     assert result.stdout == ""
-    assert result.stderr == "w\n"
+    assert result.stderr == _without_the_package().stderr
 
 
-def test_fresh_process_invalid_value_imports_and_warns():
-    result = _fresh_process("²")
+def test_fresh_process_at_debug_debug_and_info_reach_stdout():
+    result = _fresh_process("DEBUG", _EVERY_KIND)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines() == ["DEBUG lr_reduction.probe: dbg", "INFO lr_reduction.probe: ping"]
+    assert result.stderr == _without_the_package().stderr
+
+
+def test_fresh_process_invalid_value_imports_and_says_so_on_stdout_only():
+    result = _fresh_process("²", "L.info('ping')")
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
-    assert len(lines) == 3, lines
-    assert lines[0].startswith("WARNING lr_reduction: ") and "'²'" in lines[0]
-    assert lines[1:] == ["INFO lr_reduction.probe: ping", "WARNING lr_reduction.probe: w"]
+    assert len(lines) == 2, lines
+    assert lines[0].startswith("INFO lr_reduction: ") and "'²'" in lines[0]
+    assert lines[1] == "INFO lr_reduction.probe: ping"
     assert result.stderr == ""
 
 
-def test_fresh_process_very_long_number_imports_and_warns():
-    result = _fresh_process("9" * 5000)
+def test_fresh_process_very_long_number_imports_and_says_so_on_stdout_only():
+    result = _fresh_process("9" * 5000, "L.info('ping')")
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
-    assert len(lines) == 3, [line[:80] for line in lines]
-    assert lines[0].startswith("WARNING lr_reduction: ") and "'9999" in lines[0]
-    assert lines[1:] == ["INFO lr_reduction.probe: ping", "WARNING lr_reduction.probe: w"]
+    assert len(lines) == 2, [line[:80] for line in lines]
+    assert lines[0].startswith("INFO lr_reduction: ") and "'9999" in lines[0]
+    assert lines[1] == "INFO lr_reduction.probe: ping"
     assert result.stderr == ""
 
 
