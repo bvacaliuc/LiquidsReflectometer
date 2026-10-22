@@ -1,7 +1,7 @@
 # Plan: `legacy-reduction-hygiene` — fork #41's warnings fixes to the four frozen legacy files, with their tests, as a sibling draft PR on L1‴ for the human to carry upstream stacked on `exp-landing-l1-core`
 
-**Campaign:** `exp-review-fixes` · **Leaf:** `legacy-reduction-hygiene` (K12, un-tabled; refs `triage/legacy-reduction-hygiene`, `feature/legacy-reduction-hygiene`, `qa/legacy-reduction-hygiene`) ·
-**Status:** **DISPATCHED — v1 (attempt 1 of N = 3)**, 2026-10-22 (A-199) on the human's addressed word `[human, 2026-10-22 (to the Analyst): "Dispatch K12 legacy-reduction-hygiene per
+**Campaign:** `exp-review-fixes` · **Leaf:** `legacy-reduction-hygiene` (K12, un-tabled; refs for v2: `triage/legacy-reduction-hygiene-v2`, `feature/legacy-reduction-hygiene-v2`, `qa/legacy-reduction-hygiene-v2` — v1's branch and its consumed tag stay as they are, never rewritten) ·
+**Status:** **v2 DISPATCHED — attempt 2 of N = 3**, 2026-10-22 (A-201) on I-153's REJECT of v1 @ `98b3f9b` (one blocking prose finding; the code passed every leg; the record `todo.md` @ `5384b28` on `feature/legacy-reduction-hygiene`, `review/legacy-reduction-hygiene`); v1 was dispatched 2026-10-22 (A-199) on the human's addressed word `[human, 2026-10-22 (to the Analyst): "Dispatch K12 legacy-reduction-hygiene per
 requests/k12-legacy-reduction-hygiene.md — #41's warnings fixes to the frozen legacy files as a sibling draft PR on the new L1, for me to carry upstream stacked on exp-landing-l1-core.
 K13 stays tabled."]`; the hand-off is the Advisor's `requests/k12-legacy-reduction-hygiene.md` (V1-85/V1-86) · **Base:** `feature/landing-l1-core` @ **`2ab688f`** (L1‴, K19 Phase 1 PASS; = upstream
 `exp-landing-l1-core`; a current lock and the fork's guard — pushable); its own branch, the shape of #56/#57 and K19's Phase 1c · **PR:** a draft on the fork, base `feature/landing-l1-core`, opened by
@@ -53,7 +53,7 @@ to the Analyst (the status line).
 | # | Behaviour |
 |---|---|
 | B1 | **One commit, a replay:** `feature/legacy-reduction-hygiene` = `2ab688f` + the replay of `6234dcc` (`Replays: 6234dcc` and the fork's `c39efe9` in the body; the trailer; no campaign words); the four `src/` files byte-equal to `6234dcc`'s; `test_output.py` likewise; `tests/test_warning_hygiene.py` resolved by hand — #24's four guards kept by name, #41's nine added, the resolution named in the body. |
-| B2 | **The freeze lists unchanged** (D-1): the hook exclude and `FROZEN` stay 14; `test_noqa_tags.py` passes. Because the four files stay excluded from ruff, **the hunks add no ruff finding**: `ruff check` of each of the four files at the tip reports no finding absent at the base (the pre-existing upstream findings are not this slug's). |
+| B2 | **The four files leave the freeze lists (v2, D-1 reversed):** `.pre-commit-config.yaml`'s `ruff-check` exclude and `tests/test_noqa_tags.py`'s `FROZEN` go 14 → 10 (the guard's count follows); `pre-commit run --all-files` green — ruff now lints the four files, which T3 measured at 0 findings at base and tip, so the un-freeze costs nothing and the config's own comment (`.pre-commit-config.yaml:29`, "drop an entry when the file is next intentionally changed") is honoured: this is that change. T3 stays as the detection (0 findings at the tip). |
 | B3 | **Output identity (charter §4):** the same-environment baseline on `2ab688f` captured before the first source edit; the tip's nine scenarios byte-identical to it (masked compare + `compare_columns.sh`); a DIFFER is a finding, never auto-resolved (STOP, the Integrator's todo — the no-op-fix rule). |
 | B4 | **The warnings:** the suite's summary at the tip carries none of the three classes (`peak_finding.py:107`, `dead_time_correction.py:98`, `test_read_file_empty`'s `loadtxt`) and no other first-party warning (`lr_reduction`/`launcher` origins); third-party ones that remain are named in the record. #41's hygiene tests red at the base, green at the tip (T5's RED). |
 | B5 | **G at the tip alone on the host:** launcher 10, reduction 137 + the new tests (152 defs expected), exit 0; `pre-commit run --all-files` rc 0; D-83 (`install --locked`, the lock check, `pixi.lock` unmodified); P2 over `2ab688f..` clean. |
@@ -110,7 +110,7 @@ V1-85/V1-86 (the sources, the measurements, the shape); K11's plan (the freeze, 
 
 ## 10. Decisions
 
-- **D-1 — the freeze lists stay as they are.** Un-freezing the four files would make ruff lint upstream's pre-existing findings in them, which is #14's content (out); B2's per-file count check detects any finding #41's hunks would add.
+- **D-1 — reversed at v2 (A-201, correct-and-flag on v1's premise):** v1 kept the freeze lists because un-freezing would make ruff lint upstream's pre-existing findings in the four files; **I-153's T3 measured 0 ruff findings at base and tip**, so the premise was false for these four (#14's ruff fixes were in the launcher scripts and `roi_selector.py`). v2 un-freezes the four (B2): a file that is intentionally changed is linted, as the config's own comment prescribes. Reversible by the human's word; the other ten entries stay.
 - **D-2 — one replay commit, `Replays: 6234dcc`**, not the fork's inner commits (`16fd1b3`, `ca52b72`): L1 already carried #41 as one replay; the record names both.
 - **D-3 — identity is the proof, STOP on a DIFFER:** a harness difference is a finding for the Integrator's todo and the numerical-diagnostics reviewer; no compare is loosened to pass.
 - **D-4 — numerical-diagnostics blocks** (the no-op-fix rule applied to each hunk's "cannot change an output" argument).
@@ -120,3 +120,32 @@ V1-85/V1-86 (the sources, the measurements, the shape); K11's plan (the freeze, 
 ## Revision history
 
 - **v1 — 2026-10-22 (A-199):** authored at dispatch on the human's addressed word; the step from `requests/k12-legacy-reduction-hygiene.md` (V1-85/V1-86). Sealed against L1‴ `2ab688f` (= upstream `exp-landing-l1-core`), `6234dcc`, the fork's `exp-next` `c4d20e4`; V2–V4 measured in a scratch worktree of this clone, removed after.
+
+### v2 — 2026-10-22 (A-201): the Integrator's REJECT of v1 @ `98b3f9b` (I-153; the record `todo.md` @ `5384b28`, `review/legacy-reduction-hygiene`) — attempt 2 of 3
+
+**Cause: B-1, a false claim in prose, in two places** — the module docstring (`tests/test_warning_hygiene.py:15-19`) and the commit body (¶3): "each [new test] runs its site under
+an 'error' filter with an input that used to warn". False for four of the nine (verified by the Integrator): `:195` is a kept warning (`pytest.warns(RuntimeWarning, match="divide
+by zero")`); `:226` and `:344` set no filter and pin call-site arguments against the base arithmetic; `:369` records under `"always"` and asserts none. **The code passed every leg:**
+G 10 + 146 with no warnings line; T1/T2/P2; T4 the harness base vs tip — data columns identical ×9, headers A/B identical on S0–S5 (the script's I3/I4 invariants fail identically
+on both: L1‴ carries upstream's reduction code, M1's header fix lives in L2), masked DIFFER only in `transcript.txt`'s directory names and durations; the numerical review not
+blocking (each `np.divide(..., where=)` element-identical to the base, masked elements included; the narrowed `except` handles every input class the base handled). The same class as
+I-148: the body is what upstream reads, and only a new commit object corrects it.
+
+**v2 — a fresh replay of `6234dcc` on L1‴ `2ab688f`, on a new branch `feature/legacy-reduction-hygiene-v2`** (v1's branch is never rewritten; the Integrator's shape, as K19's
+Phase 1c re-cut):
+- **the docstring and the body say what the tests do** (the Integrator's accurate wording): six run their site under an error or record filter with an input that used to warn and
+  check the values; two pin the call sites' arguments against the base arithmetic; one pins a warning that is deliberately kept (a zero error with counts); the `no-zero` cases of
+  `:150`, `:183`, `:296` are non-warning controls;
+- the advisories applied: the 697 described as "from the warning sites in four files" (or measured per site — the Developer's choice, said which); the "four columns" sentence made
+  precise (a single column of exactly four rows unpacks on base and tip alike); **the review IDs and the base `2324e5c` scrubbed from the per-test docstrings** (upstream cannot
+  resolve them — the same hygiene as K17/K19's prose); the two real-data tests' dependence on the Mantid facility set at import by earlier modules **named in the body** (deterministic
+  under pytest; fails run alone; the cure is the K19 series' optional `0003`); the harness coverage caveat named (its template has `two_backgrounds` false, so the nine scenarios never
+  reach `functional_background` — the tests pin those sites element by element);
+- **D-1 reversed:** the four files leave the hook exclude and `FROZEN` (B2), 14 → 10, the guard's count adjusted; `pre-commit run --all-files` green (T3: 0 findings);
+- the `src/` content and the two test files' tests unchanged from v1 (byte-equal to `6234dcc` for the four `src/` files and `test_output.py`; the hygiene file's tests as v1 — only
+  docstrings and the two list files change), so T4's identity holds by construction — the Integrator's call whether to re-run the harness or cite I-153's T4 for the same code;
+- **the gate otherwise as v1:** G alone on the host (10 + 146 expected — the un-freeze adds no test), T1–T3, T5, P2, D-83; the three reviews.
+- **D-v2-1 — the v2 `qa/` tag is `qa/legacy-reduction-hygiene-v2`:** v1's consumed `qa/legacy-reduction-hygiene` @ `98b3f9b` is still live (the human's to delete, I-140) and a tag
+  cannot move without force; a new name needs neither. The Integrator's watch keys on `qa/*`.
+- **D-v2-2 — attempt 2 of 3;** a third rejection escalates.
+- Sealed against L1‴ `2ab688f` (= upstream `exp-landing-l1-core`), `6234dcc`, v1 `98b3f9b`; the Integrator's measurements of I-152/I-153.
