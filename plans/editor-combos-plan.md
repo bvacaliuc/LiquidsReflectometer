@@ -302,6 +302,8 @@ rows. Types and states: three columns × held {listed; not listed (direct beam o
 × gesture {open+Return; open+Escape; open+Tab; open+click-away; open+arrow+Return; open+click item} — every cell of
 that matrix is a required outcome and a V19 case. The `useBS` column's held states are `True`/`False`/unset/implied.
 
+**Decisions** (`requests/editor-combos-v3-decisions.md`): D-b **confirmed by the human** (C9′ stands). D-a **decided by the human** — `[human, 2026-10-04: "D-a: the grid convention in the Angles table — C8′/V20 as written; the scalars keep the menu-button convention."]` — C8′ and V20 stand exactly as written; nothing in v3 changes.
+
 **Acceptance (v3).** §8 as written; the gesture script extended with the direct-beam column on the `Aug2026` file (held
 name outside the folder: open, Return → unchanged; open, Escape → unchanged; pick a listed name → that name); the two
 decisions D-a/D-b stated in the PR body for the human's gate; `todo.md` removed in its own commit before `qa/`. The

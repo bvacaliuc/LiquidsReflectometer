@@ -52,7 +52,6 @@ behaviour changes of any kind (a replayed hunk is the fork's hunk); the fork's `
 | 9 | `508f70d` [`d8b4461`] | #27 | compare every scaling-factor field | `tests/*`, config |
 | 10 | `a4efd95` [`378e323`] — **only** `src/lr_reduction/reduction_domains.py` and the hunks of `nr_reduction_calc.py`, `nr_tools.py` | #28 (split) | the choice lists moved to a shared module; two call sites switched | those three files |
 | 11 | `c39efe9` [`0d98cb9`] | #41 | test-suite warnings: `background.py`, `dead_time_correction.py`, `output.py`, `peak_finding.py` + tests | those four + `tests/*` |
-
 | 12 | `c7741b2` [`4eec8d5`] — **only** the L1-owned files (D-4 split) | #49 (split) | the noqa sweep's hunks in `.pre-commit-config.yaml`, `launcher/tests/test_harness.py`, `tests/test_noqa_tags.py` and the seven core `src/` files above | those files |
 
 Not replayed: `f5bd6d2` (an upstream merge — its content is already in the base), `7b6d6b9`, the `todo.md` commits, `dc84af7`. Entry 10's remainder
