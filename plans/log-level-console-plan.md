@@ -1,7 +1,7 @@
 # Plan: `log-level-console` — the package's Python logging reaches the console **on by default, at INFO, on stdout** (the scientists' opt-out posture); `LR_REDUCTION_LOG_LEVEL` sets the level or switches it off with `NOTSET`; no value can make `import lr_reduction` fail
 
 **Campaign:** `exp-review-fixes` · **Leaf:** `log-level-console` (refs `triage/log-level-console-v2`, `feature/log-level-console`, `qa/log-level-console`; K10 in `dispatch-queue.md`) ·
-**Status:** v2 PASS (I-113) → draft PR #55; **v3 DISPATCHED 2026-10-21 (A-166, attempt 3 of 3 — a rejection escalates)** on the human's addressed word `[human, 2026-10-21 (to the Analyst): "dispatch K10 v3"]` (staged at A-160 on the #55 comment): the simplification per V1-68, the 25 tests unchanged except the two-line fixture fix (F1); refs `triage/log-level-console-v3`, `feature/log-level-console-v2` (commits on top of `c95cfb5`, no rewrite), `qa/log-level-console`; at PASS the Integrator fast-forwards #55 — no new PR · v2: **DISPATCHED — v2 (attempt 2 of N = 3)**, 2026-10-20 (A-150), on the Integrator's REJECT of v1 @ `7041087` (I-110; the canonical record is `todo.md` at
+**Status:** **v4 DISPATCHED 2026-10-22 (A-200, attempt 4 of 4 — the cap extended by the human's word for this version; a rejection escalates)** on the human's addressed word `[human, 2026-10-22 (to the Analyst): "Dispatch K10 v4 per requests/k10-v4-stderr-preserving-console-logging.md. I extend K10's retry cap to 4 for this version. Converted print() calls go to stdout; everything upstream sent to stderr — our WARNING/ERROR logs, logged exceptions, uncaught exceptions — stays on stderr. Include the L2 amendment (d313313's three converted warnings logged at info) and re-gate the stack."]` — base `feature/log-level-console-v2` @ `1fbc900` (K10‴, PASS I-150), refs `triage/log-level-console-v4`, `qa/log-level-console` (re-set at the v4 tip); v3 PASS (I-127 @ `4fb8c05`), K15's pins PASS (I-134 @ `02e5a45`), re-gated as K10″/K10‴ (I-144 @ `ceb77ff`, I-150 @ `1fbc900`); earlier: v2 PASS (I-113) → draft PR #55; **v3 DISPATCHED 2026-10-21 (A-166, attempt 3 of 3 — a rejection escalates)** on the human's addressed word `[human, 2026-10-21 (to the Analyst): "dispatch K10 v3"]` (staged at A-160 on the #55 comment): the simplification per V1-68, the 25 tests unchanged except the two-line fixture fix (F1); refs `triage/log-level-console-v3`, `feature/log-level-console-v2` (commits on top of `c95cfb5`, no rewrite), `qa/log-level-console`; at PASS the Integrator fast-forwards #55 — no new PR · v2: **DISPATCHED — v2 (attempt 2 of N = 3)**, 2026-10-20 (A-150), on the Integrator's REJECT of v1 @ `7041087` (I-110; the canonical record is `todo.md` at
 `feature/log-level-console` @ `b01758f`) **and on the human's changed requirement** (the body of the human's own commit `14ca2b0` on `feature/add-lr-reduction-log-level`,
 2026-10-20 12:06 EDT — §1). v1: A-148, amended at build A-149 ·
 **Base:** **`feature/landing-l1-core` @ `c5ef58d`** (L1's tip = upstream `exp-landing-l1-core`, #219's head; green: I-97 10 + 172, I-108, I-110's G). **Rebuild v2 from the base**
@@ -279,3 +279,79 @@ fixture → T3/T5/T7 red" cannot be shown on v3 (same reason); struck. **Unpinne
 values now take B4's loud path where v2 accepted them; `__init__.py:24`'s comment and the GREEN body overstate ("isdecimal is exactly what int accepts"; "the behaviour is the
 previous one") — reword before upstream. **Follow-up for the human's word (K15 in the queue):** the four pins, the save-and-restore fixture, the comment rewording — small, before
 the upstream carry; or the human's edit. No attempt is spent: v3 PASSED.
+
+### v4 — 2026-10-22 (A-200): the human's clarified requirement, the retry cap extended to 4 for this version (`requests/k10-v4-stderr-preserving-console-logging.md`, V1-87/V1-88) — attempt 4 of 4
+
+**Cause: a requirement clarified, not a rejection.** `[human, 2026-10-22 (to the Advisor): "… what if there is a real exception during reduction? It would normally have been
+written to stderr (and thus autoreduction would declare the reduction 'failed'). We *want* to keep that behavior … What we *want* is for what used to be print() calls in the
+upstream:exp that have been converted to log.*() to be converted *properly* to use a logging level that will *not* go to stderr, rather go to stdout … It does *not* want to suppress
+all output to stderr."]` The Advisor measured (V1-87, fresh processes): v3 puts **every** package record at or above INFO on stdout, upstream's own 19 WARNING/ERROR calls included
+(`dead_time_correction.py:118`, `LRDirectBeamSort.py:201`, `calculate.py:74`/`:232`, `web_report.py`, `workflow.py`), so records that marked failed or degraded output on stderr
+under upstream move to stdout and autoreduction no longer sees them; uncaught exceptions were already right; the docs said "nothing reaches stderr".
+
+**The requirement, testable (the request's table):**
+
+| record | upstream `exp` `c4d20e4` | v4 |
+|---|---|---|
+| the converted `print()`s (L2's replay of `d313313`: 2 `debug`, 11 `info`, 3 `warning`) | `print()` → stdout | **stdout** (below WARNING, when enabled) |
+| upstream's `logger.warning`/`logger.error` (19 calls) | stderr — Python's last-resort handler, bare `%(message)s` (no `basicConfig` anywhere) | **stderr, byte-identical** |
+| a caught exception logged with `log.exception` | stderr | **stderr, unchanged** |
+| an uncaught exception | traceback on stderr, rc 1 | **unchanged** |
+
+**Verified fact that changes the hand-off's shape (A-200, measured; `scripts/lastresort-probe.py` on the ledger, stdlib only):** the request's shape (1) — "a level filter on the
+stdout handler; WARNING and above are left to Python's default, stderr" — **does not work as written.** `Logger.callHandlers` counts a handler as *found* for every handler on
+the logger and its ancestors, whether or not its level or filter passes the record (`found += 1` before the level test; Python 3.9 source, unchanged since 3.2), and
+`lastResort` runs only when `found == 0`. So a filtered stdout handler alone makes upstream's WARNING/ERROR records **vanish** — stderr empty (the probe: INFO on stdout, nothing on
+stderr). With a second handler at WARNING on the same logger, bare `%(message)s`, writing to `sys.stderr`, the stderr output is **byte-identical to the last-resort handler's**
+(the probe: `WARN-MSG`/`ERR-MSG` on stderr, as the no-handler run). The design below has two handlers.
+
+**v4 scope — `src/lr_reduction/__init__.py` and `tests/unit/test_log_level_console.py` only, commits on `1fbc900` (no rewrite; #55 fast-forwards at PASS):**
+- **B1 (stdout):** the `lr_reduction.console` handler keeps its stream (the `sys.stdout` of the moment, K15's pin), format and level, **and gains a filter `record.levelno <
+  logging.WARNING`**: it writes the package's DEBUG/INFO records (the converted prints) and nothing at WARNING or above.
+- **B2 (stderr, upstream's last resort reproduced):** a second handler, named `lr_reduction.stderr`, level WARNING, formatter `%(message)s`, whose stream resolves `sys.stderr` **at
+  emit time** (as `logging.lastResort`, a `_StderrHandler`, does — a four-line `StreamHandler` subclass with a `stream` property; not the private class), so a swapped or
+  redirected stderr is honoured, and so autoreduction's "anything on stderr is a failure" reading is exactly upstream's. `configure_console_logging` removes both named handlers on
+  reconfigure; **`NOTSET`/`0` removes both** (upstream's behaviour exactly: the last-resort handler, D-7); `propagate` stays True (D-3) — root has no handlers, so nothing is
+  duplicated; a caller's own root handler sees what it would under upstream.
+- **B3 (levels):** `LR_REDUCTION_LOG_LEVEL` still sets the package level; at WARNING or above the stdout handler passes nothing and the stderr handler carries the rest —
+  upstream's shape; at DEBUG/INFO (the default INFO) the converted prints appear on stdout.
+- **B4 (our own notice):** the invalid-value notice (`LR_REDUCTION_LOG_LEVEL=%r is not a level name …; using INFO`) is **logged at INFO**, not WARNING — a configuration notice is
+  not a reduction failure and must not put a run on stderr (D-v4-2; v2/v3's "one warning on stdout" becomes "one INFO line on stdout").
+- **B5 (docs):** the docstring, the module comment, the `_ACCEPTED` text and the #55 body lose "nothing reaches stderr" and state the table: stdout for the package's records
+  below WARNING; WARNING and above on stderr exactly as upstream; uncaught exceptions untouched.
+- **B6 (K15's pins kept):** the 35 tests stay green, adjusted only where a second handler is now expected — the name filters (`_console_handlers()` by name sees the stdout one; a
+  sibling helper for the stderr one), `_clear` removes both names, `_isolated_package_logger` already saves/restores all handlers; T4's identity/stream pins apply to the stdout
+  handler; the module-scoped teardown assertion unchanged.
+
+**Tests (fresh processes, the existing `_fresh_process` helper extended to emit `info`, `warning`, `error`, a caught exception with `log.exception`, and an uncaught one):**
+- **T1** default (unset): `info` → stdout only; `warning`/`error`/`log.exception` → **stderr only**, nothing on stdout; the stderr bytes equal a no-handler run's (the last-resort
+  format: the bare message; the traceback text for `log.exception`).
+- **T2** uncaught exception → traceback on stderr, rc 1, stdout untouched (already true — pinned).
+- **T3** `NOTSET`/`0` → the no-handler run byte-for-byte on both streams (`info` dropped, `warning` on stderr bare).
+- **T4** `WARNING` → nothing on stdout, `warning`/`error` on stderr bare; `DEBUG` → debug and info on stdout.
+- **T5** invalid value → one INFO notice on stdout, stderr empty; the package at INFO.
+- **T6 — the must-fails** (each on a copy, restored in a `finally`): the stdout filter removed → T1's warning/error rows red (they appear on stdout); **the stderr handler removed →
+  T1's stderr rows red (nothing on stderr — the `found` effect, the finding above)**; the stderr handler's stream bound at configure time → a test that swaps `sys.stderr` after
+  configuring sees nothing in the new stream (red); the formatter given a prefix → the byte-equality with the no-handler run red.
+- **T7** G at the v4 tip alone on the host (10 + 151 + the new tests; items measured); ruff `--extend-select RUF100` clean; D-83 (no lock change); P2; `git diff --stat 1fbc900 <tip>`
+  = the two files.
+
+**Phase 2 — the L2 amendment and the stack re-gate (the human's word "include the L2 amendment … and re-gate the stack"):** one commit on L2‴ `b9efb8f` (PASS I-150) taking
+the replay of `d313313`'s three `warning` conversions to `info` — "converted properly", they were `print()`s to stdout: `binary_processing.py:348` ("Cannot process %s because %s
+fails to extract"), `binary_processing.py:381` ("Run missing the chopper moderator log value"), `direct_beam_maker.py:213` ("Using 1.0 as scale multiplier because …") — L2⁗; then
+L3⁗ = L3‴ `ee4d2f8` + merge of L2⁗, L4⁗ = L4‴ `41a8be4` + merge of L3⁗, each gated (G alone on the host — K19 D-8; P1/P2; P5). **The reference: R-6 = R-5 `fee87c7` + the same
+three-line change applied identically** (a new immutable branch `feature/landing-reference-6`, the rule of K17 D-4/K19 D-3 — R-5 carries `d313313`'s `warning` calls through
+`exp-review`), so P3 at L3⁗ and L4⁗ `--move` stays exact with K11's `EXCL`; L2⁗'s harness against R-6 (nine scenarios) identical — the change routes three log lines, it touches
+no reduction output. The side PRs (#55 after v4, #56, #57, #58, #59) re-checked `MERGEABLE` at the new tips. Upstream: L2 is not yet carried, so no re-push; K10's #55 and the L2
+amendment travel separately (the request's default). **Order:** Phase 1 (v4) and Phase 2 (the L2 commit) build in parallel; Phase 2's gates run on gated predecessors only.
+
+**Decisions (v4):**
+- **D-v4-1 — two handlers, not one** (the finding above): the stderr handler reproduces the last-resort handler byte-for-byte; the stdout handler is filtered below WARNING.
+- **D-v4-2 — our own notices are INFO** (the invalid-value notice); nothing of this package's own goes to stderr unless upstream's code logged it at WARNING or above.
+- **D-v4-3 — the converted prints at `info`** (the request's default; the human's word): L2's three `warning` calls → `info`.
+- **D-v4-4 — attempt 4 of 4 by the human's word**; a rejection of v4 escalates to the human (no v5 without a word).
+- **D-v4-5 — R-6 for the stack's proof**, as every deliberate stack change has had its reference.
+- **Expected counts:** the v4 tip 10 + 151 + the new tests; L2⁗ 10 + 318, L3⁗ 801 + 1045, L4⁗ 1528 + 318 (I-150's, unchanged by a log-routing edit).
+
+Sealed against `feature/log-level-console-v2` @ `1fbc900`, L2‴/L3‴/L4‴ `b9efb8f`/`ee4d2f8`/`41a8be4`, R-5 `fee87c7`, upstream `exp` `c4d20e4`; the probe run on this host's
+Python 3.9 (the `callHandlers` logic is unchanged in 3.11+, which the gate's environment uses — the Developer re-runs the probe there as T6's second must-fail).
