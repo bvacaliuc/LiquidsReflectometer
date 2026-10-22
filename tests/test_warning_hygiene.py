@@ -9,10 +9,19 @@ also hide our own deprecations.
 These two tests are the guard: the first fails if the filter stops covering the
 noise, the second fails if it is ever widened enough to hide us.
 
-The tests after them guard the first-party sites that used to warn (slug
-`test-suite-warnings`, W1-W4). Each runs its site under an "error" filter with an
-input that used to warn, and checks the values too, so a fix that silenced a
-warning by changing a number would still be red.
+The next two guard the helper that lets already-emitted warnings fire again:
+it resets the registries without running any module's lookup hook.
+
+The tests after them guard the first-party sites that used to warn: the peak and
+background fit weights, the paralyzable dead-time correction, and reading a
+result file without data rows. Five run a site under an "error" filter with an
+input that used to warn and check the values too, so a fix that silenced a
+warning by changing a number would still fail; one checks that a zero error with
+counts still warns, as it should; two check that the background fit and the
+dead-time algorithm pass the same arguments the previous code used, without a
+warnings filter; and one records the warnings of reading a file without data
+rows (recorded, not raised, because the previous code's bare except would have
+swallowed a raised one) and requires none.
 """
 
 import os
@@ -144,9 +153,9 @@ def _peak_with_fractions_and_a_negative():
     "y", [np.zeros(304), _peak_with_fractions_and_a_negative(), _PEAK + 5.0], ids=["all-zero", "mixed", "no-zero"]
 )
 def test_the_peak_fit_weights_are_computed_without_dividing_by_zero(y):
-    """W1, U2: fit_signal_flat_bck weights a pixel 1 where y < 1 and 1/sqrt(y) elsewhere, without computing 1/0
-    first. The weights the fit receives equal, element by element, those of the base's two lines (2324e5c,
-    peak_finding.py:107-108), evaluated here with their warnings silenced."""
+    """fit_signal_flat_bck weights a pixel 1 where y < 1 and 1/sqrt(y) elsewhere, without computing 1/0
+    first. The weights the fit receives equal, element by element, those of the previous code's two lines
+    (peak_finding.py's `1 / np.sqrt(y)`, then 1 where y < 1), evaluated here with their warnings silenced."""
     from lr_reduction import peak_finding
 
     with warnings.catch_warnings():
@@ -160,7 +169,8 @@ def test_the_peak_fit_weights_are_computed_without_dividing_by_zero(y):
 
 
 def _base_background_fit_weights(counts, errors, charge):
-    """The base's two lines (2324e5c, background.py:144-147), with their warning silenced."""
+    """The previous code's two lines (background.py's `1 / errors`, then `charge` where there are no counts), with their
+    warning silenced."""
     with np.errstate(divide="ignore"):
         weights = 1 / errors
     weights[counts == 0] = charge
@@ -177,9 +187,8 @@ def _base_background_fit_weights(counts, errors, charge):
     ids=["all-zero", "mixed", "no-zero"],
 )
 def test_the_background_fit_weights_are_computed_without_dividing_by_zero(counts, errors):
-    """W1b, the second origin the census found (background.py:144, the functional background's fit of each bin
-    across the background pixels): a pixel with no counts is weighted `charge` without computing 1/0 first, and
-    the others 1/error, element by element as at the base."""
+    """The functional background's fit of each bin across the background pixels: a pixel with no counts is weighted `charge` without computing 1/0 first, and
+    the others 1/error, element by element as before."""
     from lr_reduction.background import background_fit_weights
 
     with warnings.catch_warnings():
@@ -189,8 +198,8 @@ def test_the_background_fit_weights_are_computed_without_dividing_by_zero(counts
 
 
 def test_a_zero_error_with_counts_still_warns_in_the_background_fit():
-    """W1b's one case that keeps its warning: counts with a zero error reach the fit as an infinite weight, as
-    at the base. That would be a defect upstream, so it stays loud."""
+    """The one case that keeps its warning: counts with a zero error reach the fit as an infinite weight, as
+    before. That would be a defect in the data, so it stays loud."""
     from lr_reduction.background import background_fit_weights
 
     counts, errors = np.array([3e-6, 1e-6]), np.array([0.0, 1e-6])
@@ -200,9 +209,9 @@ def test_a_zero_error_with_counts_still_warns_in_the_background_fit():
 
 
 def test_the_functional_background_warns_nothing_for_pixels_without_counts(nexus_dir, template_dir):
-    """W1b through the reduction: run 198409 with the functional background (template_fbck.xml with two
+    """The background fit through the reduction: run 198409 with the functional background (template_fbck.xml with two
     backgrounds, as tests/test_reduction.py::test_reduce_functional_bck) has background pixels without counts in
-    some bins, where the base computed 1/0 (35 times for this run)."""
+    some bins, where the previous code computed 1/0 (35 times for this run)."""
     import mantid.simpleapi as mtd_api
 
     from lr_reduction import template
@@ -220,8 +229,8 @@ def test_the_functional_background_warns_nothing_for_pixels_without_counts(nexus
 
 
 def test_the_functional_background_fits_each_bin_with_the_base_weights_of_its_counts(nexus_dir, template_dir, monkeypatch):
-    """U7 (v2, test advisory A1): the call site of background_fit_weights. For run 198409 with the functional
-    background, each bin's fit receives that bin's counts as its data and, as its weights, the base's expression
+    """The call site of background_fit_weights. For run 198409 with the functional
+    background, each bin's fit receives that bin's counts as its data and, as its weights, the previous code's expression
     on those counts, their errors and the proton charge of the workspace functional_background was given. The
     counts and errors are recorded as functional_background stacks them. A wrong argument at the call (twice the
     charge, counts and errors swapped) reds."""
@@ -276,7 +285,7 @@ def test_the_functional_background_fits_each_bin_with_the_base_weights_of_its_co
             assert np.array_equal(weights, expected, equal_nan=True)
 
 def _base_paralyzable_correction(rate, dead_time, tof_step):
-    """The base's arithmetic (2324e5c, dead_time_correction.py:96-101), with its warnings silenced."""
+    """The previous code's arithmetic (dead_time_correction.py's paralyzing branch), with its warnings silenced."""
     with np.errstate(divide="ignore", invalid="ignore"):
         true_rate = -scipy.special.lambertw(-rate * dead_time / tof_step).real / dead_time
         corr = true_rate / (rate / tof_step)
@@ -290,8 +299,8 @@ def _base_paralyzable_correction(rate, dead_time, tof_step):
     ids=["all-zero", "mixed", "no-zero"],
 )
 def test_the_paralyzable_correction_is_computed_without_dividing_zero_by_zero(rate):
-    """W2, U3: where the rate is zero (no events) the correction is 1, without computing 0/0 first; elsewhere it
-    is the base's value, element by element. DeadTime and TOFStep are the algorithm's defaults."""
+    """Where the rate is zero (no events) the correction is 1, without computing 0/0 first; elsewhere it
+    is the previous code's value, element by element. DeadTime and TOFStep are the algorithm's defaults."""
     from lr_reduction.dead_time_correction import paralyzable_correction
 
     with warnings.catch_warnings():
@@ -301,8 +310,8 @@ def test_the_paralyzable_correction_is_computed_without_dividing_zero_by_zero(ra
 
 
 def test_the_paralyzable_dead_time_algorithm_warns_nothing_for_bins_without_events(nexus_dir):
-    """W2 through the algorithm, on tests/test_dead_time.py's run: REF_L_198409 has TOF bins with no events,
-    where the base computed 0/0. The correction is finite and at least 1 in every bin, and exactly 1 in some."""
+    """The paralyzable correction through the algorithm, on tests/test_dead_time.py's run: REF_L_198409 has TOF bins with no events,
+    where the previous code computed 0/0. The correction is finite and at least 1 in every bin, and exactly 1 in some."""
     import mantid.simpleapi as mtd_api
 
     from lr_reduction.dead_time_correction import SingleReadoutDeadTimeCorrection
@@ -315,8 +324,8 @@ def test_the_paralyzable_dead_time_algorithm_warns_nothing_for_bins_without_even
     algo.setProperty("InputWorkspace", ws)
     algo.setProperty("Paralyzable", True)
     algo.setProperty("OutputWorkspace", "hygiene_dead_time_corr")
-    # RuntimeWarning only (v2, test advisory A2): the whole algorithm under "error" failed once in nine runs under
-    # load, on something other than this slug's arithmetic.
+    # RuntimeWarning only: the whole algorithm under "error" failed once in nine runs under
+    # load, on a warning that did not come from this arithmetic.
     with warnings.catch_warnings():
         warnings.simplefilter("error", RuntimeWarning)
         algo.PyExec()
@@ -338,8 +347,8 @@ def _rate_as_the_algorithm_measures_it(ws, tof_step):
 
 
 def test_the_algorithm_applies_the_base_arithmetic_to_the_rate_it_measures(nexus_dir):
-    """U7 (v2, test advisory A1): the call site of paralyzable_correction. The algorithm's correction equals, bit
-    for bit, the base's arithmetic on the rate measured independently from the same run, with its DeadTime and
+    """The call site of paralyzable_correction. The algorithm's correction equals, bit
+    for bit, the previous code's arithmetic on the rate measured independently from the same run, with its DeadTime and
     TOFStep (the defaults, 4.2 and 100). A wrong argument at the call (2 * tof_step, a swapped pair, a rate that is
     not counts per pulse) reds."""
     import mantid.simpleapi as mtd_api
@@ -363,9 +372,9 @@ def test_the_algorithm_applies_the_base_arithmetic_to_the_rate_it_measures(nexus
 
 
 def test_reading_a_result_file_without_data_rows_warns_nothing(tmp_path):
-    """W3: read_file no longer hands a file with no data row to np.loadtxt, which warned "input contained no
-    data". It still returns four empties and the meta. The warnings are recorded rather than raised: the base's
-    bare except swallowed a raised one, and the case passed."""
+    """read_file no longer hands a file with no data row to np.loadtxt, which warned "input contained no
+    data". It still returns four empties and the meta. The warnings are recorded rather than raised: the previous
+    code's bare except swallowed a raised one, and the case passed."""
     from lr_reduction.output import read_file
 
     path = tmp_path / "empty.txt"

@@ -8,7 +8,7 @@ import pytest
 
 from lr_reduction.output import RunCollection, read_file
 
-# What read_file prints when it finds no points, at the base and after (U4).
+# What read_file prints when it finds no points, before this change and after.
 _NO_POINTS = "Could not read file. It may have no points\n"
 
 
@@ -178,7 +178,7 @@ class TestRunCollection:
             assert read_meta == meta
 
     def test_read_file_empty(self, capsys):
-        """Test reading an empty or invalid data file: four empties, no meta, the message, and no warning (U4)"""
+        """Test reading an empty or invalid data file: four empties, no meta, the message, and no warning"""
         with tempfile.TemporaryDirectory() as tmpdir:
             file_path = Path(tmpdir) / "empty.txt"
 
@@ -203,7 +203,7 @@ class TestRunCollection:
         ids=["meta-only", "meta-blanks-and-comments"],
     )
     def test_read_file_without_a_data_row(self, tmp_path, capsys, text, meta):
-        """U4: a file with no data row gives four empties and its meta, with the base's message and no warning"""
+        """A file with no data row gives four empties and its meta, with the same message as before and no warning"""
         file_path = tmp_path / "empty.txt"
         file_path.write_text(text)
 
@@ -233,9 +233,9 @@ class TestRunCollection:
         ],
     )
     def test_read_file_whose_rows_are_not_four_numbers(self, tmp_path, capsys, text, meta):
-        """U4: every shape the base read as "no points" gives four empty lists and the meta, with the base's
-        message. That includes the 0-d shape: np.loadtxt reads a single number as a 0-d array, whose unpack
-        raises TypeError, not ValueError (v2, B-1: v1 let it out)."""
+        """Every shape read as "no points" before gives four empty lists and the meta, with the same message.
+        That includes the 0-d shape: np.loadtxt reads a single number as a 0-d array, whose unpack raises
+        TypeError, not ValueError."""
         file_path = tmp_path / "bad.txt"
         file_path.write_text(text)
 
@@ -246,12 +246,12 @@ class TestRunCollection:
         assert capsys.readouterr().out == _NO_POINTS
 
     def test_read_file_on_a_missing_file_raises_file_not_found(self, tmp_path):
-        """U4 (v2, test advisory A4): no file is not "no points": FileNotFoundError propagates, as at the base"""
+        """No file is not "no points": FileNotFoundError propagates, as before"""
         with pytest.raises(FileNotFoundError):
             read_file(str(tmp_path / "absent.txt"))
 
     def test_read_file_lets_an_interrupt_through(self, tmp_path, monkeypatch):
-        """U4: only a ValueError reads as "no points"; a KeyboardInterrupt raised while reading propagates"""
+        """Only a ValueError reads as "no points"; a KeyboardInterrupt raised while reading propagates"""
         file_path = tmp_path / "data.txt"
         file_path.write_text("0.1  1.0  0.1  0.01\n0.2  0.5  0.05  0.02\n")
 
@@ -263,7 +263,7 @@ class TestRunCollection:
             read_file(str(file_path))
 
     def test_read_file_reads_data_rows_as_the_base_did(self, tmp_path):
-        """U4: with data rows, among comments and blanks, the four columns are np.loadtxt(path).T, as at the base"""
+        """With data rows, among comments and blanks, the four columns are np.loadtxt(path).T, as before"""
         file_path = tmp_path / "data.txt"
         file_path.write_text(
             '# Meta:{"run": 3}\n# q r dr dq\n0.1 1.0 0.1 0.01\n\n0.2 0.5 0.05 0.02  # a note\n0.3 0.25 0.02 0.03\n'
@@ -278,7 +278,7 @@ class TestRunCollection:
 
     @pytest.mark.parametrize("text", ["0.1 1.0 0.1 0.01\n", "0.1\n1.0\n0.1\n0.01\n"], ids=["one-row", "four-rows-of-one"])
     def test_read_file_with_one_row_returns_four_scalars(self, tmp_path, text):
-        """Plan A2, kept as at the base: four numbers in one row, or in four rows of one, give four scalars, not
+        """Kept as before: four numbers in one row, or in four rows of one, give four scalars, not
         four arrays of one element (np.loadtxt reads both as one dimension of four)"""
         file_path = tmp_path / "one.txt"
         file_path.write_text(text)
