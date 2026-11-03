@@ -522,17 +522,23 @@ class NR_Reduction:
         # Need to make sure  the cropped range includes the DBpixel for the later calculation
         p1_max = np.max([p1, p_db]) + int(self.config.peak_pad)
         p0_min = np.min([p0, p_db]) - int(self.config.peak_pad)
+        p1_peak = p1 + int(self.config.peak_pad)
+        p0_peak = p0 - int(self.config.peak_pad)
 
         # make sure can't go outside the size of the detector
         n_pixels = np.min([len(ypix), RB.shape[0]])
         p1_max = np.min([p1_max, n_pixels]) + 1
         p0_min = np.max([p0_min, 0])
+        p1_peak = np.min([p1_peak, n_pixels]) + 1
+        p0_peak = np.max([p0_peak, 0])
 
-        Ydata = ypix[p0_min:p1_max]
+        Ydata_full = ypix[p0_min:p1_max]
+        Ydata_peak = ypix[p0_peak:p1_peak]
         # Collapse intensity per pixel
-        Idata = np.sum(RB[p0_min:p1_max, :], axis=1)
+        Idata_full = np.sum(RB[p0_min:p1_max, :], axis=1)
+        Idata_peak = np.sum(RB[p0_peak:p1_peak, :], axis=1)
         # Fit the peak and extract parameters
-        par, fit, bkg = tools.fit_peak(Ydata, Idata, peaktype=self.config.peak_type, bkgtype='linear')
+        par, fit, bkg = tools.fit_peak(Ydata_peak, Idata_peak, peaktype=self.config.peak_type, bkgtype='linear')
         Yfit = fit[:, 0]
         Ifit = fit[:, 1]
 
@@ -554,7 +560,7 @@ class NR_Reduction:
 
         if not self.config.useCalcTheta:
             print(f'Calculated theta: {np.round(ThetaCalc, 3)}, Theta difference: {np.round(ThetaCalc - ThCen, 3)} (not applied)')
-            RBpixel = DBpixel
+            RBpixel = DBpixel-calc_pixel_diff # account for differences in TTHD logs (i.e. trust all logs)
             Icalc = Icalc_nonfit
 
         # Use calculated value if flag
@@ -579,7 +585,7 @@ class NR_Reduction:
         # Plot beam profile if requested - compares to calculated profile from instrument geometry.
         if self.create_figures:
             fig, ax = plt.subplots()
-            ax.plot(Ydata, Idata, 'ok')
+            ax.plot(Ydata_full, Idata_full, 'ok')
             ax.plot(Yfit, Ifit, '-r', label=f'{self.config.peak_type} fit')
             ax.plot(Yfit, bkg, '--r', label='background')
             ax.plot(Yfit, Icalc_nonfit, '--g', label='Center from log')

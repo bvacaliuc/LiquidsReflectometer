@@ -43,7 +43,7 @@ class Direct_Beam:
         self.dMod=15500                   # moderator-to-detector distance
         self.t0=[0.114,0.0295]            # for a linear fit to emission time as a function of lambda: t0[0]+t0[1]*Lambda=emission time
         self.y_ROI = [130,170]            # y pixels to include in the direct beam spectrum
-        self.low_res = [75,190]           # x pixels to include in the direct beam spectrum
+        self.low_res = [50,250]           # x pixels to include in the direct beam spectrum
         self.n_y = 304
         self.n_x = 256
         self.tofbin=50
