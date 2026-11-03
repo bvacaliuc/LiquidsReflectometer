@@ -281,7 +281,7 @@ class DirectBeamTab(QWidget):
         form.addRow('y_ROI (min,max):', self.yroi_edit)
 
         self.lowres_edit = QLineEdit(self)
-        self.lowres_edit.setText('75,190')
+        self.lowres_edit.setText('50,250')
         form.addRow('x_ROI (min,max):', self.lowres_edit)
 
         # Plot toggle
