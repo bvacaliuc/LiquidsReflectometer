@@ -560,7 +560,7 @@ class NR_Reduction:
 
         if not self.config.useCalcTheta:
             print(f'Calculated theta: {np.round(ThetaCalc, 3)}, Theta difference: {np.round(ThetaCalc - ThCen, 3)} (not applied)')
-            RBpixel = DBpixel
+            RBpixel = DBpixel-calc_pixel_diff # account for differences in TTHD logs (i.e. trust all logs)
             Icalc = Icalc_nonfit
 
         # Use calculated value if flag
