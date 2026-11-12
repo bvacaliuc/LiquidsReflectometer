@@ -106,6 +106,12 @@ class NRReductionConfig:
         # TODO: check how to include these on init.
         self.LambdaMinUse = None
         self.LambdaMaxUse = None
+        # The time window a reduction read (the start_times/end_times it was called with; None: the whole run), as the
+        # "Config:" line of each file it wrote records it. A record only, never an input: nothing reads these to decide
+        # what to reduce, a window loaded from a file is not kept (json_to_config), and reduce() does not write them
+        # here but into the header (save_reduced_data). To reduce a window, pass start_times=/end_times= to the call.
+        self.start_times = None
+        self.end_times = None
 
     # Path configuration - Defaults assume IPTS specified and saved into that folder.
     @property
