@@ -122,10 +122,27 @@ def test_dat_header_seed(tmp_path):
 
 
 def test_unknown_key_in_a_seed_is_reported_by_name(tmp_path):
+    """A file written by another version of the code opens (the loader skips a key this version's config lacks), and
+    the document says what it is not showing: one note per key, naming the key and its value. The key is not a field
+    of the document, so a Save does not write it, and the note says that too."""
     seed = tmp_path / "bad.json"
-    seed.write_text(json.dumps({"Snam": "typo"}))
-    with pytest.raises(ValueError, match="Snam"):
-        SettingsDocument.from_file(seed)
+    seed.write_text(json.dumps({"Snam": "typo", "Sname": "kept"}))
+    doc = SettingsDocument.from_file(seed)
+    assert doc.get("Sname") == "kept"
+    assert doc.unused_settings == {"Snam": "typo"}
+    (note,) = [line for line in doc.notes() if "Snam " in line]
+    assert "'typo'" in note and "not a setting of this version" in note and "Save" in note
+    assert "Snam" not in doc.to_dict()
+    saved = doc.save(tmp_path / "saved.json")
+    assert "Snam" not in json.loads(saved.read_text())
+
+
+def test_a_document_of_this_version_has_nothing_unused(tmp_path):
+    seed = tmp_path / "settings.json"
+    SettingsDocument().save(seed)
+    doc = SettingsDocument.from_file(seed)
+    assert doc.unused_settings == {} and doc.notes() == []
+    assert SettingsDocument().unused_settings == {} and SettingsDocument.for_new_file().unused_settings == {}
 
 
 # --------------------------------------------------------------------------
