@@ -607,13 +607,15 @@ def find_combine_priors(updated_config, run_nums, results, group_output_sorted, 
         # TODO: fix this...
         return {}, {}, [], [], [], [], [], {}
 
-def json_to_config(json_input, source=None):
+def json_to_config(json_input, source=None, unused=None):
     """
     The config a settings file describes: a fresh NRReductionConfig with each of the file's keys set.
 
     json_input: the settings, as load_from_file returns them under "config" (a settings JSON, or the "# Config:" line
         of a reduced .dat)
     source: the file they were read from, for the messages
+    unused: a dict that receives each key of the file this version did not use, with its value (for a caller that
+        shows the settings to someone and has to say what it is not showing)
 
     A file written by any version of the code loads. Both kinds of file are written from the config's own attributes,
     so a file holds a key for every attribute its writer's config had, and another version's config may not have them
@@ -633,6 +635,8 @@ def json_to_config(json_input, source=None):
                        "window is not a setting: the whole run is reduced. To reduce a window, pass start_times= and "
                        "end_times= to reduce_from_file, or use reduce_time_list / reduce_time_slices.",
                        origin, recorded.get("start_times"), recorded.get("end_times"))
+        if unused is not None:
+            unused.update(recorded)
 
     # override provided json input
     for key, value in json_input.items():
@@ -645,6 +649,8 @@ def json_to_config(json_input, source=None):
         except AttributeError:
             logger.warning("%s: '%s' = %r is not a setting of this version of lr_reduction; it is not used",
                            origin, key, value)
+            if unused is not None:
+                unused[key] = value
 
     return config_init
 

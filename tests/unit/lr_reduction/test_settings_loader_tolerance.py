@@ -127,6 +127,17 @@ def test_an_override_the_config_lacks_still_raises(tmp_path, one_group):
     assert one_group == []
 
 
+def test_the_loader_hands_back_what_it_did_not_use():
+    """A caller that shows the settings to someone (the settings editor) has to say what the file held and the
+    config does not: the keys skipped, with their values, in the dict it passes as ``unused``."""
+    unused = {}
+    nrff.json_to_config(settings(first_gone=1, base_path="/elsewhere"), unused=unused)
+    assert unused == {"first_gone": 1, "base_path": "/elsewhere"}
+    nothing = {}
+    nrff.json_to_config(settings(), unused=nothing)
+    assert nothing == {}
+
+
 # ---------------------------------------------------------------------------
 # The time window is not a setting (PR #223 review, D1 option A). The add-time-slicing branch (upstream PR #205) held
 # it in the config and wrote it into every file: null for a run reduced whole, the window for a slice.
@@ -193,3 +204,13 @@ def test_a_window_among_the_overrides_raises(tmp_path, one_group, key):
     with pytest.raises(AttributeError, match=f"{key} is not a valid config parameter"):
         nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, override_params={key: [0.0]})
     assert one_group == []
+
+
+def test_a_recorded_window_is_handed_back_as_not_used():
+    """The settings editor has to say that the file names a window and that it is not applied."""
+    unused = {}
+    nrff.json_to_config(settings(start_times=120, end_times=136), unused=unused)
+    assert unused == {"start_times": 120, "end_times": 136}
+    nothing = {}
+    nrff.json_to_config(settings(start_times=None, end_times=None), unused=nothing)
+    assert nothing == {}
