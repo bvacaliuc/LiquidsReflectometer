@@ -922,18 +922,66 @@ def test_a_whole_run_reduction_after_a_windowed_one_records_no_window(slicing, r
     assert not any(line.startswith("Time resolved") for line in header_lines(combined))
 
 
-def test_a_window_set_on_the_config_is_not_applied_and_reduce_says_so(slicing, reducer, caplog):
-    """config.start_times is the record of a reduction, not an input to one. Set by a script, it reduces the whole
-    run, the file written records no window, and reduce() warns: the script meant to slice."""
+def test_a_window_set_on_the_config_is_reduced_and_reduce_says_so(slicing, reducer, caplog):
+    """config.start_times/end_times are the window of a call that gives none (D1 option B, the window as a setting):
+    the reduction reads it, the file written records it in both places, and reduce() warns that less than the whole
+    run was read."""
     reducer.config.NEXUSpathRB = slicing.nexus
     reducer.config.start_times, reducer.config.end_times = [0.0], [3.0]
     with caplog.at_level(logging.WARNING, logger="lr_reduction.nr_reduction_calc"):
         reducer.reduce(plot=False)
-    assert slicing.calls[-1]["window"] == (None, None)
+    assert slicing.calls[-1]["window"] == ([0.0], [3.0])
     combined = Path(reducer.config.Spath) / f"{reducer.config.Sname}_combined{reducer.config.subname}.dat"
-    assert (config_of(combined)["start_times"], config_of(combined)["end_times"]) == (None, None)
+    assert (config_of(combined)["start_times"], config_of(combined)["end_times"]) == ([0.0], [3.0])
+    assert "Time resolved: [0.0], [3.0]" in header_lines(combined)
     messages = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
-    assert len(messages) == 1 and "start_times=" in messages[0] and "whole run" in messages[0]
+    assert len(messages) == 1 and "not whole" in messages[0]
+
+
+def test_the_calls_window_wins_over_the_configs(slicing, reducer):
+    reducer.config.NEXUSpathRB = slicing.nexus
+    reducer.config.start_times, reducer.config.end_times = [0.0], [3.0]
+    reducer.reduce(plot=False, start_times=[5.0], end_times=[7.0])
+    assert slicing.calls[-1]["window"] == ([5.0], [7.0])
+    combined = Path(reducer.config.Spath) / f"{reducer.config.Sname}_combined{reducer.config.subname}.dat"
+    assert (config_of(combined)["start_times"], config_of(combined)["end_times"]) == ([5.0], [7.0])
+
+
+def test_a_slices_file_used_as_settings_slices_the_next_reduction(slicing):
+    """Characterization of a consequence: a file reduced in a window holds the window in Config, and Config is what
+    a reduction from that file reads. So a slice's file chosen as the settings of a plain call reduces the same
+    window of the new run, where every version before this one reduced the whole run."""
+    nrff.reduce_from_file([RUN], slicing.settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                          override_params={"Spath": slicing.out}, start_times=[0.0], end_times=[3.0])
+    slice_file = slicing.out / f"REFL_{SEQ_ID}_combined.dat"
+    again = slicing.out / "again"
+    again.mkdir()
+    nrff.reduce_from_file([RUN], slice_file, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                          override_params={"Spath": again})
+    assert slicing.calls[-1]["window"] == ([0.0], [3.0])
+    assert "Time resolved: [0.0], [3.0]" in header_lines(again / f"REFL_{SEQ_ID}_combined.dat")
+
+
+def test_a_settings_window_combines_with_whole_run_files_already_in_the_folder(tmp_path, slicing):
+    """Characterization of a hazard that the settings file alone now reaches (autoreduction reduces one run at a time
+    with check_for_prior, from one settings file): position 1 was reduced whole; the settings then gain a window;
+    position 2 is reduced in it and combined with position 1's whole-run file. Every file is rewritten naming the
+    window, the first position's whole-run data included."""
+    second = RUN + 1
+    write_run(slicing.nexus / f"REF_L_{second}.nxs.h5", seq=2)
+    two = {key: value * 2 for key, value in json.loads(slicing.settings.read_text()).items() if isinstance(value, list)}
+    whole = settings_for(tmp_path, **two)
+    nrff.reduce_from_file([RUN], whole, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                          override_params={"Spath": slicing.out}, check_for_prior=True)
+    first = slicing.out / f"REFL_{SEQ_ID}_1_{RUN}.dat"
+    whole_run_data = np.loadtxt(first)
+    assert not any(line.startswith("Time resolved") for line in header_lines(first))
+    windowed = settings_for(tmp_path, **two, start_times=[0.0], end_times=[3.0])
+    nrff.reduce_from_file([second], windowed, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                          override_params={"Spath": slicing.out}, check_for_prior=True)
+    assert [call["window"] for call in slicing.calls] == [(None, None), ([0.0], [3.0])]
+    assert "Time resolved: [0.0], [3.0]" in header_lines(first)  # the whole-run file now says it is a slice
+    np.testing.assert_array_equal(np.loadtxt(first), whole_run_data)
 
 
 # ---------------------------------------------------------------------------

@@ -42,6 +42,7 @@ import tempfile
 from pathlib import Path
 
 from launcher.model import field_spec as fs
+from lr_reduction import binary_processing
 from lr_reduction.new_reduction_from_file import json_to_config, load_from_file
 from lr_reduction.nr_reduction_config import NRReductionConfig
 from lr_reduction.save_reduced_data import make_json_safe
@@ -79,6 +80,10 @@ _IPTS_NAME = re.compile(r"IPTS-(\d+)")
 #: Returned by ``SettingsDocument._compact_reading`` for a list the reducer reads
 #: as it is held. ``None`` cannot mark that: it is what a derived λ reads.
 _NOT_COMPACT = object()
+
+
+#: The two fields of the time window, start first.
+WINDOW_NAMES = ("start_times", "end_times")
 
 
 def _is_file(entry):
@@ -347,12 +352,12 @@ class SettingsDocument:
         """
         unused = {}
         config = json_to_config(values, unused=unused)
-        # The loader keeps no recorded time window (it is not an input, and a reduction's config must not carry one).
-        # The document is the file: it holds the record as the file does, to show it and to save it back, and
-        # normalize() drops it with the rest of the runtime record before a reduction is handed anything.
-        for name in fs.RUNTIME_OWNED_NAMES:
-            if name in unused:
-                setattr(config, name, unused.pop(name))
+        # Two bare numbers are one time window (binary_processing.time_windows), and the 2026-10 slice files hold
+        # theirs so. Held as one-entry lists, the shape the field declares; the reduction reads both the same way.
+        for name in WINDOW_NAMES:
+            value = getattr(config, name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                setattr(config, name, [value])
         cls._migrate_legacy(config)
         # Before cls(config): the seed is taken there, and it must hold the
         # same spelling as the document, or "Changed from the seed" shows
@@ -868,12 +873,28 @@ class SettingsDocument:
             else:
                 messages.append(field.check(value))
 
+        messages.append(self._window_problem())
         found = [m for m in messages if m]
         if len(found) > MAX_REPORTED_PROBLEMS:
             extra = len(found) - MAX_REPORTED_PROBLEMS
             found = found[:MAX_REPORTED_PROBLEMS]
             found.append(f"... and {extra} more problems not listed")
         return found
+
+    def _window_problem(self):
+        """What the reduction would refuse in the time window, checked as it checks the pair
+        (``binary_processing.time_windows``): one of the two missing, unequal lengths, no window, a start not before
+        its end. Each entry's own type is ``Field.check``'s to report, and a pair with such a problem is left to it."""
+        start, end = (self.get(name) for name in WINDOW_NAMES)
+        if any(fs.get(name).check(self.get(name)) for name in WINDOW_NAMES):
+            return ""
+        try:
+            binary_processing.time_windows(start, end)
+        except (ValueError, TypeError) as error:
+            labels = " and ".join(f"{fs.get(name).label} ({name})" for name in WINDOW_NAMES)
+            message = "both must be given, or neither" if (start is None) != (end is None) else str(error)
+            return f"{labels}: {message}"
+        return ""
 
     def notes(self):
         """What the panel shows beside the problems: true of a file that reduces, worth knowing.
@@ -921,6 +942,12 @@ class SettingsDocument:
                     f"{file_spelling(field, field.reducer_default)} at every angle — leave it, or choose "
                     f"a value to write it explicitly"
                 )
+        start, end = (self.get(name) for name in WINDOW_NAMES)
+        if start is not None or end is not None:
+            lines.append(
+                f"A time window is set (start_times {start}, end_times {end}): a reduction from this file reads "
+                f"that window of each run, not the whole run"
+            )
         lines.extend(self._ipts_notes())
         return lines
 
@@ -1001,10 +1028,9 @@ class SettingsDocument:
     def normalize(self):
         """JSON-safe settings with the runtime-owned fields dropped.
 
-        Those fields (``RBnum``, the ``Lambda*Use`` record and the time window
-        a file was reduced with) are filled in by the reduction from the runs
-        and the call it is given; carrying an authored value for them would
-        silently override the run, or name a window that is not applied. Integer-encoded lists are written
+        Those fields (``RBnum`` and the ``Lambda*Use`` record) are filled in by
+        the reduction from the runs it is given; carrying an authored value for
+        them would silently override the run. Integer-encoded lists are written
         as ``save()`` writes them (``_encode_for_file``).
         """
         return {

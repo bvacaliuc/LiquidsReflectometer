@@ -22,6 +22,22 @@ from lr_reduction.user_defined_function import UserDefinedFunction
 logger = logging.getLogger(__name__)
 
 
+def effective_window(config, start_times=None, end_times=None):
+    """
+    The (start_times, end_times) a reduction of `config` reads: the call's, when it gives either; else the config's
+    (a settings file's, or override_params'); (None, None) for the whole run. Validated here, before anything is read
+    (binary_processing.time_windows raises ValueError). A window taken from the config is logged at warning: nothing
+    in the call says that less than the whole run is being reduced.
+    """
+    if start_times is None and end_times is None:
+        start_times, end_times = getattr(config, "start_times", None), getattr(config, "end_times", None)
+        if start_times is not None or end_times is not None:
+            logger.warning("The settings hold a time window (start_times = %r, end_times = %r): each run is reduced "
+                           "in that window only, not whole.", start_times, end_times)
+    BP.time_windows(start_times, end_times)
+    return start_times, end_times
+
+
 class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported by callers)
     """
     Main calculation file for reflectivity reduction. It allows for different q conversion methods.
@@ -122,7 +138,8 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
         eight_col: (optional) allows override of saving out the 8 column data, otherwise read from the config.
         save_pdf_summary: (optional) allows save of PDF plot summary for diagnostics
         start_times, end_times: (optional) time windows to reduce instead of each whole run, in seconds from the run's
-            first pulse (binary_processing.time_windows); the headers written name them. The config is not changed.
+            first pulse (binary_processing.time_windows); the headers written name them. Without them, the config's
+            start_times/end_times are the window (effective_window). The config is not changed.
 
         Returns
         -------
@@ -133,13 +150,8 @@ class NR_Reduction:  # noqa: N801 -- public API name; rename deferred (imported 
         L, T, dL, dT = [], [], [], []
         # The time window this call reads, for the headers (save_fn.save_results): a record of the call, as the
         # scale and range records are, never a write into the shared config (R4/R5).
+        start_times, end_times = effective_window(self.config, start_times, end_times)
         time_window = None if start_times is None and end_times is None else (start_times, end_times)
-        if time_window is None and (self.config.start_times is not None or self.config.end_times is not None):
-            # the config's window is a record, not an input (nr_reduction_config): a caller that set it meant to slice
-            logger.warning("The config holds a time window (start_times = %r, end_times = %r) and this call gives none: "
-                           "the whole run is reduced. A window on the config is a record, not an input; pass "
-                           "start_times= and end_times= to reduce a window.",
-                           self.config.start_times, self.config.end_times)
         if not eight_col:
             eight_col = self.config.save8col
 
