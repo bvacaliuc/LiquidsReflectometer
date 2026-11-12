@@ -1,5 +1,6 @@
 import ast
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -14,6 +15,8 @@ import lr_reduction.save_reduced_data as save_fn
 #import template
 from lr_reduction.nr_reduction_calc import NR_Reduction  # TODO: Fix names of files!!
 from lr_reduction.nr_reduction_config import NRReductionConfig
+
+logger = logging.getLogger(__name__)
 
 # Per-run logs recorded in the output headers ("Run Title" and "Angles")
 LOG_KEYS = ("title", "ths", "thi", "ThCen")
@@ -58,7 +61,7 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
 
         # reset config
         file_load = load_from_file(setting_file) # moving here to try fix scale factor issue
-        config_new = json_to_config(file_load["config"])
+        config_new = json_to_config(file_load["config"], source=setting_file)
 
         # TODO: Sort out the sequence num part to make sure it runs the right indices of the config
         # This assumes want to process in increasing seq order
@@ -598,15 +601,31 @@ def find_combine_priors(updated_config, run_nums, results, group_output_sorted, 
         # TODO: fix this...
         return {}, {}, [], [], [], [], [], {}
 
-def json_to_config(json_input):
+def json_to_config(json_input, source=None):
+    """
+    The config a settings file describes: a fresh NRReductionConfig with each of the file's keys set.
+
+    json_input: the settings, as load_from_file returns them under "config" (a settings JSON, or the "# Config:" line
+        of a reduced .dat)
+    source: the file they were read from, for the messages
+
+    A file written by any version of the code loads. Both kinds of file are written from the config's own attributes,
+    so a file holds a key for every attribute its writer's config had, and another version's config may not have them
+    all. A key this version's config cannot take is skipped, with one warning naming the key, its value and the file;
+    every other key is set. (A caller's override_params are not read here: reduce_from_file refuses an unknown one.)
+    """
     config_init = NRReductionConfig()
+    origin = "the settings" if source is None else str(source)
 
     # override provided json input
     for key, value in json_input.items():
-        if hasattr(config_init, key):
-            setattr(config_init, key, value)
-        else:
-            raise AttributeError(f"{key} is not a valid config parameter")
+        try:
+            if not hasattr(config_init, key):
+                raise AttributeError(key)
+            setattr(config_init, key, value)  # a property without a setter (base_path) raises here
+        except AttributeError:
+            logger.warning("%s: '%s' = %r is not a setting of this version of lr_reduction; it is not used",
+                           origin, key, value)
 
     return config_init
 
