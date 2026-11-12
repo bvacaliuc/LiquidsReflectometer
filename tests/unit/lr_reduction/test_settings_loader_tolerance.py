@@ -214,3 +214,58 @@ def test_a_recorded_window_is_handed_back_as_not_used():
     nothing = {}
     nrff.json_to_config(settings(start_times=None, end_times=None), unused=nothing)
     assert nothing == {}
+
+
+# ---------------------------------------------------------------------------
+# From the test review of this change: the cases its first tests let through.
+
+
+@pytest.mark.parametrize("values, handed_back", [
+    ({"start_times": 0, "end_times": None}, {"start_times": 0, "end_times": None}),
+    ({"start_times": 0}, {"start_times": 0}),
+    ({"end_times": [3.0]}, {"end_times": [3.0]}),
+], ids=["zero and null", "start only", "end only"])
+def test_half_a_recorded_window_is_still_a_window(caplog, values, handed_back):
+    """A start of 0 is a window (not "nothing"), and one key without the other is still named: one warning, and the
+    caller is handed back what the file held, the null half included."""
+    unused = {}
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        config = nrff.json_to_config(settings(**values), unused=unused)
+    assert unused == handed_back
+    assert len(warnings_of(caplog)) == 1
+    assert not set(WINDOW_KEYS) & set(config.__dict__)
+
+
+def test_the_warning_is_logged_whether_or_not_the_caller_collects(caplog):
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        nrff.json_to_config(settings(first_gone=1), unused={})
+    assert len(warnings_of(caplog)) == 1
+
+
+def test_the_time_resolved_folders_name_the_file_they_read(tmp_path, caplog):
+    import lr_reduction.new_reduction_time_resolved as nrtr
+
+    path = write_json(tmp_path, settings(**{UNKNOWN: 3}))
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        nrtr.run_folders(path, "IPTS-00001", datapath=tmp_path)
+    (warning,) = warnings_of(caplog)
+    assert str(path) in warning.getMessage()
+
+
+@pytest.mark.parametrize("not_settings", [None, ["Sname", "x"], "Sname"], ids=["none", "a list", "text"])
+def test_what_is_not_a_mapping_of_settings_is_refused_by_name(tmp_path, not_settings):
+    """A .dat without a "# Config:" line gives None, a JSON file may hold a list: neither is a settings file of any
+    version, and the error says so and names the file (it was a TypeError or a bare AttributeError)."""
+    with pytest.raises(ValueError, match="holds no reduction settings") as raised:
+        nrff.json_to_config(not_settings, source=tmp_path / "REFL_1.dat")
+    assert "REFL_1.dat" in str(raised.value)
+
+
+# load_from_file reads to the end looking for the line, then hands loadtxt the exhausted file: its warning, not this change's
+@pytest.mark.filterwarnings("ignore:loadtxt. input contained no data:UserWarning")
+def test_a_dat_without_a_config_line_is_refused_by_name(tmp_path, one_group):
+    path = tmp_path / "bare.dat"
+    path.write_text("# NR_runs = [1]\n0.01 1.0 0.1 0.001\n0.02 0.5 0.05 0.002\n")
+    with pytest.raises(ValueError, match="holds no reduction settings"):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False)
+    assert one_group == []

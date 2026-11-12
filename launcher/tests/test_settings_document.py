@@ -137,6 +137,36 @@ def test_unknown_key_in_a_seed_is_reported_by_name(tmp_path):
     assert "Snam" not in json.loads(saved.read_text())
 
 
+def test_a_slices_file_with_another_versions_key_opens_and_every_unused_key_is_named(tmp_path):
+    """From the test review. A 2026-10 slice file holds the window it was reduced with, here beside a key of some
+    other version: the document holds neither as a field, names each of the three in its own note, each saying that a
+    Save does not write it, and the saved file has none of them."""
+    seed = tmp_path / "slice.json"
+    seed.write_text(json.dumps({"Sname": "slice", "start_times": 120, "end_times": 136, "gone": [1, 2]}))
+    doc = SettingsDocument.from_file(seed)
+    assert doc.unused_settings == {"start_times": 120, "end_times": 136, "gone": [1, 2]}
+    notes = doc.notes()
+    for key, value in doc.unused_settings.items():
+        (note,) = [line for line in notes if line.startswith(f"{key} = ")]
+        assert repr(value) in note and "Save does not write it" in note
+    assert not {"start_times", "end_times", "gone"} & set(doc.to_dict())
+    saved = json.loads(doc.save(tmp_path / "saved.json").read_text())
+    assert not {"start_times", "end_times", "gone"} & set(saved)
+
+
+def test_each_document_has_its_own_unused_settings():
+    """Not one dict shared through the class: what one document's file held is not another document's."""
+    first, second = SettingsDocument(), SettingsDocument()
+    first.unused_settings["gone"] = 1
+    assert second.unused_settings == {} and SettingsDocument.for_new_file().unused_settings == {}
+
+
+@pytest.mark.parametrize("not_settings", [None, ["Sname"]], ids=["none", "a list"])
+def test_what_is_not_a_settings_mapping_is_a_bad_file_to_the_editor(not_settings):
+    with pytest.raises(ValueError, match="holds no reduction settings"):
+        SettingsDocument.from_dict(not_settings)
+
+
 def test_a_document_of_this_version_has_nothing_unused(tmp_path):
     seed = tmp_path / "settings.json"
     SettingsDocument().save(seed)
