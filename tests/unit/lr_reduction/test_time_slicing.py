@@ -821,7 +821,8 @@ def test_the_file_is_closed(slicing, monkeypatch):
 @pytest.mark.parametrize("full", [True, False], ids=["full header", "short header"])
 def test_the_header_names_the_window_beside_the_marker(reducer, full):
     """T6a: with a window, the header (both writers) has one line naming it, the contribution's text, before the
-    format marker; without one there is no such line (§10 A3), so today's headers are unchanged."""
+    format marker; without one there is no such line (§10 A3). The Config line records the window too (D1 option B),
+    so the two headers differ in that line and in Config's two window keys, and in nothing else."""
     log_values = {"title": ["t"], "ths": [0.6], "thi": [0.6], "ThCen": [0.6]}
     windowed = save_fn._build_header(reducer.config, log_values, full=full, time_window=([600.0], [1200.0]))
     lines = windowed.splitlines()
@@ -831,7 +832,17 @@ def test_the_header_names_the_window_beside_the_marker(reducer, full):
     assert window_at < marker_at
     plain = save_fn._build_header(reducer.config, log_values, full=full)
     assert "Time resolved" not in plain
-    assert plain.splitlines() == [line for line in lines if not line.startswith("Time resolved")]
+
+    def split(header_lines_):
+        config = next(line for line in header_lines_ if line.startswith("Config: "))
+        rest = [line for line in header_lines_ if not line.startswith(("Config: ", "Time resolved"))]
+        return rest, json.loads(config[len("Config: "):])
+
+    (rest, config), (plain_rest, plain_config) = split(lines), split(plain.splitlines())
+    assert rest == plain_rest
+    assert (config["start_times"], config["end_times"]) == ([600.0], [1200.0])
+    assert (plain_config["start_times"], plain_config["end_times"]) == (None, None)
+    assert {**config, "start_times": None, "end_times": None} == plain_config
 
 
 def test_reduce_does_not_write_windows_into_the_callers_config(slicing, reducer):
@@ -844,16 +855,85 @@ def test_reduce_does_not_write_windows_into_the_callers_config(slicing, reducer)
     assert slicing.calls[-1]["window"] == ([0.0], [3.0])
 
 
-def test_a_run_without_windows_writes_todays_header(slicing):
-    """§10 A3 and acceptance 2: reduced without windows, a run's header has no "Time resolved" line and its Config
-    line has no window keys (the window is not a config field, N3)."""
+def config_of(path):
+    return json.loads(next(line for line in header_lines(path) if line.startswith("Config: "))[len("Config: "):])
+
+
+def test_a_run_without_windows_records_no_window(slicing):
+    """Reduced without windows, a run's header has no "Time resolved" line, and its Config line holds the window
+    record as null: start_times/end_times are config attributes (PR #223 review, D1 option B), so they are keys of
+    every file, and null is how a file says it holds the whole run."""
     nrff.reduce_from_file([RUN], slicing.settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
                           override_params={"Spath": slicing.out})
-    for path in sorted(slicing.out.glob("*.dat")):
-        lines = header_lines(path)
-        assert not any(line.startswith("Time resolved") for line in lines), path.name
-        config = json.loads(next(line for line in lines if line.startswith("Config: "))[len("Config: "):])
-        assert "start_times" not in config and "end_times" not in config, sorted(config)
+    files = sorted(slicing.out.glob("*.dat"))
+    assert files
+    for path in files:
+        assert not any(line.startswith("Time resolved") for line in header_lines(path)), path.name
+        config = config_of(path)
+        assert (config["start_times"], config["end_times"]) == (None, None), path.name
+
+
+@pytest.mark.parametrize("window, recorded", [
+    (([0.0], [3.0]), ([0.0], [3.0])),
+    ((0.0, 3.0), (0.0, 3.0)),
+    ((np.float32(0.0), np.array(3.0)), (0.0, 3.0)),
+    (([0.0, 5.0], [2.0, 7.0]), ([0.0, 5.0], [2.0, 7.0])),
+], ids=["lists", "numbers", "numpy numbers", "several windows"])
+def test_a_windowed_files_config_records_its_window(slicing, window, recorded):
+    """The header does not contradict itself: the Config line of every file a windowed reduction writes holds the
+    window its "Time resolved:" line names, as JSON (the partial and the combined file)."""
+    nrff.reduce_from_file([RUN], slicing.settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                          override_params={"Spath": slicing.out}, start_times=window[0], end_times=window[1])
+    files = sorted(slicing.out.glob("*.dat"))
+    assert len(files) == 2
+    for path in files:
+        config = config_of(path)
+        assert (config["start_times"], config["end_times"]) == recorded, path.name
+    assert_one_window_line_and_the_marker(slicing.out)
+
+
+def test_the_priors_re_saves_record_the_window_in_config(tmp_path, slicing):
+    """The files a windowed reduction rewrites when it combines with its folder (check_for_prior) record the window
+    in Config too, each of them."""
+    second = RUN + 1
+    write_run(slicing.nexus / f"REF_L_{second}.nxs.h5", seq=2)
+    two = {key: value * 2 for key, value in json.loads(slicing.settings.read_text()).items() if isinstance(value, list)}
+    settings = settings_for(tmp_path, **two)
+    for run in (RUN, second):
+        nrff.reduce_from_file([run], settings, EXPERIMENT, datapath=slicing.nexus, plot=False,
+                              override_params={"Spath": slicing.out}, check_for_prior=True,
+                              start_times=[0.0], end_times=[3.0])
+    files = sorted(slicing.out.glob("*.dat"))
+    assert len(files) == 3
+    for path in files:
+        config = config_of(path)
+        assert (config["start_times"], config["end_times"]) == ([0.0], [3.0]), path.name
+
+
+def test_a_whole_run_reduction_after_a_windowed_one_records_no_window(slicing, reducer):
+    """The record is the call's: the same reducer, used again without a window, writes null."""
+    reducer.config.NEXUSpathRB = slicing.nexus
+    reducer.reduce(plot=False, start_times=[0.0], end_times=[3.0])
+    combined = Path(reducer.config.Spath) / f"{reducer.config.Sname}_combined{reducer.config.subname}.dat"
+    assert config_of(combined)["start_times"] == [0.0]
+    reducer.reduce(plot=False)
+    config = config_of(combined)
+    assert (config["start_times"], config["end_times"]) == (None, None)
+    assert not any(line.startswith("Time resolved") for line in header_lines(combined))
+
+
+def test_a_window_set_on_the_config_is_not_applied_and_reduce_says_so(slicing, reducer, caplog):
+    """config.start_times is the record of a reduction, not an input to one. Set by a script, it reduces the whole
+    run, the file written records no window, and reduce() warns: the script meant to slice."""
+    reducer.config.NEXUSpathRB = slicing.nexus
+    reducer.config.start_times, reducer.config.end_times = [0.0], [3.0]
+    with caplog.at_level(logging.WARNING, logger="lr_reduction.nr_reduction_calc"):
+        reducer.reduce(plot=False)
+    assert slicing.calls[-1]["window"] == (None, None)
+    combined = Path(reducer.config.Spath) / f"{reducer.config.Sname}_combined{reducer.config.subname}.dat"
+    assert (config_of(combined)["start_times"], config_of(combined)["end_times"]) == (None, None)
+    messages = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    assert len(messages) == 1 and "start_times=" in messages[0] and "whole run" in messages[0]
 
 
 # ---------------------------------------------------------------------------

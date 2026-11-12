@@ -95,7 +95,9 @@ def _build_header(config_header, log_values, full=True, eight_column=False, sequ
     object itself keeps its scalars). Without them, today's lines and format 2.
 
     With a time_window, one "Time resolved: <start_times>, <end_times>" line, before the format marker; without one,
-    none. The window is the call's, as the records are: it is never read from the config.
+    none. The window is the call's, as the records are: it is never read from the config. Config's
+    start_times/end_times record it too (null without one), so the two never disagree, whatever the config object
+    holds.
     """
 
     if eight_column:
@@ -119,6 +121,9 @@ def _build_header(config_header, log_values, full=True, eight_column=False, sequ
         config_values = {**config_values,
                          "LambdaMinUse": tools.clean_log_value(log_values["lambda_min"]),
                          "LambdaMaxUse": tools.clean_log_value(log_values["lambda_max"])}
+    # Config's window record is the call's window (R4/R5: the config object is not written), JSON-safe as given
+    start_times, end_times = (None, None) if time_window is None else time_window
+    config_values = {**config_values, "start_times": make_json_safe(start_times), "end_times": make_json_safe(end_times)}
     config_json = json.dumps(config_values)
 
     angle_header = json.dumps({"THS": tools.clean_log_value(log_values['ths']), "THI": tools.clean_log_value(log_values['thi']), "ThCen": tools.clean_log_value(log_values['ThCen'])})
