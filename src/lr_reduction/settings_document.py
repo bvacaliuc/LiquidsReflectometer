@@ -301,11 +301,6 @@ class SettingsDocument:
     #: An attribute, never a config key: ``save()`` does not write it. The IPTS resolution reads it (2c).
     source_path = None
 
-    #: ``{key: value}`` of what the file this document was built from held and this version's config does not use
-    #: (``json_to_config``'s ``unused``): a key of another version of the code. Never a config key: not shown as a
-    #: field and not written by ``save()``; ``notes()`` names each. Empty for a document not built from a mapping.
-    unused_settings = {}
-
     def __init__(self, config=None):
         self._config = config if config is not None else NRReductionConfig()
         # The state this document was seeded from, for changed_vs_seed(). Copied
@@ -316,6 +311,10 @@ class SettingsDocument:
         self._refused = {}
         # The Load's run lookup (resolve_ipts), which notes() reads against the IPTS held now.
         self._run_lookup = None
+        #: ``{key: value}`` of what the file this document was built from held and this version's config does not
+        #: use (``json_to_config``'s ``unused``): a key of another version of the code. Never a config key: not shown
+        #: as a field and not written by ``save()``; ``notes()`` names each. Empty unless built from a mapping.
+        self.unused_settings = {}
 
     # -- construction ------------------------------------------------------
 
