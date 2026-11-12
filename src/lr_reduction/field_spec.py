@@ -697,6 +697,17 @@ FIELD_SPEC = (
     Field("LambdaMaxUse", "Lambda max used", RUNTIME, "list[float]", None,
           "Wavelength bound the run actually used. Recorded by the reduction.",
           runtime_owned=True),
+    # The time window a file was reduced with (nr_reduction_config). A record like the two above, and as loosely
+    # typed: a number, a list of numbers, or null for a run reduced whole. Not an input: a window is reduced from the
+    # Time resolved tab, or with start_times=/end_times= on the reduction call.
+    Field("start_times", "Time window start (s)", RUNTIME, "list[float]", None,
+          "Start of the time window this file was reduced with, in seconds from the run's first pulse; empty for a "
+          "whole run. Recorded by the reduction, not applied when the file is used as settings.",
+          runtime_owned=True),
+    Field("end_times", "Time window end (s)", RUNTIME, "list[float]", None,
+          "End of the time window this file was reduced with, in seconds from the run's first pulse; empty for a "
+          "whole run. Recorded by the reduction, not applied when the file is used as settings.",
+          runtime_owned=True),
 )
 
 

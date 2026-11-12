@@ -347,6 +347,12 @@ class SettingsDocument:
         """
         unused = {}
         config = json_to_config(values, unused=unused)
+        # The loader keeps no recorded time window (it is not an input, and a reduction's config must not carry one).
+        # The document is the file: it holds the record as the file does, to show it and to save it back, and
+        # normalize() drops it with the rest of the runtime record before a reduction is handed anything.
+        for name in fs.RUNTIME_OWNED_NAMES:
+            if name in unused:
+                setattr(config, name, unused.pop(name))
         cls._migrate_legacy(config)
         # Before cls(config): the seed is taken there, and it must hold the
         # same spelling as the document, or "Changed from the seed" shows
@@ -995,9 +1001,10 @@ class SettingsDocument:
     def normalize(self):
         """JSON-safe settings with the runtime-owned fields dropped.
 
-        Those fields (``RBnum`` and the ``Lambda*Use`` record) are filled in by
-        the reduction from the runs it is given; carrying an authored value for
-        them would silently override the run. Integer-encoded lists are written
+        Those fields (``RBnum``, the ``Lambda*Use`` record and the time window
+        a file was reduced with) are filled in by the reduction from the runs
+        and the call it is given; carrying an authored value for them would
+        silently override the run, or name a window that is not applied. Integer-encoded lists are written
         as ``save()`` writes them (``_encode_for_file``).
         """
         return {
