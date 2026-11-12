@@ -311,6 +311,10 @@ class SettingsDocument:
         self._refused = {}
         # The Load's run lookup (resolve_ipts), which notes() reads against the IPTS held now.
         self._run_lookup = None
+        #: ``{key: value}`` of what the file this document was built from held and this version's config does not
+        #: use (``json_to_config``'s ``unused``): a key of another version of the code. Never a config key: not shown
+        #: as a field and not written by ``save()``; ``notes()`` names each. Empty unless built from a mapping.
+        self.unused_settings = {}
 
     # -- construction ------------------------------------------------------
 
@@ -333,23 +337,23 @@ class SettingsDocument:
 
     @classmethod
     def from_dict(cls, values):
-        """Build from a settings mapping, reporting an unknown key by name.
+        """Build from a settings mapping, keeping what the config does not use to report by name.
 
-        ``json_to_config`` raises a bare ``AttributeError`` naming the key; it
-        is re-raised as ``ValueError`` because from the editor's point of view
-        this is a bad *file*, not a programming error, and the message has to
-        reach the scientist.
+        ``json_to_config`` reads a file written by any version of the code: a
+        key this version's config lacks is skipped, and logged. The log line
+        does not reach the scientist at the editor, so the skipped keys are
+        held (``unused_settings``) and ``notes()`` names each.
         """
-        try:
-            config = json_to_config(values)
-        except AttributeError as exc:
-            raise ValueError(f"Not a valid reduction setting: {exc}") from exc
+        unused = {}
+        config = json_to_config(values, unused=unused)
         cls._migrate_legacy(config)
         # Before cls(config): the seed is taken there, and it must hold the
         # same spelling as the document, or "Changed from the seed" shows
         # [1, 1, 0] -> [True, False, False] for a one-cell edit.
         cls._canonicalize_booleans(config)
-        return cls(config)
+        document = cls(config)
+        document.unused_settings = unused
+        return document
 
     @staticmethod
     def _canonicalize_booleans(config):
@@ -882,10 +886,16 @@ class SettingsDocument:
           it), for every such list, not only the boolean one; they are
           information, not a problem to clear. Shown only when angle-defining
           entries exist, because otherwise there is no reduction to describe.
+        * A key of the file that this version's config does not use
+          (``unused_settings``): one line each, first, with its value.
         """
         count = self.reduction_angles
         defining = self._defining_length()
-        lines = []
+        lines = [
+            f"{key} = {value!r} in the file is not a setting of this version of lr_reduction; "
+            f"it is not used or shown, and a Save does not write it"
+            for key, value in self.unused_settings.items()
+        ]
         for field in fs.FIELD_SPEC:
             value = self.get(field.name)
             if not field.per_angle or not isinstance(value, list):

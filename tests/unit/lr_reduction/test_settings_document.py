@@ -122,10 +122,57 @@ def test_dat_header_seed(tmp_path):
 
 
 def test_unknown_key_in_a_seed_is_reported_by_name(tmp_path):
+    """A file written by another version of the code opens (the loader skips a key this version's config lacks), and
+    the document says what it is not showing: one note per key, naming the key and its value. The key is not a field
+    of the document, so a Save does not write it, and the note says that too."""
     seed = tmp_path / "bad.json"
-    seed.write_text(json.dumps({"Snam": "typo"}))
-    with pytest.raises(ValueError, match="Snam"):
-        SettingsDocument.from_file(seed)
+    seed.write_text(json.dumps({"Snam": "typo", "Sname": "kept"}))
+    doc = SettingsDocument.from_file(seed)
+    assert doc.get("Sname") == "kept"
+    assert doc.unused_settings == {"Snam": "typo"}
+    (note,) = [line for line in doc.notes() if "Snam " in line]
+    assert "'typo'" in note and "not a setting of this version" in note and "Save" in note
+    assert "Snam" not in doc.to_dict()
+    saved = doc.save(tmp_path / "saved.json")
+    assert "Snam" not in json.loads(saved.read_text())
+
+
+def test_a_slices_file_with_another_versions_key_opens_and_every_unused_key_is_named(tmp_path):
+    """From the test review. A 2026-10 slice file holds the window it was reduced with, here beside a key of some
+    other version: the document holds neither as a field, names each of the three in its own note, each saying that a
+    Save does not write it, and the saved file has none of them."""
+    seed = tmp_path / "slice.json"
+    seed.write_text(json.dumps({"Sname": "slice", "start_times": 120, "end_times": 136, "gone": [1, 2]}))
+    doc = SettingsDocument.from_file(seed)
+    assert doc.unused_settings == {"start_times": 120, "end_times": 136, "gone": [1, 2]}
+    notes = doc.notes()
+    for key, value in doc.unused_settings.items():
+        (note,) = [line for line in notes if line.startswith(f"{key} = ")]
+        assert repr(value) in note and "Save does not write it" in note
+    assert not {"start_times", "end_times", "gone"} & set(doc.to_dict())
+    saved = json.loads(doc.save(tmp_path / "saved.json").read_text())
+    assert not {"start_times", "end_times", "gone"} & set(saved)
+
+
+def test_each_document_has_its_own_unused_settings():
+    """Not one dict shared through the class: what one document's file held is not another document's."""
+    first, second = SettingsDocument(), SettingsDocument()
+    first.unused_settings["gone"] = 1
+    assert second.unused_settings == {} and SettingsDocument.for_new_file().unused_settings == {}
+
+
+@pytest.mark.parametrize("not_settings", [None, ["Sname"]], ids=["none", "a list"])
+def test_what_is_not_a_settings_mapping_is_a_bad_file_to_the_editor(not_settings):
+    with pytest.raises(ValueError, match="holds no reduction settings"):
+        SettingsDocument.from_dict(not_settings)
+
+
+def test_a_document_of_this_version_has_nothing_unused(tmp_path):
+    seed = tmp_path / "settings.json"
+    SettingsDocument().save(seed)
+    doc = SettingsDocument.from_file(seed)
+    assert doc.unused_settings == {} and doc.notes() == []
+    assert SettingsDocument().unused_settings == {} and SettingsDocument.for_new_file().unused_settings == {}
 
 
 # --------------------------------------------------------------------------
