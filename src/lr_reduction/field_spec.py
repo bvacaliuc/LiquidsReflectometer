@@ -629,6 +629,13 @@ FIELD_SPEC = (
           "Also write the 8-column form, adding L, dL, T and dT."),
     Field("useGravity", "Gravity correction", PROCESSING, "bool", True,
           "Apply the gravity correction to the neutron trajectory."),
+    # The time window to reduce instead of each whole run (nr_reduction_config; nr_reduction_calc.effective_window).
+    # The pair is checked together, as the reduction checks it (SettingsDocument.validate).
+    Field("start_times", "Time window start (s)", PROCESSING, "list[float]", None,
+          "Start of each time window to reduce, in seconds from each run's first pulse. Empty: the whole run. "
+          "One entry per window, matched with Time window end; every run of the file is reduced in the same windows."),
+    Field("end_times", "Time window end (s)", PROCESSING, "list[float]", None,
+          "End of each time window to reduce, in seconds from each run's first pulse. Empty: the whole run."),
     Field("use_emission_time", "Emission-time correction", PROCESSING, "bool", True,
           "Apply the moderator emission-time correction."),
 

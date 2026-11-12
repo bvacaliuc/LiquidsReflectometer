@@ -554,6 +554,35 @@ def test_the_runtime_record_shows_what_each_loaded_file_recorded(tmp_path, monke
     assert tab.editors["LambdaMinUse"].text() == ""
 
 
+def test_the_time_window_is_edited_like_any_other_list_of_numbers(tmp_path, monkeypatch):
+    """PR #223 review, D1 option B as the plan words it: start_times/end_times are settings. The editor shows the
+    window a file holds, takes an edit, reports a pair the reduction would refuse, and saves what it holds."""
+    tab = SettingsEditorTab()
+    _load(tab, _reducer_written_settings(tmp_path), monkeypatch)
+    assert (tab.editors["start_times"].text(), tab.editors["end_times"].text()) == ("", "")
+    assert not tab.editors["start_times"].isReadOnly() and not tab.editors["end_times"].isReadOnly()
+
+    numbers = tmp_path / "numbers.json"
+    numbers.write_text(json.dumps({"Sname": "slice", "start_times": 120, "end_times": 136}))
+    _load(tab, numbers, monkeypatch)
+    assert (tab.editors["start_times"].text(), tab.editors["end_times"].text()) == ("120", "136")
+    assert "Problems:" not in tab.report.toPlainText()
+
+    for name, text in (("start_times", "0, 80"), ("end_times", "80, 120")):
+        editor = tab.editors[name]
+        editor.selectAll()
+        QTest.keyClicks(editor, text)
+        QTest.keyClick(editor, QtCore.Qt.Key_Return)
+    assert (tab.document.get("start_times"), tab.document.get("end_times")) == ([0.0, 80.0], [80.0, 120.0])
+    assert "Problems:" not in tab.report.toPlainText()
+
+    editor = tab.editors["end_times"]
+    editor.selectAll()
+    QTest.keyClicks(editor, "80")
+    QTest.keyClick(editor, QtCore.Qt.Key_Return)
+    assert "same length" in tab.report.toPlainText()
+
+
 def test_toggling_a_loaded_switch_saves_ones_and_zeros(tmp_path, monkeypatch):
     tab = SettingsEditorTab()
     _load(tab, _reducer_written_settings(tmp_path), monkeypatch)
