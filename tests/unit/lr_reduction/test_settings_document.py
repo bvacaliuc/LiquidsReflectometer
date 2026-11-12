@@ -316,32 +316,59 @@ def test_normalize_drops_runtime_owned_fields():
     doc = SettingsDocument()
     doc.add_angle(RBnum=197912)
     normalized = doc.normalize()
-    assert {"RBnum", "LambdaMinUse", "LambdaMaxUse", "start_times", "end_times"}.isdisjoint(normalized)
+    assert {"RBnum", "LambdaMinUse", "LambdaMaxUse"}.isdisjoint(normalized)
     assert "Sname" in normalized
 
 
-def test_runtime_owned_names_are_exactly_the_five_expected():
-    """Pin the tuple itself, separately from the behaviour it drives. The time window a file was reduced with
-    (start_times/end_times, PR #223 review D1 option B) is a record of the reduction, as the wavelength range is."""
-    assert set(fs.RUNTIME_OWNED_NAMES) == {"RBnum", "LambdaMinUse", "LambdaMaxUse", "start_times", "end_times"}
+def test_runtime_owned_names_are_exactly_the_three_expected():
+    """Pin the tuple itself, separately from the behaviour it drives. The time window (start_times/end_times) is
+    not among them: with the window as a setting (PR #223 review, D1 option B as the plan words it) it is authored."""
+    assert set(fs.RUNTIME_OWNED_NAMES) == {"RBnum", "LambdaMinUse", "LambdaMaxUse"}
 
 
-@pytest.mark.parametrize("window", [(120, 136), ([0.0], [3.0]), ([[0, 5], [2, 7]], [[2, 7], [5, 9]]), (None, None)],
-                         ids=["numbers", "lists", "nested", "none"])
-def test_a_files_recorded_window_is_held_shown_saved_and_never_handed_to_a_reduction(tmp_path, window):
-    """The document is the file: the window a slice's file records is held as the file holds it (the loader itself
-    keeps no recorded window), is no problem and no note, survives a Save, and is dropped from what a reduction is
-    handed (normalize), so opening a slice's file in the editor and reducing from it reduces the whole run."""
-    start, end = window
-    doc = SettingsDocument.from_dict({"Sname": "slice", "start_times": start, "end_times": end})
-    assert (doc.get("start_times"), doc.get("end_times")) == (start, end)
-    assert doc.unused_settings == {} and doc.validate() == [] and doc.notes() == []
+@pytest.mark.parametrize("window, held", [
+    ((120, 136), ([120], [136])),
+    (([0.0], [3.0]), ([0.0], [3.0])),
+    (([0, 5], [2, 7]), ([0, 5], [2, 7])),
+    ((None, None), (None, None)),
+], ids=["numbers", "lists", "several", "none"])
+def test_a_files_window_is_a_setting_the_document_holds_and_hands_to_a_reduction(tmp_path, window, held):
+    """The window of a file is what a reduction from it reads, so the document holds it, saves it, and hands it on
+    (normalize). Two bare numbers, as the 2026-10 slice files hold them, are one window: held as one-entry lists,
+    the shape the editor's field declares, which the reducer reads the same way."""
+    doc = SettingsDocument.from_dict({"Sname": "slice", "start_times": window[0], "end_times": window[1]})
+    assert (doc.get("start_times"), doc.get("end_times")) == held
+    assert doc.unused_settings == {} and doc.validate() == []
     saved = json.loads(doc.save(tmp_path / "saved.json").read_text())
-    assert (saved["start_times"], saved["end_times"]) == (start, end)
+    assert (saved["start_times"], saved["end_times"]) == held
     normalized = doc.normalize()
-    assert "start_times" not in normalized and "end_times" not in normalized
+    assert (normalized["start_times"], normalized["end_times"]) == held
     reloaded = json_to_config(normalized)
-    assert (reloaded.start_times, reloaded.end_times) == (None, None)
+    assert (reloaded.start_times, reloaded.end_times) == held
+
+
+@pytest.mark.parametrize("window, said", [
+    (([0.0], None), "both"),
+    ((None, [3.0]), "both"),
+    (([3.0], [1.0]), "less than"),
+    (([0.0, 1.0], [2.0]), "same length"),
+    (([], []), "no window"),
+    (([[0, 5]], [[2, 7]]), "expected a number"),
+    (("soon", "later"), "expected a list"),
+], ids=["start only", "end only", "end before start", "unequal", "empty", "nested", "text"])
+def test_a_window_the_reduction_would_refuse_is_a_problem(window, said):
+    """The pair is checked as the reduction checks it (binary_processing.time_windows), so the editor reports before
+    a reduction raises; each entry is checked as a number first."""
+    doc = SettingsDocument.from_dict({"start_times": window[0], "end_times": window[1]})
+    problems = [message for message in doc.validate() if "start_times" in message or "end_times" in message]
+    assert problems and any(said in message for message in problems), problems
+
+
+def test_a_document_with_a_window_says_that_less_than_the_whole_run_is_reduced():
+    doc = SettingsDocument.from_dict({"start_times": [0.0], "end_times": [3.0]})
+    (note,) = [line for line in doc.notes() if "start_times" in line]
+    assert "[0.0]" in note and "[3.0]" in note and "whole run" in note
+    assert not any("start_times" in line for line in SettingsDocument().notes())
 
 
 def test_changed_vs_seed_reports_only_what_moved():
