@@ -106,6 +106,10 @@ class NRReductionConfig:
         # TODO: check how to include these on init.
         self.LambdaMinUse = None
         self.LambdaMaxUse = None
+        # The time window to reduce instead of each whole run, in seconds from each run's first pulse
+        # (binary_processing.time_windows); None: the whole run. An input like any other setting: read from a
+        # settings file or override_params, used by reduce() when the call itself gives no window (the call's
+        # start_times=/end_times= win), and recorded in the "Config:" line of every file written.
         self.start_times = None
         self.end_times = None
 
