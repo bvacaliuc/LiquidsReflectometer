@@ -294,6 +294,44 @@ def load_start_folder(ipts, remembered, root=None):
     return str(shared) if os.path.isdir(shared) else remembered
 
 
+def atomic_write_json(path, payload):
+    """Write ``payload`` as JSON so that an interrupted write cannot destroy the previous file.
+
+    A temporary file in the target's directory, fsynced, then ``os.replace``d over the target; a symbolic link is
+    refused. :meth:`SettingsDocument.save` says why, and is one caller: the settings file is not the only thing
+    written this way (the resolver's provenance sidecar is another), and a second writer with its own copy would
+    sooner or later lack one of the three.
+    """
+    path = Path(path)
+    if path.is_symlink():
+        raise ValueError(
+            f"{path} is a symbolic link to {os.path.realpath(path)}; "
+            f"refusing to write through it — save to the target directly if that is the intent"
+        )
+    body = json.dumps(payload, indent=2)
+    # mkstemp opens O_CREAT|O_EXCL on a fresh name, so there is no link to
+    # follow and no pre-existing file to clobber.
+    handle_fd, temporary = tempfile.mkstemp(
+        dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
+    )
+    try:
+        with os.fdopen(handle_fd, "w") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # Explicit, not umask: a settings file is meant to be readable by
+        # collaborators on a shared IPTS directory. Deliberately not 0600.
+        os.chmod(temporary, 0o644)
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+    return path
+
+
 class SettingsDocument:
     """One editable reduction configuration."""
 
@@ -1058,34 +1096,7 @@ class SettingsDocument:
         confirmation names the link, not its target, so following one would
         overwrite a file the user never saw named.
         """
-        path = Path(path)
-        if path.is_symlink():
-            raise ValueError(
-                f"{path} is a symbolic link to {os.path.realpath(path)}; "
-                f"refusing to write through it — save to the target directly if that is the intent"
-            )
-        payload = json.dumps(self._encode_for_file(make_json_safe(self.to_dict()), self.reduction_angles), indent=2)
-        # mkstemp opens O_CREAT|O_EXCL on a fresh name, so there is no link to
-        # follow and no pre-existing file to clobber.
-        handle_fd, temporary = tempfile.mkstemp(
-            dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
-        )
-        try:
-            with os.fdopen(handle_fd, "w") as handle:
-                handle.write(payload)
-                handle.flush()
-                os.fsync(handle.fileno())
-            # Explicit, not umask: a settings file is meant to be readable by
-            # collaborators on a shared IPTS directory. Deliberately not 0600.
-            os.chmod(temporary, 0o644)
-            os.replace(temporary, path)
-        except BaseException:
-            try:
-                os.unlink(temporary)
-            except OSError:
-                pass
-            raise
-        return path
+        return atomic_write_json(path, self._encode_for_file(make_json_safe(self.to_dict()), self.reduction_angles))
 
     def overrides(self):
         """The fields that differ from a fresh config — what this layer contributes.
@@ -1101,6 +1112,17 @@ class SettingsDocument:
             for key, value in current.items()
             if key not in defaults or value != defaults[key]
         }
+
+    def reseed(self):
+        """Treat the current contents as the baseline.
+
+        A resolved document is built by setting every field, so without this
+        `changed_vs_seed()` reports the whole resolution as user edits — the
+        experiment file's own values shown as though a person had typed them,
+        which is precisely the confusion the provenance work exists to remove.
+        """
+        self._seed = copy.deepcopy(self._config.__dict__)
+        return self
 
     def changed_vs_seed(self):
         """``{name: (seed_value, current_value)}`` for every field that moved."""
