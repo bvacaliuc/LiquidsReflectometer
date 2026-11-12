@@ -42,6 +42,7 @@ import tempfile
 from pathlib import Path
 
 from launcher.model import field_spec as fs
+from lr_reduction import binary_processing
 from lr_reduction.new_reduction_from_file import json_to_config, load_from_file
 from lr_reduction.nr_reduction_config import NRReductionConfig
 from lr_reduction.save_reduced_data import make_json_safe
@@ -79,6 +80,10 @@ _IPTS_NAME = re.compile(r"IPTS-(\d+)")
 #: Returned by ``SettingsDocument._compact_reading`` for a list the reducer reads
 #: as it is held. ``None`` cannot mark that: it is what a derived λ reads.
 _NOT_COMPACT = object()
+
+
+#: The two fields of the time window, start first.
+WINDOW_NAMES = ("start_times", "end_times")
 
 
 def _is_file(entry):
@@ -301,6 +306,11 @@ class SettingsDocument:
     #: An attribute, never a config key: ``save()`` does not write it. The IPTS resolution reads it (2c).
     source_path = None
 
+    #: ``{key: value}`` of what the file this document was built from held and this version's config does not use
+    #: (``json_to_config``'s ``unused``): a key of another version of the code. Never a config key: not shown as a
+    #: field and not written by ``save()``; ``notes()`` names each. Empty for a document not built from a mapping.
+    unused_settings = {}
+
     def __init__(self, config=None):
         self._config = config if config is not None else NRReductionConfig()
         # The state this document was seeded from, for changed_vs_seed(). Copied
@@ -333,23 +343,29 @@ class SettingsDocument:
 
     @classmethod
     def from_dict(cls, values):
-        """Build from a settings mapping, reporting an unknown key by name.
+        """Build from a settings mapping, keeping what the config does not use to report by name.
 
-        ``json_to_config`` raises a bare ``AttributeError`` naming the key; it
-        is re-raised as ``ValueError`` because from the editor's point of view
-        this is a bad *file*, not a programming error, and the message has to
-        reach the scientist.
+        ``json_to_config`` reads a file written by any version of the code: a
+        key this version's config lacks is skipped, and logged. The log line
+        does not reach the scientist at the editor, so the skipped keys are
+        held (``unused_settings``) and ``notes()`` names each.
         """
-        try:
-            config = json_to_config(values)
-        except AttributeError as exc:
-            raise ValueError(f"Not a valid reduction setting: {exc}") from exc
+        unused = {}
+        config = json_to_config(values, unused=unused)
+        # Two bare numbers are one time window (binary_processing.time_windows), and the 2026-10 slice files hold
+        # theirs so. Held as one-entry lists, the shape the field declares; the reduction reads both the same way.
+        for name in WINDOW_NAMES:
+            value = getattr(config, name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                setattr(config, name, [value])
         cls._migrate_legacy(config)
         # Before cls(config): the seed is taken there, and it must hold the
         # same spelling as the document, or "Changed from the seed" shows
         # [1, 1, 0] -> [True, False, False] for a one-cell edit.
         cls._canonicalize_booleans(config)
-        return cls(config)
+        document = cls(config)
+        document.unused_settings = unused
+        return document
 
     @staticmethod
     def _canonicalize_booleans(config):
@@ -857,12 +873,28 @@ class SettingsDocument:
             else:
                 messages.append(field.check(value))
 
+        messages.append(self._window_problem())
         found = [m for m in messages if m]
         if len(found) > MAX_REPORTED_PROBLEMS:
             extra = len(found) - MAX_REPORTED_PROBLEMS
             found = found[:MAX_REPORTED_PROBLEMS]
             found.append(f"... and {extra} more problems not listed")
         return found
+
+    def _window_problem(self):
+        """What the reduction would refuse in the time window, checked as it checks the pair
+        (``binary_processing.time_windows``): one of the two missing, unequal lengths, no window, a start not before
+        its end. Each entry's own type is ``Field.check``'s to report, and a pair with such a problem is left to it."""
+        start, end = (self.get(name) for name in WINDOW_NAMES)
+        if any(fs.get(name).check(self.get(name)) for name in WINDOW_NAMES):
+            return ""
+        try:
+            binary_processing.time_windows(start, end)
+        except (ValueError, TypeError) as error:
+            labels = " and ".join(f"{fs.get(name).label} ({name})" for name in WINDOW_NAMES)
+            message = "both must be given, or neither" if (start is None) != (end is None) else str(error)
+            return f"{labels}: {message}"
+        return ""
 
     def notes(self):
         """What the panel shows beside the problems: true of a file that reduces, worth knowing.
@@ -882,10 +914,16 @@ class SettingsDocument:
           it), for every such list, not only the boolean one; they are
           information, not a problem to clear. Shown only when angle-defining
           entries exist, because otherwise there is no reduction to describe.
+        * A key of the file that this version's config does not use
+          (``unused_settings``): one line each, first, with its value.
         """
         count = self.reduction_angles
         defining = self._defining_length()
-        lines = []
+        lines = [
+            f"{key} = {value!r} in the file is not a setting of this version of lr_reduction; "
+            f"it is not used or shown, and a Save does not write it"
+            for key, value in self.unused_settings.items()
+        ]
         for field in fs.FIELD_SPEC:
             value = self.get(field.name)
             if not field.per_angle or not isinstance(value, list):
@@ -904,6 +942,12 @@ class SettingsDocument:
                     f"{file_spelling(field, field.reducer_default)} at every angle — leave it, or choose "
                     f"a value to write it explicitly"
                 )
+        start, end = (self.get(name) for name in WINDOW_NAMES)
+        if start is not None or end is not None:
+            lines.append(
+                f"A time window is set (start_times {start}, end_times {end}): a reduction from this file reads "
+                f"that window of each run, not the whole run"
+            )
         lines.extend(self._ipts_notes())
         return lines
 
