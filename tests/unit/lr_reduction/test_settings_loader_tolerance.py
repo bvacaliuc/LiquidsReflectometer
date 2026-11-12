@@ -125,3 +125,71 @@ def test_an_override_the_config_lacks_still_raises(tmp_path, one_group):
     with pytest.raises(AttributeError, match=f"{UNKNOWN} is not a valid config parameter"):
         nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, override_params={UNKNOWN: 3})
     assert one_group == []
+
+
+# ---------------------------------------------------------------------------
+# The time window is a record the config carries (PR #223 review, D1 option B): start_times/end_times are attributes of
+# NRReductionConfig, so keys of every file written, holding the window that file was reduced with. They are not
+# inputs: a window is reduced by passing start_times=/end_times= to the call.
+
+WINDOW_KEYS = ("start_times", "end_times")
+
+
+def test_the_config_carries_the_window_record_and_it_starts_empty():
+    config = NRReductionConfig()
+    assert (config.start_times, config.end_times) == (None, None)
+
+
+@pytest.mark.parametrize("write", [write_json, write_dat], ids=["settings json", "dat header"])
+def test_a_file_that_recorded_no_window_loads_without_a_word(tmp_path, caplog, write):
+    path = write(tmp_path, settings(start_times=None, end_times=None))
+    with caplog.at_level(logging.DEBUG, logger=LOADER_LOGGER):
+        config = nrff.json_to_config(nrff.load_from_file(path)["config"], source=path)
+    assert (config.qmin, config.start_times, config.end_times) == (0.008, None, None)
+    assert warnings_of(caplog) == []
+
+
+@pytest.mark.parametrize("window", [(120, 136), ([0.0], [3.0]), ([[0, 5], [2, 7]], None)],
+                         ids=["numbers", "lists", "one of the two"])
+def test_a_file_that_recorded_a_window_loads_and_says_the_window_is_not_applied(tmp_path, caplog, window):
+    """A slice's file holds the window it was reduced with. Read as settings it reduces the whole run (nothing has
+    ever read the keys back), the loaded config holds no window, and the one warning says so and names the arguments
+    that do reduce a window."""
+    start, end = window
+    path = write_dat(tmp_path, settings(start_times=start, end_times=end))
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        config = nrff.json_to_config(nrff.load_from_file(path)["config"], source=path)
+    assert (config.start_times, config.end_times) == (None, None)
+    (warning,) = warnings_of(caplog)
+    message = warning.getMessage()
+    assert str(path) in message and repr(start) in message and repr(end) in message
+    assert "whole run" in message and "start_times=" in message and "end_times=" in message
+
+
+def test_a_reduction_from_a_slices_file_is_handed_no_window(tmp_path, caplog, monkeypatch):
+    monkeypatch.setattr(nrff, "group_runs", lambda *_args: {"run_nums": [[1]], "seq_nums": [[1]], "seq_ids": [[1]]})
+    received = []
+
+    def stand_in(self, *_args, **kwargs):
+        received.append((dict(self.config.__dict__), kwargs))
+        raise StopError
+
+    monkeypatch.setattr(NR_Reduction, "reduce", stand_in)
+    path = write_dat(tmp_path, settings(start_times=120, end_times=136))
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER), pytest.raises(StopError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False)
+    ((config, kwargs),) = received
+    assert (config["start_times"], config["end_times"]) == (None, None)
+    assert kwargs["start_times"] is None and kwargs["end_times"] is None
+    assert len(warnings_of(caplog)) == 1
+
+
+@pytest.mark.parametrize("key", WINDOW_KEYS)
+def test_a_window_among_the_overrides_raises_and_names_the_arguments(tmp_path, one_group, key):
+    """override_params={"start_times": ...} is a call that means to slice and would not: it fails at once, though
+    the config has the attribute."""
+    path = write_json(tmp_path, settings())
+    with pytest.raises(ValueError, match=f"{key}=") as raised:
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, override_params={key: [0.0]})
+    assert "override_params" in str(raised.value)
+    assert one_group == []
