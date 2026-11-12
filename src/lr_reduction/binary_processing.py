@@ -36,6 +36,12 @@ def convert_to_binary(fname, lowres, collapse_x = True, tofbin=50, tofmax=100000
     # Example using the h5py to extract info as can be easier to manipulate that mantid wksp
     e_offset, event_id, error_event_offset, pcharge, cPc, log_values = load_and_extract(fname, start_times=start_times, end_times=end_times)
 
+    pGood=len(cPc[cPc != 0])
+    logger.info(f'pGood {pGood}')
+    logger.info(f'number events {len(e_offset)}')
+    if pGood < 1:
+        logger.warning('There are no good counts in this run.')
+
     if not np.any(cPc != 0):
         raise ValueError(f"No proton charge in {Path(fname).name}{describe_windows(start_times, end_times)}: "
                          "nothing to reduce")
