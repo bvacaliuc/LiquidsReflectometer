@@ -125,3 +125,14 @@ def test_an_override_the_config_lacks_still_raises(tmp_path, one_group):
     with pytest.raises(AttributeError, match=f"{UNKNOWN} is not a valid config parameter"):
         nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, override_params={UNKNOWN: 3})
     assert one_group == []
+
+
+def test_the_loader_hands_back_what_it_did_not_use():
+    """A caller that shows the settings to someone (the settings editor) has to say what the file held and the
+    config does not: the keys skipped, with their values, in the dict it passes as ``unused``."""
+    unused = {}
+    nrff.json_to_config(settings(first_gone=1, base_path="/elsewhere"), unused=unused)
+    assert unused == {"first_gone": 1, "base_path": "/elsewhere"}
+    nothing = {}
+    nrff.json_to_config(settings(), unused=nothing)
+    assert nothing == {}
