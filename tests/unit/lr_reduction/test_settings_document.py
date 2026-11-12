@@ -122,10 +122,27 @@ def test_dat_header_seed(tmp_path):
 
 
 def test_unknown_key_in_a_seed_is_reported_by_name(tmp_path):
+    """A file written by another version of the code opens (the loader skips a key this version's config lacks), and
+    the document says what it is not showing: one note per key, naming the key and its value. The key is not a field
+    of the document, so a Save does not write it, and the note says that too."""
     seed = tmp_path / "bad.json"
-    seed.write_text(json.dumps({"Snam": "typo"}))
-    with pytest.raises(ValueError, match="Snam"):
-        SettingsDocument.from_file(seed)
+    seed.write_text(json.dumps({"Snam": "typo", "Sname": "kept"}))
+    doc = SettingsDocument.from_file(seed)
+    assert doc.get("Sname") == "kept"
+    assert doc.unused_settings == {"Snam": "typo"}
+    (note,) = [line for line in doc.notes() if "Snam " in line]
+    assert "'typo'" in note and "not a setting of this version" in note and "Save" in note
+    assert "Snam" not in doc.to_dict()
+    saved = doc.save(tmp_path / "saved.json")
+    assert "Snam" not in json.loads(saved.read_text())
+
+
+def test_a_document_of_this_version_has_nothing_unused(tmp_path):
+    seed = tmp_path / "settings.json"
+    SettingsDocument().save(seed)
+    doc = SettingsDocument.from_file(seed)
+    assert doc.unused_settings == {} and doc.notes() == []
+    assert SettingsDocument().unused_settings == {} and SettingsDocument.for_new_file().unused_settings == {}
 
 
 # --------------------------------------------------------------------------
@@ -299,13 +316,32 @@ def test_normalize_drops_runtime_owned_fields():
     doc = SettingsDocument()
     doc.add_angle(RBnum=197912)
     normalized = doc.normalize()
-    assert {"RBnum", "LambdaMinUse", "LambdaMaxUse"}.isdisjoint(normalized)
+    assert {"RBnum", "LambdaMinUse", "LambdaMaxUse", "start_times", "end_times"}.isdisjoint(normalized)
     assert "Sname" in normalized
 
 
-def test_runtime_owned_names_are_exactly_the_three_expected():
-    """Pin the tuple itself, separately from the behaviour it drives."""
-    assert set(fs.RUNTIME_OWNED_NAMES) == {"RBnum", "LambdaMinUse", "LambdaMaxUse"}
+def test_runtime_owned_names_are_exactly_the_five_expected():
+    """Pin the tuple itself, separately from the behaviour it drives. The time window a file was reduced with
+    (start_times/end_times, PR #223 review D1 option B) is a record of the reduction, as the wavelength range is."""
+    assert set(fs.RUNTIME_OWNED_NAMES) == {"RBnum", "LambdaMinUse", "LambdaMaxUse", "start_times", "end_times"}
+
+
+@pytest.mark.parametrize("window", [(120, 136), ([0.0], [3.0]), ([[0, 5], [2, 7]], [[2, 7], [5, 9]]), (None, None)],
+                         ids=["numbers", "lists", "nested", "none"])
+def test_a_files_recorded_window_is_held_shown_saved_and_never_handed_to_a_reduction(tmp_path, window):
+    """The document is the file: the window a slice's file records is held as the file holds it (the loader itself
+    keeps no recorded window), is no problem and no note, survives a Save, and is dropped from what a reduction is
+    handed (normalize), so opening a slice's file in the editor and reducing from it reduces the whole run."""
+    start, end = window
+    doc = SettingsDocument.from_dict({"Sname": "slice", "start_times": start, "end_times": end})
+    assert (doc.get("start_times"), doc.get("end_times")) == (start, end)
+    assert doc.unused_settings == {} and doc.validate() == [] and doc.notes() == []
+    saved = json.loads(doc.save(tmp_path / "saved.json").read_text())
+    assert (saved["start_times"], saved["end_times"]) == (start, end)
+    normalized = doc.normalize()
+    assert "start_times" not in normalized and "end_times" not in normalized
+    reloaded = json_to_config(normalized)
+    assert (reloaded.start_times, reloaded.end_times) == (None, None)
 
 
 def test_changed_vs_seed_reports_only_what_moved():
