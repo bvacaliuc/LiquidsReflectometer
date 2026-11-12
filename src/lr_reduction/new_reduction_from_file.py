@@ -628,6 +628,9 @@ def json_to_config(json_input, source=None, unused=None):
     """
     config_init = NRReductionConfig()
     origin = "the settings" if source is None else str(source)
+    if not isinstance(json_input, dict):
+        # a .dat without a "# Config:" line (None), a JSON file that is not an object: no version wrote this as settings
+        raise ValueError(f"{origin} holds no reduction settings")
 
     recorded = {key: json_input[key] for key in WINDOW_RECORD_KEYS if key in json_input and not hasattr(config_init, key)}
     if any(value is not None for value in recorded.values()):
