@@ -13,16 +13,10 @@ import lr_reduction.nr_tools as tools
 import lr_reduction.save_reduced_data as save_fn
 
 #import template
-from lr_reduction.nr_reduction_calc import NR_Reduction  # TODO: Fix names of files!!
+from lr_reduction.nr_reduction_calc import NR_Reduction, effective_window  # TODO: Fix names of files!!
 from lr_reduction.nr_reduction_config import NRReductionConfig
 
 logger = logging.getLogger(__name__)
-
-# The time window a reduction read, as its files record it: NRReductionConfig's start_times/end_times, so two keys of
-# every "# Config:" line and settings JSON, null for a run reduced whole. A record, never an input: nothing has read the
-# keys back since the add-time-slicing branch (upstream PR #205) introduced them. json_to_config and reduce_from_file
-# know them, to say the right thing to a reader who expects a recorded or given window to be applied.
-WINDOW_RECORD_KEYS = ("start_times", "end_times")
 
 # Per-run logs recorded in the output headers ("Run Title" and "Angles")
 LOG_KEYS = ("title", "ths", "thi", "ThCen")
@@ -45,7 +39,8 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
     check_for_prior: optional to look in the save folder for other runs with the same prefix to join together. Important for autoreduction.
     save_pdf_summary: optional save of plots as a pdf output
     start_times, end_times: optional time windows to reduce instead of each whole run, in seconds from the run's
-        first pulse (binary_processing.time_windows). Every header written names them ("Time resolved:").
+        first pulse (binary_processing.time_windows). Every header written names them ("Time resolved:"). Without
+        them, the window is the settings' own start_times/end_times (the file's, or override_params'), if any.
 
     returns
         combined_results: dict of Q, R, dR, dQ. This is assembled with anything else on same seq num. #TODO: check if need individual one returned too.
@@ -53,8 +48,6 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
 
     all_results = []
     all_figures = []
-    # the window these reductions read, for every header they write, the priors' re-saves included
-    time_window = None if start_times is None and end_times is None else (start_times, end_times)
     group_output = group_runs(run_array, experiment_id, datapath)
     output_figures = []
 
@@ -87,9 +80,6 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
         # override template with anything provided
         if override_params:
             for key, value in override_params.items():
-                if key in WINDOW_RECORD_KEYS:
-                    raise ValueError(f"override_params cannot give {key}: the config's {key} is the record of the "
-                                     f"window a reduction read, not an input. Pass {key}= to reduce_from_file.")
                 if hasattr(config_new, key):
                     setattr(config_new, key, value)
                 else:
@@ -97,10 +87,15 @@ def reduce_from_file(run_array, setting_file, experiment_id, datapath: Path = No
 
         eight_col = config_new.save8col
 
+        # the window this group's reduction reads -- the call's, else the settings' -- for the reduction and for
+        # every header written, the priors' re-saves included
+        group_start, group_end = effective_window(config_new, start_times, end_times)
+        time_window = None if group_start is None and group_end is None else (group_start, group_end)
+
         # Run reduction
         reducer = NR_Reduction(config_new)
         results = reducer.reduce(eight_col=eight_col, plot=plot, save_pdf_summary=save_pdf_summary,
-                                  start_times=start_times, end_times=end_times)
+                                  start_times=group_start, end_times=group_end)
 
         config_final = results["config"]
         figures_out = results["figures"]
@@ -624,28 +619,12 @@ def json_to_config(json_input, source=None, unused=None):
     so a file holds a key for every attribute its writer's config had, and another version's config may not have them
     all. A key this version's config cannot take is skipped, with one warning naming the key, its value and the file;
     every other key is set. (A caller's override_params are not read here: reduce_from_file refuses an unknown one.)
-
-    The time window a file recorded (WINDOW_RECORD_KEYS) is not a setting, and is not kept: the config returned
-    records no window. Null, as in every file of a run reduced whole, there is nothing to say. A window is named in
-    one warning: the reader probably expects it to be applied, and the whole run is reduced, as it was by every
-    version that wrote such files.
     """
     config_init = NRReductionConfig()
     origin = "the settings" if source is None else str(source)
 
-    recorded = {key: json_input[key] for key in WINDOW_RECORD_KEYS if key in json_input}
-    if any(value is not None for value in recorded.values()):
-        logger.warning("%s records the time window it was reduced with (start_times = %r, end_times = %r). A recorded "
-                       "window is not a setting: the whole run is reduced. To reduce a window, pass start_times= and "
-                       "end_times= to reduce_from_file, or use reduce_time_list / reduce_time_slices.",
-                       origin, recorded.get("start_times"), recorded.get("end_times"))
-        if unused is not None:
-            unused.update(recorded)
-
     # override provided json input
     for key, value in json_input.items():
-        if key in recorded:
-            continue
         try:
             if not hasattr(config_init, key):
                 raise AttributeError(key)

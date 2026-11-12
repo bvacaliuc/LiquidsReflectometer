@@ -121,7 +121,7 @@ def _build_header(config_header, log_values, full=True, eight_column=False, sequ
         config_values = {**config_values,
                          "LambdaMinUse": tools.clean_log_value(log_values["lambda_min"]),
                          "LambdaMaxUse": tools.clean_log_value(log_values["lambda_max"])}
-    # Config's window record is the call's window (R4/R5: the config object is not written), JSON-safe as given
+    # Config's window is the one the reduction read (the call's, else the settings': effective_window), JSON-safe
     start_times, end_times = (None, None) if time_window is None else time_window
     config_values = {**config_values, "start_times": make_json_safe(start_times), "end_times": make_json_safe(end_times)}
     config_json = json.dumps(config_values)

@@ -139,78 +139,86 @@ def test_the_loader_hands_back_what_it_did_not_use():
 
 
 # ---------------------------------------------------------------------------
-# The time window is a record the config carries (PR #223 review, D1 option B): start_times/end_times are attributes of
-# NRReductionConfig, so keys of every file written, holding the window that file was reduced with. They are not
-# inputs: a window is reduced by passing start_times=/end_times= to the call.
+# The time window is a setting (PR #223 review, D1 option B as the plan words it): start_times/end_times are
+# attributes of NRReductionConfig, read from a file or override_params like any other, and used by a reduction whose
+# call gives no window. The call's own start_times=/end_times= win.
 
 WINDOW_KEYS = ("start_times", "end_times")
 
 
-def test_the_config_carries_the_window_record_and_it_starts_empty():
+def test_the_config_carries_the_window_and_it_starts_empty():
     config = NRReductionConfig()
     assert (config.start_times, config.end_times) == (None, None)
 
 
-@pytest.mark.parametrize("write", [write_json, write_dat], ids=["settings json", "dat header"])
-def test_a_file_that_recorded_no_window_loads_without_a_word(tmp_path, caplog, write):
-    path = write(tmp_path, settings(start_times=None, end_times=None))
-    with caplog.at_level(logging.DEBUG, logger=LOADER_LOGGER):
-        config = nrff.json_to_config(nrff.load_from_file(path)["config"], source=path)
-    assert (config.qmin, config.start_times, config.end_times) == (0.008, None, None)
-    assert warnings_of(caplog) == []
-
-
-@pytest.mark.parametrize("window", [(120, 136), ([0.0], [3.0]), ([[0, 5], [2, 7]], None)],
-                         ids=["numbers", "lists", "one of the two"])
-def test_a_file_that_recorded_a_window_loads_and_says_the_window_is_not_applied(tmp_path, caplog, window):
-    """A slice's file holds the window it was reduced with. Read as settings it reduces the whole run (nothing has
-    ever read the keys back), the loaded config holds no window, and the one warning says so and names the arguments
-    that do reduce a window."""
-    start, end = window
-    path = write_dat(tmp_path, settings(start_times=start, end_times=end))
-    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
-        config = nrff.json_to_config(nrff.load_from_file(path)["config"], source=path)
-    assert (config.start_times, config.end_times) == (None, None)
-    (warning,) = warnings_of(caplog)
-    message = warning.getMessage()
-    assert str(path) in message and repr(start) in message and repr(end) in message
-    assert "whole run" in message and "start_times=" in message and "end_times=" in message
-
-
-def test_a_reduction_from_a_slices_file_is_handed_no_window(tmp_path, caplog, monkeypatch):
+@pytest.fixture
+def reduce_calls(monkeypatch):
+    """reduce_from_file up to the reduction itself: what window NR_Reduction.reduce was handed."""
     monkeypatch.setattr(nrff, "group_runs", lambda *_args: {"run_nums": [[1]], "seq_nums": [[1]], "seq_ids": [[1]]})
     received = []
 
-    def stand_in(self, *_args, **kwargs):
-        received.append((dict(self.config.__dict__), kwargs))
+    def stand_in(_self, *_args, **kwargs):
+        received.append((kwargs["start_times"], kwargs["end_times"]))
         raise StopError
 
     monkeypatch.setattr(NR_Reduction, "reduce", stand_in)
-    path = write_dat(tmp_path, settings(start_times=120, end_times=136))
-    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER), pytest.raises(StopError):
+    return received
+
+
+@pytest.mark.parametrize("write", [write_json, write_dat], ids=["settings json", "dat header"])
+@pytest.mark.parametrize("window", [(120, 136), ([0.0], [3.0]), ([0, 5], [2, 7])], ids=["numbers", "lists", "several"])
+def test_the_window_of_a_settings_file_is_reduced(tmp_path, caplog, reduce_calls, write, window):
+    """A file that holds a window reduces that window, and one warning says that less than the whole run is read."""
+    path = write(tmp_path, settings(start_times=window[0], end_times=window[1]))
+    with caplog.at_level(logging.WARNING), pytest.raises(StopError):
         nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False)
-    ((config, kwargs),) = received
-    assert (config["start_times"], config["end_times"]) == (None, None)
-    assert kwargs["start_times"] is None and kwargs["end_times"] is None
-    assert len(warnings_of(caplog)) == 1
+    assert reduce_calls == [window]
+    (message,) = [record.getMessage() for record in caplog.records if record.levelno == logging.WARNING]
+    assert repr(window[0]) in message and repr(window[1]) in message and "not whole" in message
 
 
-@pytest.mark.parametrize("key", WINDOW_KEYS)
-def test_a_window_among_the_overrides_raises_and_names_the_arguments(tmp_path, one_group, key):
-    """override_params={"start_times": ...} is a call that means to slice and would not: it fails at once, though
-    the config has the attribute."""
+def test_a_file_without_a_window_reduces_the_whole_run_without_a_word(tmp_path, caplog, reduce_calls):
+    path = write_json(tmp_path, settings(start_times=None, end_times=None))
+    with caplog.at_level(logging.WARNING), pytest.raises(StopError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False)
+    assert reduce_calls == [(None, None)]
+    assert [record for record in caplog.records if record.levelno == logging.WARNING] == []
+
+
+def test_the_calls_window_wins_over_the_files(tmp_path, caplog, reduce_calls):
+    path = write_json(tmp_path, settings(start_times=[0.0], end_times=[3.0]))
+    with caplog.at_level(logging.WARNING), pytest.raises(StopError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, start_times=[5.0], end_times=[7.0])
+    assert reduce_calls == [([5.0], [7.0])]
+    assert [record for record in caplog.records if record.levelno == logging.WARNING] == []
+
+
+def test_a_window_among_the_overrides_is_reduced(tmp_path, reduce_calls):
     path = write_json(tmp_path, settings())
-    with pytest.raises(ValueError, match=f"{key}=") as raised:
-        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, override_params={key: [0.0]})
-    assert "override_params" in str(raised.value)
-    assert one_group == []
+    with pytest.raises(StopError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False,
+                              override_params={"start_times": [0.0], "end_times": [3.0]})
+    assert reduce_calls == [([0.0], [3.0])]
 
 
-def test_a_recorded_window_is_handed_back_as_not_used():
-    """The settings editor has to say that the file names a window and that it is not applied."""
-    unused = {}
-    nrff.json_to_config(settings(start_times=120, end_times=136), unused=unused)
-    assert unused == {"start_times": 120, "end_times": 136}
-    nothing = {}
-    nrff.json_to_config(settings(start_times=None, end_times=None), unused=nothing)
-    assert nothing == {}
+@pytest.mark.parametrize("window", [([0.0], None), ([3.0], [1.0]), ([], []), ([0.0, 1.0], [2.0])],
+                         ids=["one of the two", "end before start", "empty", "unequal"])
+def test_an_invalid_window_in_a_settings_file_raises_before_anything_is_reduced(tmp_path, reduce_calls, window):
+    path = write_json(tmp_path, settings(start_times=window[0], end_times=window[1]))
+    with pytest.raises(ValueError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False)
+    assert reduce_calls == []
+
+
+def test_the_whole_run_cannot_be_asked_for_when_the_file_holds_a_window(tmp_path, reduce_calls):
+    """Characterization of a cost, not a wish: None is both "no window given" and "the whole run", so a call has no
+    way to reduce the whole run from a file that holds a window (short of editing the file, or override_params)."""
+    path = write_json(tmp_path, settings(start_times=[0.0], end_times=[3.0]))
+    with pytest.raises(StopError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, start_times=None, end_times=None)
+    assert reduce_calls == [([0.0], [3.0])]
+    reduce_calls.clear()
+    with pytest.raises(StopError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False,
+                              override_params={"start_times": None, "end_times": None})
+    assert reduce_calls == [(None, None)]
