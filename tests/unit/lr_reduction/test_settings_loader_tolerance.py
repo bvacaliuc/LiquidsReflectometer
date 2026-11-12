@@ -125,3 +125,71 @@ def test_an_override_the_config_lacks_still_raises(tmp_path, one_group):
     with pytest.raises(AttributeError, match=f"{UNKNOWN} is not a valid config parameter"):
         nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, override_params={UNKNOWN: 3})
     assert one_group == []
+
+
+# ---------------------------------------------------------------------------
+# The time window is not a setting (PR #223 review, D1 option A). The add-time-slicing branch (upstream PR #205) held
+# it in the config and wrote it into every file: null for a run reduced whole, the window for a slice.
+
+WINDOW_KEYS = ("start_times", "end_times")
+
+
+def test_the_config_has_no_window_fields():
+    """The window is an argument of a reduction call and a line of the header it writes, never a config attribute:
+    an attribute is a key of every file written, and a key of a file is read back as a setting."""
+    assert not set(WINDOW_KEYS) & set(NRReductionConfig().__dict__)
+
+
+@pytest.mark.parametrize("write", [write_json, write_dat], ids=["settings json", "dat header"])
+def test_a_file_that_recorded_no_window_loads_as_if_the_keys_were_absent(tmp_path, caplog, write):
+    """A whole-run file of that branch holds both keys as null: nothing to say, nothing ignored."""
+    path = write(tmp_path, settings(start_times=None, end_times=None))
+    with caplog.at_level(logging.DEBUG, logger=LOADER_LOGGER):
+        config = nrff.json_to_config(nrff.load_from_file(path)["config"], source=path)
+    assert config.qmin == 0.008 and not set(WINDOW_KEYS) & set(config.__dict__)
+    assert warnings_of(caplog) == []
+
+
+@pytest.mark.parametrize("window", [(120, 136), ([0.0], [3.0]), ([[0, 5], [2, 7]], None)],
+                         ids=["numbers", "lists", "one of the two"])
+def test_a_file_that_recorded_a_window_loads_and_says_the_window_is_not_applied(tmp_path, caplog, window):
+    """A slice's file of that branch holds the window it was reduced with. Read as settings it reduces the whole
+    run, as it did on that branch (nothing there read the keys back), and the one warning says so and names the
+    arguments that do reduce a window."""
+    start, end = window
+    path = write_dat(tmp_path, settings(start_times=start, end_times=end))
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        config = nrff.json_to_config(nrff.load_from_file(path)["config"], source=path)
+    assert not set(WINDOW_KEYS) & set(config.__dict__)
+    (warning,) = warnings_of(caplog)
+    message = warning.getMessage()
+    assert str(path) in message and repr(start) in message and repr(end) in message
+    assert "whole run" in message and "start_times=" in message and "end_times=" in message
+
+
+def test_a_reduction_from_a_slices_file_is_handed_no_window(tmp_path, caplog, monkeypatch):
+    """End to end: the recorded window of the settings file reaches neither the config nor the reduction call."""
+    monkeypatch.setattr(nrff, "group_runs", lambda *_args: {"run_nums": [[1]], "seq_nums": [[1]], "seq_ids": [[1]]})
+    received = []
+
+    def stand_in(self, *_args, **kwargs):
+        received.append((dict(self.config.__dict__), kwargs))
+        raise StopError
+
+    monkeypatch.setattr(NR_Reduction, "reduce", stand_in)
+    path = write_dat(tmp_path, settings(start_times=120, end_times=136))
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER), pytest.raises(StopError):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False)
+    ((config, kwargs),) = received
+    assert not set(WINDOW_KEYS) & set(config)
+    assert kwargs["start_times"] is None and kwargs["end_times"] is None
+    assert len(warnings_of(caplog)) == 1
+
+
+@pytest.mark.parametrize("key", WINDOW_KEYS)
+def test_a_window_among_the_overrides_raises(tmp_path, one_group, key):
+    """override_params={"start_times": ...} is a call that means to slice and would not: it fails at once."""
+    path = write_json(tmp_path, settings())
+    with pytest.raises(AttributeError, match=f"{key} is not a valid config parameter"):
+        nrff.reduce_from_file([1], path, "IPTS-00001", datapath=tmp_path, plot=False, override_params={key: [0.0]})
+    assert one_group == []
