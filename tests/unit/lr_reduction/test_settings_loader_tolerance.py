@@ -40,6 +40,12 @@ def write_dat(tmp_path, values):
     return path
 
 
+@pytest.fixture(autouse=True)
+def nothing_reported_yet(monkeypatch):
+    """The loader names a skipped key once per process (see the tests of that below): each test starts clean."""
+    monkeypatch.setattr(nrff, "_REPORTED", set())
+
+
 def warnings_of(caplog):
     return [record for record in caplog.records if record.name == LOADER_LOGGER and record.levelno == logging.WARNING]
 
@@ -80,6 +86,58 @@ def test_a_key_that_names_a_read_only_property_is_skipped_too(caplog):
     assert str(config.base_path) != "/elsewhere"
     (warning,) = warnings_of(caplog)
     assert "base_path" in warning.getMessage()
+
+
+def test_a_key_that_names_something_of_the_class_is_skipped_too(caplog):
+    """``hasattr`` is true of ``__init__`` as well. A file sets what a file can hold: an attribute of the config, or a
+    property with a setter."""
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        config = nrff.json_to_config(settings(__init__="not a method"))
+    assert callable(config.__init__)
+    (warning,) = warnings_of(caplog)
+    assert "__init__" in warning.getMessage()
+
+
+def test_the_folders_a_file_names_are_still_set():
+    """The four folders are properties with setters, and a file holds them under either name."""
+    config = nrff.json_to_config(settings(Spath="/a", _DBpath_override="/b"))
+    assert (str(config.Spath), str(config.DBpath)) == ("/a", "/b")
+
+
+def test_an_error_inside_a_setter_is_not_taken_for_an_unknown_key(monkeypatch):
+    def broken(_self, _value):
+        raise AttributeError("a defect in the setter")
+
+    monkeypatch.setattr(NRReductionConfig, "Spath", NRReductionConfig.Spath.setter(broken))
+    with pytest.raises(AttributeError, match="a defect in the setter"):
+        nrff.json_to_config(settings(Spath="/a"))
+
+
+@pytest.mark.parametrize("content", [None, [1, 2], "qmin"], ids=["no Config line", "a list", "a string"])
+def test_what_is_not_a_settings_mapping_is_refused_by_name(content):
+    """A .dat without a ``# Config:`` line gives None, a JSON file may hold anything: the message names the file."""
+    with pytest.raises(ValueError, match="some_file.dat holds no reduction settings"):
+        nrff.json_to_config(content, source="some_file.dat")
+
+
+def test_a_skipped_key_is_reported_once_however_often_the_file_is_read(caplog):
+    """A reduction reads its settings file once per group of runs, and a time-resolved one once per slice as well:
+    the same sentence a hundred times buries the rest of the log. What is handed back in ``unused`` is complete
+    every time."""
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        for _ in range(3):
+            unused = {}
+            nrff.json_to_config(settings(first_gone=1), source="a.json", unused=unused)
+            assert unused == {"first_gone": 1}
+    assert len(warnings_of(caplog)) == 1
+
+
+def test_another_file_or_another_value_is_reported_again(caplog):
+    with caplog.at_level(logging.WARNING, logger=LOADER_LOGGER):
+        nrff.json_to_config(settings(first_gone=1), source="a.json")
+        nrff.json_to_config(settings(first_gone=1), source="b.json")
+        nrff.json_to_config(settings(first_gone=2), source="a.json")
+    assert len(warnings_of(caplog)) == 3
 
 
 class StopError(Exception):

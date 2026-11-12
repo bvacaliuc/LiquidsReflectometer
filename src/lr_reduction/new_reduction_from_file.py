@@ -18,6 +18,10 @@ from lr_reduction.nr_reduction_config import NRReductionConfig
 
 logger = logging.getLogger(__name__)
 
+# What json_to_config has already said in this process: (file, key, value) of each key it skipped. A reduction reads its
+# settings file once per group of runs, and a time-resolved one once per slice as well.
+_REPORTED = set()
+
 # Per-run logs recorded in the output headers ("Run Title" and "Angles")
 LOG_KEYS = ("title", "ths", "thi", "ThCen")
 
@@ -613,25 +617,39 @@ def json_to_config(json_input, source=None, unused=None):
 
     A file written by any version of the code loads. Both kinds of file are written from the config's own attributes,
     so a file holds a key for every attribute its writer's config had, and another version's config may not have them
-    all. A key this version's config cannot take is skipped, with one warning naming the key, its value and the file;
-    every other key is set. (A caller's override_params are not read here: reduce_from_file refuses an unknown one.)
+    all. A key this version's config cannot take is skipped and every other key is set. The skipped key is named in a
+    warning, with its value and the file, once per process however often the file is read; ``unused`` receives it
+    every time. (A caller's override_params are not read here: reduce_from_file refuses an unknown one.)
     """
     config_init = NRReductionConfig()
     origin = "the settings" if source is None else str(source)
+    if not isinstance(json_input, dict):
+        # a .dat without a "# Config:" line (None), a JSON file that is not an object: no version wrote this as settings
+        raise ValueError(f"{origin} holds no reduction settings")
 
-    # override provided json input
     for key, value in json_input.items():
-        try:
-            if not hasattr(config_init, key):
-                raise AttributeError(key)
-            setattr(config_init, key, value)  # a property without a setter (base_path) raises here
-        except AttributeError:
+        if _a_file_can_set(config_init, key):
+            setattr(config_init, key, value)
+            continue
+        if unused is not None:
+            unused[key] = value
+        said = (origin, key, repr(value))
+        if said not in _REPORTED:
+            _REPORTED.add(said)
             logger.warning("%s: '%s' = %r is not a setting of this version of lr_reduction; it is not used",
                            origin, key, value)
-            if unused is not None:
-                unused[key] = value
 
     return config_init
+
+def _a_file_can_set(config, key):
+    """Whether ``key`` is something a settings file holds: an attribute the config was built with, or one of its
+    properties that has a setter (the folders). Not hasattr: that is true of base_path, which cannot be set, and of
+    everything else the class has."""
+    if key in vars(config):
+        return True
+    declared = getattr(type(config), key, None)
+    return isinstance(declared, property) and declared.fset is not None
+
 
 def load_from_file(filepath):
     filepath = Path(filepath)
