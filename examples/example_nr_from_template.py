@@ -1,10 +1,29 @@
 """
 Example script for running new reduction with config from template (e.g. for autoreduction workflow)
+
+Inputs are read below the example data folder and results are written to the example output folder
+(see example_paths). The reduction also writes the template it updates, REFL_<sequence>_template_new.xml, to
+template_path: the examples give the output folder for it. Nothing runs on import.
 """
 
-from pathlib import Path
-
 import lr_reduction.new_reduction_from_template as new_template
+
+from example_paths import data_folder, output_folder, run_examples
+
+EXPERIMENT = "IPTS-36119"
+
+
+def raw_data():
+    # The runs of these examples were measured in another experiment than the one the direct beams are kept in.
+    return data_folder() / "IPTS-30101" / "nexus"
+
+
+def direct_beams():
+    return data_folder() / EXPERIMENT / "shared" / "DBs"
+
+
+def templates():
+    return data_folder() / "shared" / "lr_reduction" / "new_workflow_test_outputs"
 
 
 def example_template_reduction():
@@ -14,25 +33,18 @@ def example_template_reduction():
     print("TEMPLATE REDUCTION EXAMPLE")
     print("="*60)
 
-    # These shouldn't be needed in the longer term.
-    datapath = Path('/SNS/REF_L/IPTS-30101/nexus')
-    DBpath = Path('/SNS/REF_L/shared/Cd_DB_processing/DBs/')
-    template_path = Path('/SNS/REF_L/shared/lr_reduction/new_workflow_test_outputs/')
-    Spath = Path('/SNS/REF_L/shared/lr_reduction/new_workflow_test_outputs/')
-
     # This needs to include anything you want to set that isn't in the template file or you want to deviate from the template file.
     override_params = {
         'DBname': ['A1_air_div1_Cd_DB.dat'],
-        'Spath': Spath,
-        'NEXUSpathRB': datapath,
-        'DBpath': DBpath,
+        'Spath': output_folder(),
+        'NEXUSpathRB': raw_data(),
+        'DBpath': direct_beams(),
         'useCalcTheta': True,
         'AutoScale': False
     }
 
-    results, group_num = new_template.reduce_from_template(211029, template_path / "test_template.xml", "IPTS-36119", datapath=datapath, template_path=template_path, override_params=override_params, plot=True)
+    results, group_num = new_template.reduce_from_template(211029, templates() / "test_template.xml", EXPERIMENT, datapath=raw_data(), template_path=output_folder(), override_params=override_params, plot=True)
 
-    #print(f"\nReduced {len(config.RBnum)} runs")
     print(f"Q range: {results['Q'].min():.4f} - {results['Q'].max():.4f} Å⁻¹")
 
     return results
@@ -44,11 +56,6 @@ def example_template_reduction_3ang():
     print("TEMPLATE REDUCTION EXAMPLE")
     print("="*60)
 
-    datapath = Path('/SNS/REF_L/IPTS-30101/nexus')
-    DBpath = Path('/SNS/REF_L/shared/Cd_DB_processing/DBs/')
-    template_path = Path('/SNS/REF_L/shared/lr_reduction/new_workflow_test_outputs/')
-    Spath = Path('/SNS/REF_L/shared/lr_reduction/new_workflow_test_outputs/')
-
     DB_list = ['A1_air_div1_Cd_DB.dat','A2_air_div1_Cd_DB.dat','A3_air_div1_Cd_DB.dat']
 
     runs = [211029, 211030, 211031]
@@ -58,17 +65,16 @@ def example_template_reduction_3ang():
         print(use_BS[idx])
         override_params = {
             'DBname': [DB_list[idx]],
-            'Spath': Spath,
-            'NEXUSpathRB': datapath,
-            'DBpath': DBpath,
+            'Spath': output_folder(),
+            'NEXUSpathRB': raw_data(),
+            'DBpath': direct_beams(),
             'useCalcTheta': True,
             'AutoScale': True,
             'useBS': [use_BS[idx]]
         }
 
-        results, group_num = new_template.reduce_from_template(run, template_path / "test_template_3ang.xml", "IPTS-36119", datapath=datapath,template_path=template_path,override_params=override_params, plot=True)
+        results, group_num = new_template.reduce_from_template(run, templates() / "test_template_3ang.xml", EXPERIMENT, datapath=raw_data(), template_path=output_folder(), override_params=override_params, plot=True)
 
-        #print(f"\nReduced {len(config.RBnum)} runs")
         print(f"Q range: {results['Q'].min():.4f} - {results['Q'].max():.4f} Å⁻¹")
 
 
@@ -81,33 +87,22 @@ def example_template_reduction_new():
     print("TEMPLATE REDUCTION EXAMPLE")
     print("="*60)
 
-    datapath = Path('/SNS/REF_L/IPTS-30101/nexus')
-    Spath = Path('/SNS/REF_L/shared/lr_reduction/new_workflow_test_outputs/')
-    DBpath = Path('/SNS/REF_L/shared/Cd_DB_processing/DBs/')
-    template_path = Path('/SNS/REF_L/shared/lr_reduction/new_workflow_test_outputs/')
-
-    #DB_list = ['A1_air_div1_Cd_DB.dat','A1_air_div1_Cd_DB.dat','A1_air_div1_Cd_DB.dat']
-
     runs = [211029, 211030, 211031]
-    for idx, run in enumerate(runs):
-    #    # This needs to include anything you want to set that isn't in the template file or you want to deviate from the template file.
+    for run in runs:
+        # This needs to include anything you want to set that isn't in the template file or you want to deviate from the template file.
         override_params = {
-            'Spath': Spath,
-            'NEXUSpathRB': datapath,
-            'DBpath': DBpath
+            'Spath': output_folder(),
+            'NEXUSpathRB': raw_data(),
+            'DBpath': direct_beams()
         }
 
-        results, group_num = new_template.reduce_from_template(run, template_path / "REFL_211029_template_new.xml", "IPTS-36119",
-                                                    datapath=datapath, template_path=template_path, override_params=override_params, plot=True)
+        results, group_num = new_template.reduce_from_template(run, templates() / "REFL_211029_template_new.xml", EXPERIMENT,
+                                                    datapath=raw_data(), template_path=output_folder(), override_params=override_params, plot=True)
 
-        #print(f"\nReduced {len(config.RBnum)} runs")
         print(f"Q range: {results['Q'].min():.4f} - {results['Q'].max():.4f} Å⁻¹")
 
 
     return results
 
 if __name__ == '__main__':
-    # Run examples
-    #example_template_reduction()
-    example_template_reduction_3ang()
-    #example_template_reduction_new()
+    run_examples([example_template_reduction, example_template_reduction_3ang, example_template_reduction_new])
