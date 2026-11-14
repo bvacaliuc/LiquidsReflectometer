@@ -14,6 +14,14 @@ for folder in (EXAMPLES, Path(__file__).resolve().parent):
         sys.path.insert(0, str(folder))
 
 
+def pytest_report_header():
+    import example_paths
+
+    chosen = os.environ.get(example_paths.DATA_VARIABLE)
+    folder = Path(chosen) if chosen else example_paths.REPOSITORY_DATA
+    return f"example data: {folder} ({'found' if folder.is_dir() else 'not there'}; {example_paths.DATA_VARIABLE} chooses it)"
+
+
 @pytest.fixture
 def example_output(tmp_path, monkeypatch):
     """The output folder of one example run; the working folder is a scratch one too, so nothing lands in the tree."""
