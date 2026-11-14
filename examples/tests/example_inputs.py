@@ -23,7 +23,7 @@ _DB_36681 = files("IPTS-36681/shared/transmission", "DB_A1_Cd.txt", "DB_A2_Cd.tx
 _FROM_JSON = _SETTINGS_JSON + _DB_36776 + nexus("IPTS-36776", 227164, 227165, 227166)
 _DIRECT_CONFIG_36681 = _DB_36681 + nexus("IPTS-36681", 228220, 228221, 228222)
 _DIRECT_CONFIG_36776 = _DB_36776 + nexus("IPTS-36776", 227147, 227148, 227149)
-_TEMPLATE_DB = files("IPTS-36119/shared/DBs", "A1_air_div1_Cd_DB.dat", "A2_air_div1_Cd_DB.dat", "A3_air_div1_Cd_DB.dat")
+_TEMPLATE_DB = files("shared/EBW/Cd_DB_processing/DBs", "A1_air_div1_Cd_DB.dat", "A2_air_div1_Cd_DB.dat", "A3_air_div1_Cd_DB.dat")
 _TEMPLATE_RUNS = nexus("IPTS-30101", 211029, 211030, 211031)
 
 INPUTS = {
