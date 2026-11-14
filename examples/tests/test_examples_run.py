@@ -8,6 +8,7 @@ missing file, and the header of the run names the folder that was searched.
 """
 
 import importlib
+import importlib.util
 import inspect
 import os
 from pathlib import Path
@@ -19,17 +20,11 @@ from example_inputs import INPUTS
 
 CASES = [(module, function) for module, functions in INPUTS.items() for function in functions]
 
-# Examples that do not run today, each with what stops it. The test still calls them: one that starts to run fails
-# the test (strict), so that its entry is removed and the example is held to running from then on.
-TEMPLATE_EXAMPLES_FAIL = (
-    "ValueError 'Maximum I has calculated negative' (nr_tools, the beam profile on the detector) for run 211029 with "
-    "the direct beams found for it; the folder the example named for them no longer exists. For its author to settle."
-)
-KNOWN_FAILURES = {
-    ("example_nr_from_template", "example_template_reduction"): TEMPLATE_EXAMPLES_FAIL,
-    ("example_nr_from_template", "example_template_reduction_3ang"): TEMPLATE_EXAMPLES_FAIL,
-    ("example_nr_from_template", "example_template_reduction_new"): TEMPLATE_EXAMPLES_FAIL,
-}
+# An example that warns needs looking at, so a warning fails its test. One kind is not the examples' and not the
+# reduction's: drawing text, matplotlib calls pyparsing by names that pyparsing has since renamed.
+WARNINGS = ["error"]
+if importlib.util.find_spec("pyparsing.warnings"):
+    WARNINGS.append("ignore::pyparsing.warnings.PyparsingDeprecationWarning")
 
 
 def data_folder():
@@ -65,23 +60,18 @@ def test_the_skip_reason_names_the_example_and_fits_a_report_line():
     assert str(data_folder()) not in reason
 
 
-def test_a_known_failure_names_an_example_that_exists():
-    assert set(KNOWN_FAILURES) <= set(CASES)
-
-
 def test_every_example_file_is_listed():
     files = {path.stem for path in Path(example_paths.__file__).parent.glob("example_*.py")} - {"example_paths"}
     assert files == set(INPUTS)
 
 
 @pytest.mark.datarepo
+@pytest.mark.filterwarnings(*WARNINGS)
 @pytest.mark.parametrize(("module", "function"), CASES, ids=[f"{module}.{function}" for module, function in CASES])
-def test_example_runs(module, function, example_output, request):
+def test_example_runs(module, function, example_output):
     missing = [path for path in INPUTS[module][function] if not (data_folder() / path).is_file()]
     if missing:
         pytest.skip(skip_reason(module, function, missing, len(INPUTS[module][function])))
-    if (module, function) in KNOWN_FAILURES:
-        request.applymarker(pytest.mark.xfail(strict=True, raises=ValueError, reason=KNOWN_FAILURES[module, function]))
 
     result = getattr(importlib.import_module(module), function)()
 

@@ -36,7 +36,8 @@ Elsewhere, fetch the repository's test data: `git submodule update --init && git
 ## The examples are tested
 
 `pixi run test-examples` (part of `pixi run test-reduction`, so of CI) calls every example function as it is
-written, with the results sent to a scratch folder and no plot window opened. An example whose input files are not
+written, with the results sent to a scratch folder. Where an example shows a plot and waits for its window to be
+closed, the test writes the figure to a file and closes it. A warning raised while an example runs fails its test. An example whose input files are not
 on the machine is reported as skipped; the summary at the end of the run names each such example and the first file
 it misses, and the first lines of the run name the folder that was searched.
 
