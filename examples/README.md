@@ -33,6 +33,31 @@ LR_REDUCTION_EXAMPLE_DATA=/SNS/REF_L LR_REDUCTION_EXAMPLE_OUTPUT=<a folder of yo
 
 Elsewhere, fetch the repository's test data: `git submodule update --init && git submodule foreach git lfs pull`.
 
+## The runs the examples use
+
+Every run is from one of the instrument's two commissioning experiments (IPTS-36119, IPTS-30101), except the Cd
+series, which the test-data repository held already.
+
+| Examples | Runs | What they are |
+|---|---|---|
+| `example_direct_beam` | 232721 to 232726 (IPTS-37787) | one direct beam through six thicknesses of Cd; six of the seven runs behind `DB_Si_3in_A2.dat` |
+| `example_direct_beam_pixel_offset` | 235850 | a direct beam with the detector moved (`tthd` -1.5) |
+| `example_nr_reduction.py`, `example_from_dat`, `example_for_autoreduction` | 234162 to 234164 | a clean substrate in D2O, three angles |
+| `example_from_dat` (two angles), `example_from_json` and the eight after it | 234165 to 234167 | the same substrate in H2O, same slits |
+| `example_incidenttheta` | 231035 | the first angle of a six-angle series, iridium in air |
+| `example_nr_from_template.py` | 211029 to 211031 (IPTS-30101) | three angles measured in 2024, before the `Coordinates` log |
+
+The substrate sets were reduced by the instrument's automatic reduction when they were measured. The examples take
+its direct beams (`shared/transmission/DB_Si_3in_A*.dat`), its pixel ranges (`shared/autoreduce/reduce_settings.json`)
+and, for `example_from_dat`, the settings in the header of the file it wrote
+(`shared/autoreduce/new_reduction/REFL_234162_combined_autoreduction.dat`). Every file an example reads is at the
+facility as the instrument team left it; none was made for the examples.
+
+Until November 2026 the examples used runs of four more experiments (IPTS-36681, IPTS-36776, IPTS-35331, and
+225318 to 225321 of IPTS-36119). They were moved so that the example data holds commissioning measurements only and
+is a third of the size. What no longer has an example: `flip_atten=True`, for direct-beam runs of early 2026 whose
+log has the attenuators inverted (a comment in `example_direct_beam` says so).
+
 ## The examples are tested
 
 `pixi run test-examples` (part of `pixi run test-reduction`, so of CI) calls every example function as it is
