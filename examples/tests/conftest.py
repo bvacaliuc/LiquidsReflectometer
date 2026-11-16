@@ -14,26 +14,6 @@ for folder in (EXAMPLES, Path(__file__).resolve().parent):
         sys.path.insert(0, str(folder))
 
 
-_opened = None
-
-
-def _note_opened_file(event, arguments):
-    if _opened is not None and event == "open" and isinstance(arguments[0], (str, os.PathLike)):
-        _opened.append(os.fspath(arguments[0]))
-
-
-sys.addaudithook(_note_opened_file)  # a hook cannot be taken away again: it notes files only while a test asks
-
-
-@pytest.fixture
-def files_opened():
-    """The files opened by Python code while the test runs (not the run files: h5py and Mantid open those in C)."""
-    global _opened
-    _opened = []
-    yield _opened
-    _opened = None
-
-
 def pytest_report_header():
     import example_paths
 

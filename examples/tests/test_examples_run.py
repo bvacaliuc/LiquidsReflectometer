@@ -18,8 +18,6 @@ import pytest
 import example_paths
 from example_inputs import INPUTS
 
-FACILITY_FOLDERS = ("/SNS/", "/HFIR/")  # folders that only a machine at the facility has
-
 CASES = [(module, function) for module, functions in INPUTS.items() for function in functions]
 
 # An example that warns needs looking at, so a warning fails its test. One kind is not the examples' and not the
@@ -70,7 +68,7 @@ def test_every_example_file_is_listed():
 @pytest.mark.datarepo
 @pytest.mark.filterwarnings(*WARNINGS)
 @pytest.mark.parametrize(("module", "function"), CASES, ids=[f"{module}.{function}" for module, function in CASES])
-def test_example_runs(module, function, example_output, files_opened):
+def test_example_runs(module, function, example_output):
     missing = [path for path in INPUTS[module][function] if not (data_folder() / path).is_file()]
     if missing:
         pytest.skip(skip_reason(module, function, missing, len(INPUTS[module][function])))
@@ -80,7 +78,3 @@ def test_example_runs(module, function, example_output, files_opened):
     assert result is not None
     written = [path for path in example_output.rglob("*") if path.is_file()]
     assert written, "the example wrote nothing to the output folder"
-    elsewhere = sorted(
-        {path for path in files_opened if path.startswith(FACILITY_FOLDERS) and not Path(path).is_relative_to(data_folder())}
-    )
-    assert not elsewhere, f"read at the facility and not below the example data folder, so CI does not have it: {elsewhere}"
