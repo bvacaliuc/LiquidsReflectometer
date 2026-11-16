@@ -12,6 +12,12 @@ from lr_reduction.direct_beam_maker import Direct_Beam
 from example_paths import data_folder, output_folder, run_examples
 
 
+def cd_attenuation():
+    # The attenuation of Cd by wavelength. Left out (mu_file=None), the reduction reads the file its settings name,
+    # which is this one at the facility.
+    return data_folder() / "shared" / "Cd_transmission" / "Cd_mu_2025.dat"
+
+
 def example_direct_beam():
     """A direct beam from four runs with different Cd attenuation"""
     db = Direct_Beam()
@@ -23,7 +29,7 @@ def example_direct_beam():
 
     run_list = np.arange(225318,225321+1)
     DB_out = db.create_db(run_list=run_list, save_name='direct_beam_test.dat',
-                          plot=True, flip_atten=True)
+                          plot=True, mu_file=cd_attenuation(), flip_atten=True)
     return DB_out
 
 
@@ -39,7 +45,7 @@ def example_direct_beam_pixel_offset():
 
     run_list = [235850]
     DB_out = db.create_db(run_list=run_list, save_name='direct_beam_test_pixel_offset.dat',
-                          plot=True, flip_atten=False)
+                          plot=True, mu_file=cd_attenuation(), flip_atten=False)
     return DB_out
 
 

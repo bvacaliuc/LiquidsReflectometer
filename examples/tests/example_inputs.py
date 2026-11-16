@@ -24,12 +24,13 @@ _FROM_JSON = _SETTINGS_JSON + _DB_36776 + nexus("IPTS-36776", 227164, 227165, 22
 _DIRECT_CONFIG_36681 = _DB_36681 + nexus("IPTS-36681", 228220, 228221, 228222)
 _DIRECT_CONFIG_36776 = _DB_36776 + nexus("IPTS-36776", 227147, 227148, 227149)
 _TEMPLATE_DB = files("shared/EBW/Cd_DB_processing/DBs", "A1_air_div1_Cd_DB.dat", "A2_air_div1_Cd_DB.dat", "A3_air_div1_Cd_DB.dat")
+_CD_ATTENUATION = files("shared/Cd_transmission", "Cd_mu_2025.dat")
 _TEMPLATE_RUNS = nexus("IPTS-30101", 211029, 211030, 211031)
 
 INPUTS = {
     "example_direct_beam": {
-        "example_direct_beam": nexus("IPTS-36119", 225318, 225319, 225320, 225321),
-        "example_direct_beam_pixel_offset": nexus("IPTS-36119", 235850),
+        "example_direct_beam": _CD_ATTENUATION + nexus("IPTS-36119", 225318, 225319, 225320, 225321),
+        "example_direct_beam_pixel_offset": _CD_ATTENUATION + nexus("IPTS-36119", 235850),
     },
     "example_nr_reduction": {
         "example_mean_theta_reduction": _DIRECT_CONFIG_36681,
