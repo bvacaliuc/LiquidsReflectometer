@@ -18,6 +18,8 @@ import pytest
 import example_paths
 from example_inputs import INPUTS
 
+INSTRUMENT_FOLDER = "/SNS/REF_L/"  # the instrument's folder at the facility, where the reduction's defaults point
+
 CASES = [(module, function) for module, functions in INPUTS.items() for function in functions]
 
 # An example that warns needs looking at, so a warning fails its test. One kind is not the examples' and not the
@@ -60,6 +62,27 @@ def test_the_skip_reason_names_the_example_and_fits_a_report_line():
     assert str(data_folder()) not in reason
 
 
+def read_outside_the_data_folder(opened, folder):
+    """The files of the instrument's folder among those opened that are not below the example data folder."""
+    return sorted({path for path in opened if path.startswith(INSTRUMENT_FOLDER) and not Path(path).is_relative_to(folder)})
+
+
+def test_only_the_instruments_folder_counts_as_read_at_the_facility():
+    """
+    Home folders at the facility are below /SNS too: a checkout there, its settings.json and the Python environment
+    are not the instrument's files. With the data folder at the instrument's folder nothing is outside it.
+    """
+    opened = [
+        "/SNS/users/someone/checkout/src/lr_reduction/settings.json",
+        "/SNS/users/someone/.cache/matplotlib/fontlist.json",
+        "/SNS/REF_L/shared/Cd_transmission/Cd_mu_2025.dat",
+        "/tmp/data/shared/Cd_transmission/Cd_mu_2025.dat",
+    ]
+
+    assert read_outside_the_data_folder(opened, Path("/tmp/data")) == ["/SNS/REF_L/shared/Cd_transmission/Cd_mu_2025.dat"]
+    assert read_outside_the_data_folder(opened, Path("/SNS/REF_L")) == []
+
+
 def test_every_example_file_is_listed():
     files = {path.stem for path in Path(example_paths.__file__).parent.glob("example_*.py")} - {"example_paths"}
     assert files == set(INPUTS)
@@ -68,7 +91,7 @@ def test_every_example_file_is_listed():
 @pytest.mark.datarepo
 @pytest.mark.filterwarnings(*WARNINGS)
 @pytest.mark.parametrize(("module", "function"), CASES, ids=[f"{module}.{function}" for module, function in CASES])
-def test_example_runs(module, function, example_output):
+def test_example_runs(module, function, example_output, files_opened):
     missing = [path for path in INPUTS[module][function] if not (data_folder() / path).is_file()]
     if missing:
         pytest.skip(skip_reason(module, function, missing, len(INPUTS[module][function])))
@@ -78,3 +101,5 @@ def test_example_runs(module, function, example_output):
     assert result is not None
     written = [path for path in example_output.rglob("*") if path.is_file()]
     assert written, "the example wrote nothing to the output folder"
+    elsewhere = read_outside_the_data_folder(files_opened, data_folder())
+    assert not elsewhere, f"read in the instrument's folder and not below the example data folder, so CI does not have it: {elsewhere}"
