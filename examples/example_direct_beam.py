@@ -12,6 +12,12 @@ from lr_reduction.direct_beam_maker import Direct_Beam
 from example_paths import data_folder, output_folder, run_examples
 
 
+def cd_attenuation():
+    # The attenuation of Cd by wavelength. Left out (mu_file=None), the reduction reads the file its settings name,
+    # which is this one at the facility.
+    return data_folder() / "shared" / "Cd_transmission" / "Cd_mu_2025.dat"
+
+
 def example_direct_beam():
     """A direct beam from four runs with different Cd attenuation"""
     db = Direct_Beam()
@@ -23,7 +29,7 @@ def example_direct_beam():
 
     run_list = np.arange(225318,225321+1)
     DB_out = db.create_db(run_list=run_list, save_name='direct_beam_test.dat',
-                          plot=True, flip_atten=True)
+                          plot=True, mu_file=cd_attenuation(), flip_atten=True)
     return DB_out
 
 
@@ -39,7 +45,7 @@ def example_direct_beam_pixel_offset():
 
     run_list = [235850]
     DB_out = db.create_db(run_list=run_list, save_name='direct_beam_test_pixel_offset.dat',
-                          plot=True, flip_atten=False)
+                          plot=True, mu_file=cd_attenuation(), flip_atten=False)
     return DB_out
 
 
@@ -52,7 +58,7 @@ def example_direct_beam_atten_as_logged():
     db.DTCcut = 1.25
     db.DTCcut_config1 = 1.8
     DB_out = db.create_db(run_list=[226473,226474,226475,226476], save_name='direct_beam_test_atten_as_logged.dat',
-                          plot=True)
+                          plot=True, mu_file=cd_attenuation())
     return DB_out
 
 
@@ -66,16 +72,16 @@ def example_direct_beam_cd_list():
 
     run_list = [231187]
     DB_out = db.create_db(run_list=run_list, save_name='DB_231187_Cd_test.dat',
-                          plot=True, cd_list=[[1, 0, 0, 0]])
+                          plot=True, mu_file=cd_attenuation(), cd_list=[[1, 0, 0, 0]])
 
 
     run_list = [231189]
     DB_out = db.create_db(run_list=run_list, save_name='DB_231189_Cd_test.dat',
-                          plot=True, cd_list=[[0, 1, 0, 0]])
+                          plot=True, mu_file=cd_attenuation(), cd_list=[[0, 1, 0, 0]])
 
     run_list = [231191]
     DB_out = db.create_db(run_list=run_list, save_name='DB_231191_Cd_test.dat',
-                          plot=True, cd_list=[[1, 0, 0, 0]])
+                          plot=True, mu_file=cd_attenuation(), cd_list=[[1, 0, 0, 0]])
     return DB_out
 
 
