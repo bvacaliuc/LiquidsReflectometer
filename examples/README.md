@@ -51,7 +51,9 @@ The substrate sets were reduced by the instrument's automatic reduction when the
 its direct beams (`shared/transmission/DB_Si_3in_A*.dat`), its pixel ranges (`shared/autoreduce/reduce_settings.json`)
 and, for `example_from_dat`, the settings in the header of the file it wrote
 (`shared/autoreduce/new_reduction/REFL_234162_combined_autoreduction.dat`). Every file an example reads is at the
-facility as the instrument team left it; none was made for the examples.
+facility in the folder of the experiment its runs belong to; none was made for the examples. The one file read in
+the instrument's own shared folder is the Cd attenuation table (`shared/Cd_transmission/Cd_mu_2025.dat`), which is
+the file the reduction's settings name.
 
 Until November 2026 the examples used runs of four more experiments (IPTS-36681, IPTS-36776, IPTS-35331, and
 225318 to 225321 of IPTS-36119). They were moved so that the example data holds commissioning measurements only and

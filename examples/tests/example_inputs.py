@@ -16,7 +16,7 @@ def files(folder, *names):
     return [f"{folder}/{name}" for name in names]
 
 
-_SHARED = "shared/lr_reduction/new_workflow_test_outputs"
+_TEMPLATES = "IPTS-30101/shared/templates"
 _COMMISSIONING = "IPTS-36119"
 _CD_ATTENUATION = files("shared/Cd_transmission", "Cd_mu_2025.dat")
 
@@ -30,7 +30,7 @@ _FROM_DAT = (
 )
 _FROM_JSON = _FROM_DAT + _H2O  # the settings .json is written by example_from_dat, which these examples run first
 
-_TEMPLATE_DB = files("shared/EBW/Cd_DB_processing/DBs", "A1_air_div1_Cd_DB.dat", "A2_air_div1_Cd_DB.dat", "A3_air_div1_Cd_DB.dat")
+_TEMPLATE_DB = files("IPTS-30101/shared/transmission", "A1_air_div1_Cd_DB.dat", "A2_air_div1_Cd_DB.dat", "A3_air_div1_Cd_DB.dat")
 _TEMPLATE_RUNS = nexus("IPTS-30101", 211029, 211030, 211031)
 
 INPUTS = {
@@ -63,9 +63,9 @@ INPUTS = {
         + nexus(_COMMISSIONING, 231035),
     },
     "example_nr_from_template": {
-        "example_template_reduction": files(_SHARED, "test_template.xml") + _TEMPLATE_DB[:1] + _TEMPLATE_RUNS[:1],
-        "example_template_reduction_3ang": files(_SHARED, "test_template_3ang.xml") + _TEMPLATE_DB + _TEMPLATE_RUNS,
-        "example_template_reduction_new": files(_SHARED, "REFL_211029_template_new.xml") + _TEMPLATE_DB + _TEMPLATE_RUNS,
+        "example_template_reduction": files(_TEMPLATES, "test_template.xml") + _TEMPLATE_DB[:1] + _TEMPLATE_RUNS[:1],
+        "example_template_reduction_3ang": files(_TEMPLATES, "test_template_3ang.xml") + _TEMPLATE_DB + _TEMPLATE_RUNS,
+        "example_template_reduction_new": files(_TEMPLATES, "REFL_211029_template_new.xml") + _TEMPLATE_DB + _TEMPLATE_RUNS,
     },
 }
 
