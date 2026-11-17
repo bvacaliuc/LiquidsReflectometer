@@ -18,6 +18,11 @@ from lr_reduction.nr_reduction_config import NRReductionConfig
 
 from example_paths import data_folder, output_folder, run_examples
 
+# The runs of these examples: a clean substrate in D2O at three angles, measured in the instrument's commissioning
+# experiment. The direct beams, the pixel ranges of the reflected beam and the background ranges are the ones the
+# instrument's automatic reduction used for these runs (IPTS-36119/shared/autoreduce/reduce_settings.json).
+EXPERIMENT = "IPTS-36119"
+
 
 def example_mean_theta_reduction():
     """Example: Mean theta reduction"""
@@ -31,15 +36,15 @@ def example_mean_theta_reduction():
 
     # Where the raw data and the direct beams are read, and where the results are written.
     config.Spath = output_folder()
-    config.NEXUSpathRB = data_folder() / "IPTS-36681" / "nexus"
-    config.DBpath = data_folder() / "IPTS-36681" / "shared" / "transmission"
+    config.NEXUSpathRB = data_folder() / EXPERIMENT / "nexus"
+    config.DBpath = data_folder() / EXPERIMENT / "shared" / "transmission"
 
-    config.experiment_id = "IPTS-36681"
+    config.experiment_id = EXPERIMENT
     # Set data
-    config.DBname = ['DB_A1_Cd.txt', 'DB_A2_Cd.txt', 'DB_A3_Cd.txt']
-    config.RBnum=[228220,228221,228222]
-    config.RB_Ymin=[143,142,138]
-    config.RB_Ymax=[157,157,159]
+    config.DBname = ['DB_Si_3in_A1.dat', 'DB_Si_3in_A2.dat', 'DB_Si_3in_A3.dat']
+    config.RBnum=[234162,234163,234164]
+    config.RB_Ymin=[146,142,130]
+    config.RB_Ymax=[155,159,167]
 
 
     config.ThetaShift = [0, 0, 0]
@@ -49,10 +54,10 @@ def example_mean_theta_reduction():
     RB_Ymin = np.array(config.RB_Ymin)
     RB_Ymax = np.array(config.RB_Ymax)
     config.BkgROI = np.column_stack((
-        RB_Ymin - 8,
-        RB_Ymin - 3,
-        RB_Ymax + 3,
-        RB_Ymax + 8
+        RB_Ymin - 10,
+        RB_Ymin - 5,
+        RB_Ymax + 5,
+        RB_Ymax + 10
     ))
 
     # Output name
@@ -92,15 +97,15 @@ def example_constant_tof_reduction():
 
     # Where the raw data and the direct beams are read, and where the results are written.
     config.Spath = output_folder()
-    config.NEXUSpathRB = data_folder() / "IPTS-36681" / "nexus"
-    config.DBpath = data_folder() / "IPTS-36681" / "shared" / "transmission"
+    config.NEXUSpathRB = data_folder() / EXPERIMENT / "nexus"
+    config.DBpath = data_folder() / EXPERIMENT / "shared" / "transmission"
 
-    config.experiment_id = "IPTS-36681"
+    config.experiment_id = EXPERIMENT
     # Set data
-    config.DBname = ['DB_A1_Cd.txt', 'DB_A2_Cd.txt', 'DB_A3_Cd.txt']
-    config.RBnum=[228220,228221,228222]
-    config.RB_Ymin=[143,142,138]
-    config.RB_Ymax=[157,157,159]
+    config.DBname = ['DB_Si_3in_A1.dat', 'DB_Si_3in_A2.dat', 'DB_Si_3in_A3.dat']
+    config.RBnum=[234162,234163,234164]
+    config.RB_Ymin=[146,142,130]
+    config.RB_Ymax=[155,159,167]
 
 
     config.ThetaShift = [0, 0, 0]
@@ -109,10 +114,10 @@ def example_constant_tof_reduction():
     RB_Ymin = np.array(config.RB_Ymin)
     RB_Ymax = np.array(config.RB_Ymax)
     config.BkgROI = np.column_stack((
-        RB_Ymin - 8,
-        RB_Ymin - 3,
-        RB_Ymax + 3,
-        RB_Ymax + 8
+        RB_Ymin - 10,
+        RB_Ymin - 5,
+        RB_Ymax + 5,
+        RB_Ymax + 10
     ))
 
     # Output name
@@ -150,15 +155,15 @@ def example_mean_theta_reduction_8col():
 
     # Where the raw data and the direct beams are read, and where the results are written.
     config.Spath = output_folder()
-    config.NEXUSpathRB = data_folder() / "IPTS-36776" / "nexus"
-    config.DBpath = data_folder() / "IPTS-36776" / "shared" / "transmission"
+    config.NEXUSpathRB = data_folder() / EXPERIMENT / "nexus"
+    config.DBpath = data_folder() / EXPERIMENT / "shared" / "transmission"
 
-    config.experiment_id = "IPTS-36776"
+    config.experiment_id = EXPERIMENT
     # Set data
-    config.DBname = ['DB_A1_Cd.txt', 'DB_A2_Cd.txt', 'DB_A3_Cd.txt']
-    config.RBnum=[227147,227148,227149]
-    config.RB_Ymin=[143,142,138]
-    config.RB_Ymax=[157,157,159]
+    config.DBname = ['DB_Si_3in_A1.dat', 'DB_Si_3in_A2.dat', 'DB_Si_3in_A3.dat']
+    config.RBnum=[234162,234163,234164]
+    config.RB_Ymin=[146,142,130]
+    config.RB_Ymax=[155,159,167]
 
     config.ThetaShift = [0, 0, 0]
     config.useBS = [1, 1, 1]
@@ -167,10 +172,10 @@ def example_mean_theta_reduction_8col():
     RB_Ymin = np.array(config.RB_Ymin)
     RB_Ymax = np.array(config.RB_Ymax)
     config.BkgROI = np.column_stack((
-        RB_Ymin - 8,
-        RB_Ymin - 3,
-        RB_Ymax + 3,
-        RB_Ymax + 8
+        RB_Ymin - 10,
+        RB_Ymin - 5,
+        RB_Ymax + 5,
+        RB_Ymax + 10
     ))
 
     # Output name
@@ -218,15 +223,15 @@ def example_mean_theta_reduction_savepdf():
 
     # Where the raw data and the direct beams are read, and where the results are written.
     config.Spath = output_folder()
-    config.NEXUSpathRB = data_folder() / "IPTS-36776" / "nexus"
-    config.DBpath = data_folder() / "IPTS-36776" / "shared" / "transmission"
+    config.NEXUSpathRB = data_folder() / EXPERIMENT / "nexus"
+    config.DBpath = data_folder() / EXPERIMENT / "shared" / "transmission"
 
-    config.experiment_id = "IPTS-36776"
+    config.experiment_id = EXPERIMENT
     # Set data
-    config.DBname = ['DB_A1_Cd.txt', 'DB_A2_Cd.txt', 'DB_A3_Cd.txt']
-    config.RBnum=[227147,227148,227149]
-    config.RB_Ymin=[143,142,138]
-    config.RB_Ymax=[157,157,159]
+    config.DBname = ['DB_Si_3in_A1.dat', 'DB_Si_3in_A2.dat', 'DB_Si_3in_A3.dat']
+    config.RBnum=[234162,234163,234164]
+    config.RB_Ymin=[146,142,130]
+    config.RB_Ymax=[155,159,167]
 
     config.ThetaShift = [0, 0, 0]
     config.useBS = [1, 1, 1]
@@ -235,10 +240,10 @@ def example_mean_theta_reduction_savepdf():
     RB_Ymin = np.array(config.RB_Ymin)
     RB_Ymax = np.array(config.RB_Ymax)
     config.BkgROI = np.column_stack((
-        RB_Ymin - 8,
-        RB_Ymin - 3,
-        RB_Ymax + 3,
-        RB_Ymax + 8
+        RB_Ymin - 10,
+        RB_Ymin - 5,
+        RB_Ymax + 5,
+        RB_Ymax + 10
     ))
 
     # Output name
@@ -288,15 +293,15 @@ def example_mean_theta_reduction_savepdf_noshow():
 
     # Where the raw data and the direct beams are read, and where the results are written.
     config.Spath = output_folder()
-    config.NEXUSpathRB = data_folder() / "IPTS-36776" / "nexus"
-    config.DBpath = data_folder() / "IPTS-36776" / "shared" / "transmission"
+    config.NEXUSpathRB = data_folder() / EXPERIMENT / "nexus"
+    config.DBpath = data_folder() / EXPERIMENT / "shared" / "transmission"
 
-    config.experiment_id = "IPTS-36776"
+    config.experiment_id = EXPERIMENT
     # Set data
-    config.DBname = ['DB_A1_Cd.txt', 'DB_A2_Cd.txt', 'DB_A3_Cd.txt']
-    config.RBnum=[227147,227148,227149]
-    config.RB_Ymin=[143,142,138]
-    config.RB_Ymax=[157,157,159]
+    config.DBname = ['DB_Si_3in_A1.dat', 'DB_Si_3in_A2.dat', 'DB_Si_3in_A3.dat']
+    config.RBnum=[234162,234163,234164]
+    config.RB_Ymin=[146,142,130]
+    config.RB_Ymax=[155,159,167]
 
     config.ThetaShift = [0, 0, 0]
     config.useBS = [1, 1, 1]
@@ -305,10 +310,10 @@ def example_mean_theta_reduction_savepdf_noshow():
     RB_Ymin = np.array(config.RB_Ymin)
     RB_Ymax = np.array(config.RB_Ymax)
     config.BkgROI = np.column_stack((
-        RB_Ymin - 8,
-        RB_Ymin - 3,
-        RB_Ymax + 3,
-        RB_Ymax + 8
+        RB_Ymin - 10,
+        RB_Ymin - 5,
+        RB_Ymax + 5,
+        RB_Ymax + 10
     ))
 
     # Output name

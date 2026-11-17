@@ -21,12 +21,12 @@ def raw_data():
 def direct_beams():
     # The direct beams measured with these runs (runs 210927 to 210941, beam at pixel 161). Files of the same names
     # are kept in other folders for later detector positions; with those the reduction looks for the reflected beam
-    # in the wrong place and stops.
-    return data_folder() / "shared" / "EBW" / "Cd_DB_processing" / "DBs"
+    # in the wrong place and stops. They are kept with the runs' experiment.
+    return data_folder() / "IPTS-30101" / "shared" / "transmission"
 
 
 def templates():
-    return data_folder() / "shared" / "lr_reduction" / "new_workflow_test_outputs"
+    return data_folder() / "IPTS-30101" / "shared" / "templates"
 
 
 def example_template_reduction():

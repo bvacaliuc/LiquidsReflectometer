@@ -19,17 +19,22 @@ def cd_attenuation():
 
 
 def example_direct_beam():
-    """A direct beam from four runs with different Cd attenuation"""
+    """A direct beam from six runs with different Cd attenuation"""
+    # Runs 232721 to 232726 are one direct beam measured through six thicknesses of Cd. They are six of the seven
+    # runs behind IPTS-36119/shared/transmission/DB_Si_3in_A2.dat, the second-angle direct beam of the reductions
+    # in example_nr_reduction.py and example_nr_reduction_from_file.py.
     db = Direct_Beam()
     db.savepath = output_folder()  # Set the directory where you want to save the output
-    db.NEXUSpath = data_folder() / "IPTS-36119" / "nexus"  # Set the path to your Nexus file
+    db.NEXUSpath = data_folder() / "IPTS-37787" / "nexus"  # Set the path to your Nexus file
     db.Chop2_cut_fn = [2.077, -16818.0]
     db.DTCcut = 1.25
     db.DTCcut_config1 = 1.8
 
-    run_list = np.arange(225318,225321+1)
+    run_list = np.arange(232721,232726+1)
+    # flip_atten=True is for runs of early 2026, whose log has the attenuators inverted (225318 to 225321 are such
+    # runs). These runs are logged the right way round.
     DB_out = db.create_db(run_list=run_list, save_name='direct_beam_test.dat',
-                          plot=True, mu_file=cd_attenuation(), flip_atten=True)
+                          plot=True, mu_file=cd_attenuation(), flip_atten=False)
     return DB_out
 
 
